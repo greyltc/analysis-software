@@ -2,7 +2,7 @@
 
 # Form implementation generated from reading ui file 'batch-iv-analysis.ui'
 #
-# Created: Wed Mar 26 13:49:40 2014
+# Created: Wed Mar 26 20:07:09 2014
 #      by: PyQt4 UI code generator 4.10.2
 #
 # WARNING! All changes made in this file will be lost!
@@ -26,7 +26,7 @@ except AttributeError:
 class Ui_batch_iv_analysis(object):
     def setupUi(self, batch_iv_analysis):
         batch_iv_analysis.setObjectName(_fromUtf8("batch_iv_analysis"))
-        batch_iv_analysis.resize(1238, 599)
+        batch_iv_analysis.resize(1238, 588)
         self.centralwidget = QtGui.QWidget(batch_iv_analysis)
         self.centralwidget.setObjectName(_fromUtf8("centralwidget"))
         self.gridLayout = QtGui.QGridLayout(self.centralwidget)
@@ -51,6 +51,8 @@ class Ui_batch_iv_analysis(object):
         self.menubar.setObjectName(_fromUtf8("menubar"))
         self.menuFile = QtGui.QMenu(self.menubar)
         self.menuFile.setObjectName(_fromUtf8("menuFile"))
+        self.menuTools = QtGui.QMenu(self.menubar)
+        self.menuTools.setObjectName(_fromUtf8("menuTools"))
         batch_iv_analysis.setMenuBar(self.menubar)
         self.statusbar = QtGui.QStatusBar(batch_iv_analysis)
         self.statusbar.setObjectName(_fromUtf8("statusbar"))
@@ -59,9 +61,23 @@ class Ui_batch_iv_analysis(object):
         self.actionQuit.setObjectName(_fromUtf8("actionQuit"))
         self.actionOpen = QtGui.QAction(batch_iv_analysis)
         self.actionOpen.setObjectName(_fromUtf8("actionOpen"))
+        self.actionClear_Graph = QtGui.QAction(batch_iv_analysis)
+        self.actionClear_Graph.setObjectName(_fromUtf8("actionClear_Graph"))
+        self.actionClear_Table = QtGui.QAction(batch_iv_analysis)
+        self.actionClear_Table.setObjectName(_fromUtf8("actionClear_Table"))
+        self.actionFsadf = QtGui.QAction(batch_iv_analysis)
+        self.actionFsadf.setObjectName(_fromUtf8("actionFsadf"))
+        self.actionSet_Bounds = QtGui.QAction(batch_iv_analysis)
+        self.actionSet_Bounds.setObjectName(_fromUtf8("actionSet_Bounds"))
         self.menuFile.addAction(self.actionOpen)
+        self.menuFile.addSeparator()
+        self.menuFile.addAction(self.actionClear_Graph)
+        self.menuFile.addSeparator()
         self.menuFile.addAction(self.actionQuit)
+        self.menuTools.addAction(self.actionSet_Bounds)
+        self.menuTools.addAction(self.actionClear_Table)
         self.menubar.addAction(self.menuFile.menuAction())
+        self.menubar.addAction(self.menuTools.menuAction())
 
         self.retranslateUi(batch_iv_analysis)
         QtCore.QObject.connect(self.actionQuit, QtCore.SIGNAL(_fromUtf8("triggered()")), batch_iv_analysis.close)
@@ -71,6 +87,11 @@ class Ui_batch_iv_analysis(object):
         batch_iv_analysis.setWindowTitle(_translate("batch_iv_analysis", "batch-iv-analysis", None))
         self.tableWidget.setSortingEnabled(False)
         self.menuFile.setTitle(_translate("batch_iv_analysis", "File", None))
+        self.menuTools.setTitle(_translate("batch_iv_analysis", "Tools", None))
         self.actionQuit.setText(_translate("batch_iv_analysis", "Quit", None))
         self.actionOpen.setText(_translate("batch_iv_analysis", "Open", None))
+        self.actionClear_Graph.setText(_translate("batch_iv_analysis", "Save", None))
+        self.actionClear_Table.setText(_translate("batch_iv_analysis", "Clear Table", None))
+        self.actionFsadf.setText(_translate("batch_iv_analysis", "fsadf", None))
+        self.actionSet_Bounds.setText(_translate("batch_iv_analysis", "Set Bounds", None))
 
