@@ -33,7 +33,7 @@ To generate an install package for a specific platform (windows or OSX) you must
 - Install python and all the packages this project depends on
  - Make sure you can run the program directly with `python batch-iv-analysis.py`
 - Install cx_freeze
-- run `python generate-release.py release`
+- run `python generate-release.py build`
 - The standalone release files will be in a newly created folder called release
  - These files can then be copied to another computer to run the tool there
 
