@@ -243,7 +243,7 @@ class MainWindow(QMainWindow):
 			#initial guess for solar cell parameters
 			guess = [1e-9,1e-3/area,1e1,1e4,1e0]
 			lowerBound = [0,-1e-1,0,   0,   -2]#lower bounds for variables
-			upperBound = [1e-3, 2e-1, 400, 1e7, 3]#lower bounds for variables
+			upperBound = [1e-3, 2e-1, 400, 1e7, 7]#lower bounds for variables
 			bounds = (lowerBound,upperBound) #this is ghetto, should not have to use global here
 			
 			
