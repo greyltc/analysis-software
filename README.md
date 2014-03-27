@@ -9,7 +9,7 @@ This project is a GUI python program to do batch curve fitting on data files gen
 ### How to use
 ---
 - Start the program with `python batch-iv-analysis.py` if you have python and all of the required packages installed
- - If you're running windows and you don't have python installed, you can try running batch-iv-analysis.exe from a release package
+ - If you're running windows and you don't have python installed, you can try running batch-iv-analysis.exe in the exe zip from [the latest release](https://github.com/spraycoater/batch-iv-analysis/releases/latest/)
 - Open the files for analysis with File --> Open (can select multiple files here) 
 
 ### Features
