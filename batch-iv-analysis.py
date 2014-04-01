@@ -5,13 +5,14 @@ from collections import OrderedDict
 import os, sys, inspect
 
 from PyQt4.QtCore import QString, QThread, pyqtSignal, QTimer, QSettings, Qt
-from PyQt4.QtGui import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem
+from PyQt4.QtGui import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox
 
 import numpy as np
 from numpy import exp, log
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit, minimize, root
 from scipy.special import lambertw
+from scipy.interpolate import InterpolatedUnivariateSpline
 
 cellTemp = 29; #degC all analysis is done assuming the cell is at 29 degC
 T = 273.15 + cellTemp; #temp in K
@@ -22,7 +23,7 @@ Vth = K*T/q; #thermal voltage
 #this is ghetto, should not have to use global here
 bounds = []
 
-#maximum power and corresponding voltage
+#maximum voltage at maximum power point
 def Vmax (guess,I0, Iph, Rs, Rsh, n):
 	#myArgs = [I0, Iph, Rs, Rsh, n]
 	res =  minimize(PowWrap, guess, args=(I0, Iph, Rs, Rsh, n))
@@ -92,6 +93,11 @@ class MainWindow(QMainWindow):
 		self.cols[thisKey].header = 'File'
 		self.cols[thisKey].tooltip = 'File name'
 		
+		thisKey = 'pceSpline'
+		self.cols[thisKey] = col()
+		self.cols[thisKey].header = 'PCE (spline)\n[%]'
+		self.cols[thisKey].tooltip = 'Power conversion efficiency found from spline interpolation'		
+		
 		thisKey = 'pce'
 		self.cols[thisKey] = col()
 		self.cols[thisKey].header = 'PCE\n[%]'
@@ -141,6 +147,11 @@ class MainWindow(QMainWindow):
 		self.cols[thisKey] = col()
 		self.cols[thisKey].header = 'n'
 		self.cols[thisKey].tooltip = 'Diode ideality factor'
+		
+		thisKey = 'Vmax'
+		self.cols[thisKey] = col()
+		self.cols[thisKey].header = 'V_max\n[mV]'
+		self.cols[thisKey].tooltip = 'Voltage at maximum power point'
 		
 		thisKey = 'area'
 		self.cols[thisKey] = col()
@@ -243,7 +254,7 @@ class MainWindow(QMainWindow):
 			#initial guess for solar cell parameters
 			guess = [1e-9,1e-3/area,1e1,1e4,1e0]
 			lowerBound = [0,-1e-1,0,   0,   -2]#lower bounds for variables
-			upperBound = [1e-3, 2e-1, 400, 1e7, 7]#lower bounds for variables
+			upperBound = [1e-3, 2e-1, 400, 1e9, 4]#lower bounds for variables
 			bounds = (lowerBound,upperBound) #this is ghetto, should not have to use global here
 			
 			
@@ -273,13 +284,29 @@ class MainWindow(QMainWindow):
 			Vocf = Voc(vGuess,I0, Iph, Rs, Rsh, n)
 			Imax = charEqnI(Vmaxf,I0, Iph, Rs, Rsh, n)
 			Pmax = Vmaxf*Imax;
+			v=v[::-1]#need to re-order v for spline calculations
+			i=i[::-1]#need to re-order v for spline calculations
+			p = -1*v*i;
+			powerSpline = InterpolatedUnivariateSpline(v,p)
+			Pmax_spline_res = minimize(powerSpline,Vmaxf)
+			Pmax_spline = -1*powerSpline(Pmax_spline_res.x[0])
 			FF = Pmax/(Iscf*Vocf)
+			FF_spline = Pmax/(Iscf*Vocf)
 			
 			self.graphData.append({'curve':(I0, Iph, Rs, Rsh, n),'i':i,'v':v})
+			
+			rowCheck = QTableWidgetItem()
+			rowCheck.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+			rowCheck.setCheckState(Qt.Unchecked) 			
+			#blankItem = QCheckBox()
+			#blankItem.setToolTip("Don't do anything")
+			rowCheck.setText("yourmother")
+			self.ui.tableWidget.setVerticalHeaderItem(self.rows,rowCheck)			
 			
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,float(Pmax/area*1e3).__format__('.3g'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pceSpline')).setData(Qt.DisplayRole,float(Pmax_spline/area*1e3).__format__('.3f'))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,float(Pmax/area*1e3).__format__('.3g'))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,float(Iscf/area*1e3).__format__('.3g'))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,float(Vocf*1e3).__format__('.3g'))
@@ -289,6 +316,7 @@ class MainWindow(QMainWindow):
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,float(Iph/area*1e3).__format__('.3g'))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,float(I0/area*1e9).__format__('.3g'))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,float(n).__format__('.3g'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,float(Vmaxf*1e3).__format__('.3g'))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,float(area).__format__('.3g'))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,float(Pmax*1e3).__format__('.3g'))
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,float(Iscf*1e3).__format__('.3g'))
