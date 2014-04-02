@@ -12,9 +12,11 @@ from numpy import exp, log
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit, minimize, root
 from scipy.special import lambertw
-from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy import interpolate
+from scipy import optimize
 
-cellTemp = 29; #degC all analysis is done assuming the cell is at 29 degC
+#all analysis is done assuming the cell is at 29 degC
+cellTemp = 29; #degC 
 T = 273.15 + cellTemp; #temp in K
 K = 1.3806488e-23; #boltzman constant
 q = 1.60217657e-19; #electron charge
@@ -93,10 +95,10 @@ class MainWindow(QMainWindow):
 		self.cols[thisKey].header = 'File'
 		self.cols[thisKey].tooltip = 'File name'
 		
-		thisKey = 'pceSpline'
-		self.cols[thisKey] = col()
-		self.cols[thisKey].header = 'PCE (spline)\n[%]'
-		self.cols[thisKey].tooltip = 'Power conversion efficiency found from spline interpolation'		
+		#thisKey = 'pceSpline'
+		#self.cols[thisKey] = col()
+		#self.cols[thisKey].header = 'PCE (spline)\n[%]'
+		#self.cols[thisKey].tooltip = 'Power conversion efficiency found from spline interpolation'		
 		
 		thisKey = 'pce'
 		self.cols[thisKey] = col()
@@ -210,6 +212,8 @@ class MainWindow(QMainWindow):
 		self.ui.actionOpen.triggered.connect(self.openCall)
 		self.ui.tableWidget.cellDoubleClicked.connect(self.rowGraph)
 		
+		self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
+		
 	def rowGraph(self,row):
 		I0, Iph, Rs, Rsh, n = self.graphData[row]['curve']
 		v = self.graphData[row]['v']
@@ -221,6 +225,9 @@ class MainWindow(QMainWindow):
 		plt.draw()
 		plt.show()
 		             
+	def clearTableCall(self):
+		self.ui.tableWidget.clearContents()
+		self.rows = 0
 
 	def openCall(self):
 		global bounds #this is ghetto, should not have to use global here
@@ -252,9 +259,9 @@ class MainWindow(QMainWindow):
 			vGuess = (maxVoltage+minVoltage)/2; #voltage guess for max power and Voc
 			
 			#initial guess for solar cell parameters
-			guess = [1e-9,1e-3/area,1e1,1e4,1e0]
+			guess = [7e-9,2e-3,16,1e8,1e0]
 			lowerBound = [0,-1e-1,0,   0,   -2]#lower bounds for variables
-			upperBound = [1e-3, 2e-1, 400, 1e9, 4]#lower bounds for variables
+			upperBound = [1e-3, 2e-1, 400, 1e9, 3]#lower bounds for variables
 			bounds = (lowerBound,upperBound) #this is ghetto, should not have to use global here
 			
 			
@@ -273,59 +280,66 @@ class MainWindow(QMainWindow):
 				n = np.nan				
 			#fitParams, fitCovariance = curve_fit(charWrap, v, i,p0=guess,ftol=1e-12)
 			fitParams = sigmoidAll(fitParams,lowerBound,upperBound) #unwrap here
+			#print fitParams
+			#print fitCovariance
+			#print infodict
+			#print errmsg
+			#print ier
 			
 			I0 = fitParams[0]
 			Iph = fitParams[1]
 			Rs = fitParams[2]
 			Rsh = fitParams[3]
 			n = fitParams[4]
-			Iscf = Isc(I0, Iph, Rs, Rsh, n)
-			Vmaxf = Vmax(vGuess,I0, Iph, Rs, Rsh, n)
-			Vocf = Voc(vGuess,I0, Iph, Rs, Rsh, n)
-			Imax = charEqnI(Vmaxf,I0, Iph, Rs, Rsh, n)
-			Pmax = Vmaxf*Imax;
+			#Iscf = Isc(I0, Iph, Rs, Rsh, n)
+			#Vmaxf = Vmax(vGuess,I0, Iph, Rs, Rsh, n)
+			#Vocf = Voc(vGuess,I0, Iph, Rs, Rsh, n)
+			#Imax = charEqnI(Vmaxf,I0, Iph, Rs, Rsh, n)
+			#Pmax = Vmaxf*Imax;
+			#FF = Pmax/(Iscf*Vocf)
 			v=v[::-1]#need to re-order v for spline calculations
 			i=i[::-1]#need to re-order v for spline calculations
 			p = -1*v*i;
-			powerSpline = InterpolatedUnivariateSpline(v,p)
-			Pmax_spline_res = minimize(powerSpline,Vmaxf)
-			Pmax_spline = -1*powerSpline(Pmax_spline_res.x[0])
-			FF = Pmax/(Iscf*Vocf)
-			FF_spline = Pmax/(Iscf*Vocf)
+			currentInterp = interpolate.interp1d(v,i)
 			
-			self.graphData.append({'curve':(I0, Iph, Rs, Rsh, n),'i':i,'v':v})
+			powerInterp = interpolate.interp1d(v,p)
+			pl=list(p)
+			index=pl.index(min(pl))
+			powerInterp_min_res = minimize(powerInterp,v[index])
+			Vmax = powerInterp_min_res.x[0]
+			Pmax = -1*powerInterp(Vmax)
+			Isc=currentInterp(0)
+			Voc=optimize.brentq(currentInterp, v[0], v[-1])
+			FF = Pmax/(Isc*Voc)
 			
-			rowCheck = QTableWidgetItem()
-			rowCheck.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-			rowCheck.setCheckState(Qt.Unchecked) 			
-			#blankItem = QCheckBox()
-			#blankItem.setToolTip("Don't do anything")
-			rowCheck.setText("yourmother")
-			self.ui.tableWidget.setVerticalHeaderItem(self.rows,rowCheck)			
+			self.graphData.append({'curve':(I0, Iph, Rs, Rsh, n),'i':i,'v':v})			
 			
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,float(Pmax/area*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pceSpline')).setData(Qt.DisplayRole,float(Pmax_spline/area*1e3).__format__('.3f'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,float(Pmax/area*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,float(Iscf/area*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,float(Vocf*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setData(Qt.DisplayRole,float(FF).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setData(Qt.DisplayRole,float(Rs*area).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setData(Qt.DisplayRole,float(Rsh*area).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,float(Iph/area*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,float(I0/area*1e9).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,float(n).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,float(Vmaxf*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,float(area).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,float(Pmax*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,float(Iscf*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setData(Qt.DisplayRole,float(Iph*1e3).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setData(Qt.DisplayRole,float(I0*1e9).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setData(Qt.DisplayRole,float(Rs).__format__('.3g'))
-			self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setData(Qt.DisplayRole,float(Rsh).__format__('.3g'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,float(Pmax/area*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,float(Pmax/area*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,float(Isc/area*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,float(Voc*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setData(Qt.DisplayRole,float(FF).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setData(Qt.DisplayRole,float(Rs*area).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setData(Qt.DisplayRole,float(Rsh*area).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,float(Iph/area*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,float(I0/area*1e9).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,float(n).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,float(Vmax*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,float(area).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,float(Pmax*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,float(Isc*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setData(Qt.DisplayRole,float(Iph*1e3).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setData(Qt.DisplayRole,float(I0*1e9).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setData(Qt.DisplayRole,float(Rs).__format__('.3f'))
+			self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setData(Qt.DisplayRole,float(Rsh).__format__('.3f'))
 			
-			self.rows = self.rows + 1	
+			self.rows = self.rows + 1
+		self.ui.tableWidget.setVisible(False)
+		self.ui.tableWidget.resizeColumnsToContents()
+		self.ui.tableWidget.setVisible(True)
+	
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)

@@ -2,8 +2,8 @@
 
 # Form implementation generated from reading ui file 'batch-iv-analysis.ui'
 #
-# Created: Wed Mar 26 20:07:09 2014
-#      by: PyQt4 UI code generator 4.10.2
+# Created: Mon Mar 31 20:19:50 2014
+#      by: PyQt4 UI code generator 4.10
 #
 # WARNING! All changes made in this file will be lost!
 
@@ -39,15 +39,16 @@ class Ui_batch_iv_analysis(object):
         self.tableWidget.setColumnCount(0)
         self.tableWidget.setObjectName(_fromUtf8("tableWidget"))
         self.tableWidget.setRowCount(0)
-        self.tableWidget.horizontalHeader().setCascadingSectionResizes(True)
+        self.tableWidget.horizontalHeader().setCascadingSectionResizes(False)
         self.tableWidget.horizontalHeader().setDefaultSectionSize(92)
         self.tableWidget.horizontalHeader().setSortIndicatorShown(False)
+        self.tableWidget.verticalHeader().setVisible(False)
         self.tableWidget.verticalHeader().setDefaultSectionSize(30)
-        self.tableWidget.verticalHeader().setSortIndicatorShown(True)
+        self.tableWidget.verticalHeader().setSortIndicatorShown(False)
         self.gridLayout.addWidget(self.tableWidget, 0, 0, 1, 1)
         batch_iv_analysis.setCentralWidget(self.centralwidget)
         self.menubar = QtGui.QMenuBar(batch_iv_analysis)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 1238, 27))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 1238, 25))
         self.menubar.setObjectName(_fromUtf8("menubar"))
         self.menuFile = QtGui.QMenu(self.menubar)
         self.menuFile.setObjectName(_fromUtf8("menuFile"))
