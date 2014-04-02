@@ -215,13 +215,42 @@ class MainWindow(QMainWindow):
 		self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
 		
 	def rowGraph(self,row):
-		I0, Iph, Rs, Rsh, n = self.graphData[row]['curve']
 		v = self.graphData[row]['v']
 		i = self.graphData[row]['i']
-		plt.errorbar(v, i, fmt = 'ro', yerr = 0)
-		nPoints = 100
-		fitV = np.linspace(np.min(v),np.max(v),nPoints)
-		plt.plot(fitV, charEqnI(fitV, I0, Iph, Rs, Rsh, n))
+		plt.scatter(v, i,c='r',marker='o')
+		plt.scatter(self.graphData[row]['Vmax'], self.graphData[row]['Imax'], c='g',marker='x',s=100)
+		plt.scatter(self.graphData[row]['Voc'], 0, c='g',marker='x',s=100)
+		plt.scatter(0, self.graphData[row]['Isc'], c='g',marker='x',s=100)
+		fitX = self.graphData[row]['fitX']
+		fitY = self.graphData[row]['fitY']
+		plt.plot(fitX, fitY)
+		plt.autoscale(axis='x', tight=True)
+		plt.grid(b=True)
+		
+		plt.annotate(
+			self.graphData[row]['Voc'].__format__('0.4f')+ 'A', 
+			xy = (self.graphData[row]['Voc'], 0), xytext = (40, 20),
+			textcoords = 'offset points', ha = 'right', va = 'bottom',
+			bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+			arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+		
+		plt.annotate(
+			float(self.graphData[row]['Isc']).__format__('0.4f') + 'V', 
+			xy = (0,self.graphData[row]['Isc']), xytext = (40, 20),
+			textcoords = 'offset points', ha = 'right', va = 'bottom',
+			bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+			arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+		
+		plt.annotate(
+		        '(' + float(self.graphData[row]['Vmax']).__format__('0.4f') + ',' + float(self.graphData[row]['Imax']).__format__('0.4f') + ')', 
+		        xy = (self.graphData[row]['Vmax'],self.graphData[row]['Imax']), xytext = (40, 20),
+		        textcoords = 'offset points', ha = 'right', va = 'bottom',
+		        bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+		        arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
+		
+		plt.ylabel('Current [A]')
+		plt.xlabel('Voltage [V]')
+		
 		plt.draw()
 		plt.show()
 		             
@@ -270,7 +299,14 @@ class MainWindow(QMainWindow):
 			#do the fit here
 			#guess = [0,0,0,0,0]
 			try:
+				errmsg = "curve_fit hard crash"
 				fitParams, fitCovariance, infodict, errmsg, ier = curve_fit(charWrap, v, i,p0=guess,full_output = True)
+				fitParams = sigmoidAll(fitParams,lowerBound,upperBound) #unwrap here
+				I0 = fitParams[0]
+				Iph = fitParams[1]
+				Rs = fitParams[2]
+				Rsh = fitParams[3]
+				n = fitParams[4]				
 			except:
 				print "Fit failed: " + errmsg
 				I0 = np.nan
@@ -278,19 +314,7 @@ class MainWindow(QMainWindow):
 				Rs = np.nan
 				Rsh = np.nan
 				n = np.nan				
-			#fitParams, fitCovariance = curve_fit(charWrap, v, i,p0=guess,ftol=1e-12)
-			fitParams = sigmoidAll(fitParams,lowerBound,upperBound) #unwrap here
-			#print fitParams
-			#print fitCovariance
-			#print infodict
-			#print errmsg
-			#print ier
-			
-			I0 = fitParams[0]
-			Iph = fitParams[1]
-			Rs = fitParams[2]
-			Rsh = fitParams[3]
-			n = fitParams[4]
+
 			#Iscf = Isc(I0, Iph, Rs, Rsh, n)
 			#Vmaxf = Vmax(vGuess,I0, Iph, Rs, Rsh, n)
 			#Vocf = Voc(vGuess,I0, Iph, Rs, Rsh, n)
@@ -299,20 +323,35 @@ class MainWindow(QMainWindow):
 			#FF = Pmax/(Iscf*Vocf)
 			v=v[::-1]#need to re-order v for spline calculations
 			i=i[::-1]#need to re-order v for spline calculations
-			p = -1*v*i;
-			currentInterp = interpolate.interp1d(v,i)
+			xr = np.linspace(min(v),max(v),100000)
+
+			#interpolation types:
+			smoothingFactor = 0 #zero sends spline through all datapoints, 
+			currentInterp = interpolate.UnivariateSpline(v,i,s=smoothingFactor)
+			#currentInterp = interpolate.interp1d(v,i)
 			
-			powerInterp = interpolate.interp1d(v,p)
-			pl=list(p)
-			index=pl.index(min(pl))
-			powerInterp_min_res = minimize(powerInterp,v[index])
-			Vmax = powerInterp_min_res.x[0]
-			Pmax = -1*powerInterp(Vmax)
+			def invPowerFunction (pv):
+				return -1*currentInterp(pv)*pv
+			
+			powerInterp_min_res = minimize(invPowerFunction,(max(v)-min(v))/2)
+			Vmax2 = powerInterp_min_res.x[0]
+			print Vmax2
+			
+			pMaxIndex=np.argmax(currentInterp(xr)*xr)
+			Vmax = xr[pMaxIndex]
+			Pmax = currentInterp(Vmax)*Vmax
+			#fit in power space test
+			#powerInterp = interpolate.InterpolatedUnivariateSpline(v,i*v)
+			#print max(powerInterp(xr))				
+			#print Pmax
+			
 			Isc=currentInterp(0)
 			Voc=optimize.brentq(currentInterp, v[0], v[-1])
 			FF = Pmax/(Isc*Voc)
 			
-			self.graphData.append({'curve':(I0, Iph, Rs, Rsh, n),'i':i,'v':v})			
+			fitX = xr
+			fitY = currentInterp(xr)
+			self.graphData.append({'fitX':fitX,'fitY':fitY,'i':i,'v':v,'Voc':Voc,'Isc':Isc,'Vmax':Vmax,'Imax':currentInterp(Vmax)})			
 			
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))
