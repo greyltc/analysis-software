@@ -2,7 +2,7 @@ import sys
 from cx_Freeze import setup, Executable
 
 # Dependencies are automatically detected, but it might need fine tuning.
-build_exe_options = {"packages": ["os","scipy.sparse.linalg","scipy.sparse.csgraph","scipy.special","matplotlib.backends.backend_tkagg"], "excludes": ["tkinter","sympy"]}
+build_exe_options = {"packages": ["os","scipy.sparse.linalg","scipy.sparse.csgraph","scipy.special","matplotlib.backends.backend_tkagg","matplotlib.backends.backend_qt4agg"], "excludes": ["tkinter","sympy"]}
 
 # GUI applications require a different base on Windows (the default is for a
 # console application).
