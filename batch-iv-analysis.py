@@ -326,8 +326,9 @@ class MainWindow(QMainWindow):
 			xr = np.linspace(min(v),max(v),100000)
 
 			#interpolation types:
+			smoothingDegree = 3 #must be <=5 int, default 3
 			smoothingFactor = 0 #zero sends spline through all datapoints, 
-			currentInterp = interpolate.UnivariateSpline(v,i,s=smoothingFactor)
+			currentInterp = interpolate.UnivariateSpline(v,i,s=smoothingFactor,k=smoothingDegree)
 			#currentInterp = interpolate.interp1d(v,i)
 			
 			def invPowerFunction (pv):
