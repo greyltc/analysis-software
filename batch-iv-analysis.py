@@ -287,18 +287,17 @@ class MainWindow(QMainWindow):
 			minVoltage = np.min(v);
 			vGuess = (maxVoltage+minVoltage)/2; #voltage guess for max power and Voc
 			
-			#initial guess for solar cell parameters
-			guess = [7e-9,2e-3,16,1e8,1e0]
-			lowerBound = [0,-1e-1,0,   0,   -2]#lower bounds for variables
-			upperBound = [1e-3, 2e-1, 400, 1e9, 3]#lower bounds for variables
-			bounds = (lowerBound,upperBound) #this is ghetto, should not have to use global here
-			
-			
 			#print invSigmoidAll(guess, lowerBound, upperBound)
-			guess = invSigmoidAll(guess, lowerBound, upperBound)
+			
 			#do the fit here
 			#guess = [0,0,0,0,0]
 			try:
+				#initial guess for solar cell parameters
+				guess = [7e-9,2e-3,16,1e8,1e0]
+				lowerBound = [0,-1e-1,0,   0,   -2]#lower bounds for variables
+				upperBound = [1e-3, 2e-1, 400, 1e9, 3]#lower bounds for variables
+				bounds = (lowerBound,upperBound) #this is ghetto, should not have to use global here				
+				guess = invSigmoidAll(guess, lowerBound, upperBound)
 				errmsg = "curve_fit hard crash"
 				fitParams, fitCovariance, infodict, errmsg, ier = curve_fit(charWrap, v, i,p0=guess,full_output = True)
 				fitParams = sigmoidAll(fitParams,lowerBound,upperBound) #unwrap here
@@ -323,35 +322,38 @@ class MainWindow(QMainWindow):
 			#FF = Pmax/(Iscf*Vocf)
 			v=v[::-1]#need to re-order v for spline calculations
 			i=i[::-1]#need to re-order v for spline calculations
-			xr = np.linspace(min(v),max(v),100000)
+			
 
 			#interpolation types:
-			smoothingDegree = 3 #must be <=5 int, default 3
-			smoothingFactor = 0 #zero sends spline through all datapoints, 
-			currentInterp = interpolate.UnivariateSpline(v,i,s=smoothingFactor,k=smoothingDegree)
+			#smoothingDegree = 3 #must be <=5 int, default 3
+			#smoothingFactor = 0 #zero sends spline through all datapoints, 
+			iFit = interpolate.UnivariateSpline(v,i,s=smoothingFactor,k=smoothingDegree)
 			#currentInterp = interpolate.interp1d(v,i)
 			
 			def invPowerFunction (pv):
-				return -1*currentInterp(pv)*pv
+				return -1*iFit(pv)*pv
 			
-			powerInterp_min_res = minimize(invPowerFunction,(max(v)-min(v))/2)
+			powerInterp_min_res = minimize(invPowerFunction,vGuess)
 			Vmax2 = powerInterp_min_res.x[0]
 			print Vmax2
 			
-			pMaxIndex=np.argmax(currentInterp(xr)*xr)
+			xr = np.linspace(minVoltage,maxVoltage,100000)
+			pMaxIndex=np.argmax(iFit(xr)*xr)
 			Vmax = xr[pMaxIndex]
-			Pmax = currentInterp(Vmax)*Vmax
+			#Pmax = currentInterp(Vmax)*Vmax
 			#fit in power space test
-			#powerInterp = interpolate.InterpolatedUnivariateSpline(v,i*v)
-			#print max(powerInterp(xr))				
+			#powerInterp = interpolate.UnivariateSpline(v,i*v,s=smoothingFactor,k=smoothingDegree)
+			#print max(powerInterp(xr))
+			#print Pmax
+
 			#print Pmax
 			
-			Isc=currentInterp(0)
-			Voc=optimize.brentq(currentInterp, v[0], v[-1])
+			Isc=iFit(0)
+			Voc=optimize.brentq(iFit, minVoltage, maxVoltage)
 			FF = Pmax/(Isc*Voc)
 			
 			fitX = xr
-			fitY = currentInterp(xr)
+			fitY = iFit(xr)
 			self.graphData.append({'fitX':fitX,'fitY':fitY,'i':i,'v':v,'Voc':Voc,'Isc':Isc,'Vmax':Vmax,'Imax':currentInterp(Vmax)})			
 			
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
