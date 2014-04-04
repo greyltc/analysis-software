@@ -375,7 +375,7 @@ class MainWindow(QMainWindow):
             
             guess = [float(I0_guess), I_L_guess, R_s_guess, R_sh_guess, float(n_guess)]
             try:
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(vectorizedCurrent, VV, II,p0=guess,full_output = True)#,ftol=1e-20,xtol=1e-10
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(vectorizedCurrent, VV, II,p0=guess,full_output = True,ftol=1e-14,xtol=1e-10)#,ftol=1e-20,xtol=1e-10
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
