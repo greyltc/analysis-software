@@ -228,14 +228,14 @@ class MainWindow(QMainWindow):
 		plt.grid(b=True)
 		
 		plt.annotate(
-			self.graphData[row]['Voc'].__format__('0.4f')+ 'A', 
+			self.graphData[row]['Voc'].__format__('0.4f')+ 'V', 
 			xy = (self.graphData[row]['Voc'], 0), xytext = (40, 20),
 			textcoords = 'offset points', ha = 'right', va = 'bottom',
 			bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
 			arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 		
 		plt.annotate(
-			float(self.graphData[row]['Isc']).__format__('0.4f') + 'V', 
+			float(self.graphData[row]['Isc']).__format__('0.4f') + 'A', 
 			xy = (0,self.graphData[row]['Isc']), xytext = (40, 20),
 			textcoords = 'offset points', ha = 'right', va = 'bottom',
 			bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
@@ -301,6 +301,7 @@ class MainWindow(QMainWindow):
 				errmsg = "curve_fit hard crash"
 				fitParams, fitCovariance, infodict, errmsg, ier = curve_fit(charWrap, v, i,p0=guess,full_output = True)
 				fitParams = sigmoidAll(fitParams,lowerBound,upperBound) #unwrap here
+				print fitParams
 				I0 = fitParams[0]
 				Iph = fitParams[1]
 				Rs = fitParams[2]
@@ -320,27 +321,27 @@ class MainWindow(QMainWindow):
 			#Imax = charEqnI(Vmaxf,I0, Iph, Rs, Rsh, n)
 			#Pmax = Vmaxf*Imax;
 			#FF = Pmax/(Iscf*Vocf)
-			v=v[::-1]#need to re-order v for spline calculations
-			i=i[::-1]#need to re-order v for spline calculations
+			v=v[::-1]#need to re-order v for interpolation
+			i=i[::-1]#need to re-order v for interpolation
 			
 
 			#interpolation types:
-			#smoothingDegree = 3 #must be <=5 int, default 3
-			#smoothingFactor = 0 #zero sends spline through all datapoints, 
+			smoothingDegree = 3 #must be <=5 int, default 3
+			smoothingFactor = 0 #zero sends spline through all datapoints, 
 			iFit = interpolate.UnivariateSpline(v,i,s=smoothingFactor,k=smoothingDegree)
-			#currentInterp = interpolate.interp1d(v,i)
+			#iFit = interpolate.interp1d(v,i)
 			
-			def invPowerFunction (pv):
-				return -1*iFit(pv)*pv
+			#def invPowerFunction (pv):
+			#	return -1*iFit(pv)*pv
 			
-			powerInterp_min_res = minimize(invPowerFunction,vGuess)
-			Vmax2 = powerInterp_min_res.x[0]
-			print Vmax2
+			#powerInterp_min_res = minimize(invPowerFunction,vGuess)
+			#Vmax2 = powerInterp_min_res.x[0]
+			#print Vmax2
 			
 			xr = np.linspace(minVoltage,maxVoltage,100000)
 			pMaxIndex=np.argmax(iFit(xr)*xr)
 			Vmax = xr[pMaxIndex]
-			#Pmax = currentInterp(Vmax)*Vmax
+			Pmax = iFit(Vmax)*Vmax
 			#fit in power space test
 			#powerInterp = interpolate.UnivariateSpline(v,i*v,s=smoothingFactor,k=smoothingDegree)
 			#print max(powerInterp(xr))
@@ -354,7 +355,7 @@ class MainWindow(QMainWindow):
 			
 			fitX = xr
 			fitY = iFit(xr)
-			self.graphData.append({'fitX':fitX,'fitY':fitY,'i':i,'v':v,'Voc':Voc,'Isc':Isc,'Vmax':Vmax,'Imax':currentInterp(Vmax)})			
+			self.graphData.append({'fitX':fitX,'fitY':fitY,'i':i,'v':v,'Voc':Voc,'Isc':Isc,'Vmax':Vmax,'Imax':iFit(Vmax)})			
 			
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
 			self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))
