@@ -2,8 +2,8 @@
 
 # Form implementation generated from reading ui file 'batch-iv-analysis.ui'
 #
-# Created: Mon Mar 31 20:19:50 2014
-#      by: PyQt4 UI code generator 4.10
+# Created: Fri Apr  4 01:32:08 2014
+#      by: PyQt4 UI code generator 4.10.2
 #
 # WARNING! All changes made in this file will be lost!
 
@@ -48,7 +48,7 @@ class Ui_batch_iv_analysis(object):
         self.gridLayout.addWidget(self.tableWidget, 0, 0, 1, 1)
         batch_iv_analysis.setCentralWidget(self.centralwidget)
         self.menubar = QtGui.QMenuBar(batch_iv_analysis)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 1238, 25))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 1238, 27))
         self.menubar.setObjectName(_fromUtf8("menubar"))
         self.menuFile = QtGui.QMenu(self.menubar)
         self.menuFile.setObjectName(_fromUtf8("menuFile"))
@@ -62,8 +62,8 @@ class Ui_batch_iv_analysis(object):
         self.actionQuit.setObjectName(_fromUtf8("actionQuit"))
         self.actionOpen = QtGui.QAction(batch_iv_analysis)
         self.actionOpen.setObjectName(_fromUtf8("actionOpen"))
-        self.actionClear_Graph = QtGui.QAction(batch_iv_analysis)
-        self.actionClear_Graph.setObjectName(_fromUtf8("actionClear_Graph"))
+        self.actionSave = QtGui.QAction(batch_iv_analysis)
+        self.actionSave.setObjectName(_fromUtf8("actionSave"))
         self.actionClear_Table = QtGui.QAction(batch_iv_analysis)
         self.actionClear_Table.setObjectName(_fromUtf8("actionClear_Table"))
         self.actionFsadf = QtGui.QAction(batch_iv_analysis)
@@ -72,7 +72,7 @@ class Ui_batch_iv_analysis(object):
         self.actionSet_Bounds.setObjectName(_fromUtf8("actionSet_Bounds"))
         self.menuFile.addAction(self.actionOpen)
         self.menuFile.addSeparator()
-        self.menuFile.addAction(self.actionClear_Graph)
+        self.menuFile.addAction(self.actionSave)
         self.menuFile.addSeparator()
         self.menuFile.addAction(self.actionQuit)
         self.menuTools.addAction(self.actionSet_Bounds)
@@ -90,9 +90,13 @@ class Ui_batch_iv_analysis(object):
         self.menuFile.setTitle(_translate("batch_iv_analysis", "File", None))
         self.menuTools.setTitle(_translate("batch_iv_analysis", "Tools", None))
         self.actionQuit.setText(_translate("batch_iv_analysis", "Quit", None))
+        self.actionQuit.setShortcut(_translate("batch_iv_analysis", "Ctrl+Q", None))
         self.actionOpen.setText(_translate("batch_iv_analysis", "Open", None))
-        self.actionClear_Graph.setText(_translate("batch_iv_analysis", "Save", None))
+        self.actionOpen.setShortcut(_translate("batch_iv_analysis", "Ctrl+O", None))
+        self.actionSave.setText(_translate("batch_iv_analysis", "Export", None))
+        self.actionSave.setShortcut(_translate("batch_iv_analysis", "Ctrl+S", None))
         self.actionClear_Table.setText(_translate("batch_iv_analysis", "Clear Table", None))
+        self.actionClear_Table.setShortcut(_translate("batch_iv_analysis", "Ctrl+Backspace", None))
         self.actionFsadf.setText(_translate("batch_iv_analysis", "fsadf", None))
         self.actionSet_Bounds.setText(_translate("batch_iv_analysis", "Set Bounds", None))
 
