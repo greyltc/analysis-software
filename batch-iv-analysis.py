@@ -339,6 +339,7 @@ class MainWindow(QMainWindow):
             guess = [float(I0_guess), I_L_guess, R_s_guess, R_sh_guess, float(n_guess)]
             fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(vectorizedCurrent, VV, II,p0=guess,full_output = True)
             
+            #catch a failed fit attempt:
             if not ier == 1:
                 vv=np.linspace(minVoltage,maxVoltage,1000)
                 print "fit:"
@@ -374,13 +375,17 @@ class MainWindow(QMainWindow):
             powerSearchResults = optimize.minimize(invCellPower,vMaxGuess)
             print "Model fit exit code = " + str(ier) + " power search exit code = " + str(powerSearchResults.status)
             
+            #catch a failed max power search:
             if not powerSearchStatus == 0:
                 print "power search exit code = " + str(powerSearchResults.status)
-                print powerSearchResults.
+                print powerSearchResults.message
+            
             vMax = powerSearchResults.x[0]
             iMax = cellModel([vMax])[0]
             pMax = vMax*iMax
-            Voc_nn = Voc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
+            
+            Voc_nn=optimize.brentq(cellModel, minVoltage, maxVoltage)#more robust than symbolic?
+            #Voc_nn = Voc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
             Isc_nn = Isc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
             #Voc_nn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             #Isc_nn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
