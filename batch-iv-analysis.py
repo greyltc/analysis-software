@@ -361,21 +361,34 @@ class MainWindow(QMainWindow):
             I_p2=iFit(V_p2)            
 
             #these guesses will likely break fitting for curves that don't show rectification
-            R_s_guess = 10
-            R_sh_guess = 1e6
+            R_s_initial_guess = 10
+            R_sh_initial_guess = 1e6
+            n_initial_guess = 2
+            I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_initial_guess,Rsh:R_sh_initial_guess,Iph:I_L_guess,n:n_initial_guess,I:I_p2,V:V_p2}) 
             
             #compute intellegent guesses for n and I0
-            n_initial_guess = 1
-            n_guess = n_initial_guess            
+            newRhs = rhs - I
+            eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(V,V_n_n),(I,I_n_n),(Rsh,R_sh_initial_guess),(Iph,I_L_guess)])
+            eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(V,V_p2),(I,I_p2),(Rsh,R_sh_initial_guess),(Iph,I_L_guess)])
+            eqnSys3 = newRhs.subs([(Vth,thermalVoltage),(V,V_I0_n),(I,I_I0_n),(Rsh,R_sh_initial_guess),(Iph,I_L_guess)])
+            
+            nSln = sympy.nsolve((eqnSys1,eqnSys2,eqnSys3),(n,I0,Rs),(n_initial_guess,I0_initial_guess,R_s_initial_guess),maxsteps=10000)
+            
+            n_guess = float(nSln[0])
+            I0_guess = float(nSln[1])
+            R_s_guess = float(nSln[2])
+            R_sh_guess = R_sh_initial_guess
+            
+            
             #n_guess = sympy.nsolve(nEqn.subs([(Vth,thermalVoltage),(V_n,V_n_n),(I_n,I_n_n),(Rs,R_s_guess),(Rsh,R_sh_guess),(Iph,I_L_guess),(I_I0,I_I0_n),(V_I0,V_I0_n)]),n_initial_guess)
             #I0_guess = I0_in_n.evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_guess,I_I0:I_I0_n,V_I0:V_I0_n})
             
             #dumb guess:
-            I0_guess= eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_guess,I:I_p2,V:V_p2})
+            #I0_guess= eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_guess,I:I_p2,V:V_p2})
             
-            guess = [float(I0_guess), I_L_guess, R_s_guess, R_sh_guess, float(n_guess)]
+            guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_guess]
             try:
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(vectorizedCurrent, VV, II,p0=guess,full_output = True,ftol=1e-14,xtol=1e-10)#,ftol=1e-20,xtol=1e-10
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(vectorizedCurrent, VV, II,p0=guess,full_output = True,ftol=1e-14,xtol=1e-10)#,ftol=1e-14,xtol=1e-10
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
