@@ -383,22 +383,27 @@ class MainWindow(QMainWindow):
             I_sc_n = float(iFit(V_sc_n))            
 
             #mpp
-            VVcalc = VV+abs(minVoltage)
-            IIcalc = II+abs(min(II))
+            VVcalc = VV-minVoltage
+            IIcalc = II-min(II)
             Pvirtual= np.array(VVcalc*IIcalc)
             maxIndex = Pvirtual.argmax()
-            V_mpp_n = VV[maxIndex]
-            I_mpp_n = II[maxIndex]
+            V_vmpp_n = VV[maxIndex]
+            I_vmpp_n = II[maxIndex]
             
-            #Vp
-            V_p_n = (V_mpp_n-V_start_n)/2 +V_start_n
-            I_p_n = float(iFit(V_p_n)) 
+            #Vp: half way in voltage between vMpp and the start of the dataset:
+            V_vp_n = (V_vmpp_n-V_start_n)/2 +V_start_n
+            I_vp_n = float(iFit(V_vp_n))
+            
+            #Ip: half way in current between vMpp and the end of the dataset:
+            I_ip_n = (I_vmpp_n-I_end_n)/2 + I_end_n
+            iFit2 = interpolate.interp1d(VV,II-I_ip_n)
+            V_ip_n =optimize.brentq(iFit2, minVoltage, maxVoltage)
             
             #Voc
             V_oc_n=optimize.brentq(iFit, minVoltage, maxVoltage)
             I_oc_n=float(iFit(V_oc_n))
             
-            diaplayAllGuesses = True
+            diaplayAllGuesses = False
 
             #phase 1 guesses:
             I_L_initial_guess = I_sc_n
@@ -408,7 +413,7 @@ class MainWindow(QMainWindow):
             newRhs = rhs - I
             aLine = Rsh*V+Iph-I
             eqnSys1 = aLine.subs([(V,V_start_n),(I,I_start_n)])
-            eqnSys2 = aLine.subs([(V,V_p_n),(I,I_p_n)])
+            eqnSys2 = aLine.subs([(V,V_vp_n),(I,I_vp_n)])
             
             eqnSys = (eqnSys1,eqnSys2)
             nGuessSln = sympy.nsolve(eqnSys,(Iph,Rsh),(I_L_initial_guess,R_sh_initial_guess),maxsteps=10000)
@@ -416,58 +421,41 @@ class MainWindow(QMainWindow):
             
             I_L_guess = nGuessSln[0]
             R_sh_guess = -1*1/nGuessSln[1]
-            R_s_guess = -1*(V_end_n-V_oc_n)/(I_end_n)
-            R_s_initial_guess = 10
+            R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n)
             n_initial_guess = 2
-            I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_initial_guess,Rsh:R_sh_initial_guess,Iph:I_L_initial_guess,n:n_initial_guess,I:I_oc_n,V:V_oc_n})                         
+            I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
             
             if diaplayAllGuesses:
                 initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
-                evaluateGuessPlot(VV, II, initial_guess)              
-            
-            eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_mpp_n),(I,I_mpp_n),(Rsh,R_sh_guess),(Rs,R_s_guess)])
-            eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_oc_n),(I,I_oc_n),(Rsh,R_sh_guess),(Rs,R_s_guess)])
-            eqnSys = (eqnSys1,eqnSys2)
-            nGuessSln = sympy.nsolve(eqnSys,(I0,n),(I0_initial_guess,n_initial_guess),maxsteps=10000)
-            I0_guess = nGuessSln[0]
-            n_guess = nGuessSln[1]            
-            
-            if diaplayAllGuesses:
-                initial_guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_guess]
-                evaluateGuessPlot(VV, II, initial_guess)            
+                evaluateGuessPlot(VV, II, initial_guess)                
             
             #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
-            eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_oc_n),(I,I_oc_n),(n,n_guess),(Rsh,R_sh_guess)])
-            eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_guess),(Rsh,R_sh_guess)])
+            eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
+            eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
             eqnSys = (eqnSys1,eqnSys2)
-            nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_guess,R_s_guess),maxsteps=10000)
+            nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
             #TODO: catch if this fails and then fall back to linear interpolation
             
             I0_guess = nGuessSln[0]
             R_s_guess = nGuessSln[1]
-            
-            #R_sh_guess = RshEqn[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Iph:I_L_guess,n:n_guess,I:In1,V:Vn1,I0:I0_guess}) 
-            
-            #phase 2 guesses:
-            guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_guess]
-            guess = [float(x) for x in guess]
+            guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
             if diaplayAllGuesses:
-                evaluateGuessPlot(VV, II, guess)
-            
-            
+                evaluateGuessPlot(VV, II, guess)                   
+                            
             #give 10x weight to data around mpp
             nP = II*VV
             maxnpi = np.argmax(nP)
-            mySigma = np.ones(Nn)*1e-9
+            mySigma = np.ones(Nn)*0.2
             halfRange = (V_oc_n-VV[maxnpi])/2
             upperTarget = VV[maxnpi] + halfRange
             lowerTarget = VV[maxnpi] - halfRange
             lowerI = np.argmin(abs(VV-lowerTarget))
             upperI = np.argmin(abs(VV-upperTarget))
-            mySigma[range(lowerI,upperI)] = 1e9
+            mySigma[range(lowerI,upperI)] = 0.8
             
+            guess = [float(x) for x in guess]
             try:
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(vectorizedCurrent, VV, II,p0=guess,full_output = True)#,xtol=1e-12,sigma=mySigma,ftol=1e-14
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(vectorizedCurrent, VV, II,p0=guess,full_output = True,sigma=mySigma)#,xtol=1e-12,sigma=mySigma,ftol=1e-14
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
@@ -490,7 +478,7 @@ class MainWindow(QMainWindow):
                 p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='10x Weight Data')
                 ax = plt.gca()
                 handles, labels = ax.get_legend_handles_labels()
-                ax.legend(handles, labels)
+                ax.legend(handles, labels, loc=3)
                 #plt.legend([p1, p2, p3, p4],['Guess','Fit','Data','10x Weight Data'])
                 plt.grid(b=True)
                 plt.draw()
