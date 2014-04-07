@@ -18,6 +18,7 @@ from numpy import nan
 
 from scipy.special import lambertw
 
+from scipy import odr
 from scipy import interpolate
 from scipy import optimize
 from scipy.stats.distributions import  t #needed for confidence interval calculation
@@ -69,6 +70,10 @@ current = current[0].subs(Vth,thermalVoltage)
 #get symbolic solution for current ready for fast number crunching
 current_n = sympy.lambdify((V,I0,Iph,Rs,Rsh,n),current)
 
+def odrThing(B,x):
+    I0, Iph, Rs, Rsh, n = B
+    return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))    
+
 def optimizeThis (x,I0, Iph, Rs, Rsh, n):
     return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))
 
@@ -90,8 +95,8 @@ def residual(p, vVector, y, weights):
     
 #residual function for leastsq fit with negative penalty
 def residual2(p, vVector, y, weights):
-    #negativePenalty = 2
-    negativePenalty = 1e-2
+    negativePenalty = 2
+    #negativePenalty = 1e-10
     if np.any(p<0):
         return negativePenalty * np.linalg.norm(p[p<0]) * residual(p, vVector, y, weights)
     else:
@@ -475,18 +480,31 @@ class MainWindow(QMainWindow):
             #upperTarget = V_oc_n
             lowerI = np.argmin(abs(VV-lowerTarget))
             upperI = np.argmin(abs(VV-upperTarget))
-            #weights[range(lowerI,upperI)] = 3
+            weights[range(lowerI,upperI)] = 3
             #weights[maxnpi] = 10
             #todo: play with setting up "key points"
             
             guess = [float(x) for x in guess]
+            
+            odrMod = odr.Model(odrThing)
+            myData = odr.Data(VV,II)
+            myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000,sstol=1e-20,partol=1e-20)#
+            #myoutput = myodr.run()
+            #myoutput.pprint()
+            
+            
             try:
-                #todo: get rid of this double:
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,maxfev=12000)#,xtol=1e-12,ftol=1e-14
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual2, args=(VV, II, weights),x0=fitParams,full_output=1,xtol=1e-18,ftol=1e-24)#,xtol=1e-12,ftol=1e-14
+                myoutput = myodr.run()
+                fitParams = myoutput.beta
+                print myoutput.stopreason
+                print myoutput.info
+                ier = 1
+                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,maxfev=12000)#,xtol=1e-12,ftol=1e-14
+                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-24)#,xtol=1e-12,ftol=1e-14
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
+            print myoutput.info
             #catch a failed fit attempt:
             alwaysShowRecap = False
             if  alwaysShowRecap:
@@ -544,8 +562,8 @@ class MainWindow(QMainWindow):
             #Voc_nn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             #Isc_nn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             FF = pMax/(Voc_nn*Isc_nn)
-            
-            if (ier != 7) and (ier != 6):
+            dontFindBounds = True
+            if (ier != 7) and (ier != 6) and (not dontFindBounds):
                 #error estimation:
                 alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
     
