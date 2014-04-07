@@ -16,6 +16,8 @@ import numpy as np
 import sympy
 from numpy import nan
 
+from scipy.special import lambertw
+
 from scipy import interpolate
 from scipy import optimize
 from scipy.stats.distributions import  t #needed for confidence interval calculation
@@ -65,7 +67,10 @@ Voc = voltage[0].subs(I,0)
 current = current[0].subs(Vth,thermalVoltage)
 
 #get symbolic solution for current ready for fast number crunching
-current_n = sympy.lambdify((V,I0,Iph,Rs,Rsh,n),current)    
+current_n = sympy.lambdify((V,I0,Iph,Rs,Rsh,n),current)
+
+def optimizeThis (x,I0, Iph, Rs, Rsh, n):
+    return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))
 
 #allow current solutoin to operate on vectors of voltages (needed for curve fitting)
 def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
@@ -78,14 +83,17 @@ def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
 #residual function for leastsq fit
 def residual(p, vVector, y, weights):
     I0_n, Iph_n, Rsn_n, Rsh_n, n_n = p
-    weights = 1.0/np.asarray(weights)
-    return ([float(sympy.re(current_n(x, I0_n,Iph_n,Rsn_n,Rsh_n,n_n))) for x in vVector] - y)*weights
+    weights = np.asarray(weights)
+    return (optimizeThis(vVector, I0_n,Iph_n,Rsn_n,Rsh_n,n_n) -y)*weights
+    #return ([float(sympy.re(current_n(x, I0_n,Iph_n,Rsn_n,Rsh_n,n_n))) for x in vVector] - y)*weights
     #TODO: this is VERY bad practice to allow global use of current_n in this function
     
 #residual function for leastsq fit with negative penalty
 def residual2(p, vVector, y, weights):
+    #negativePenalty = 2
+    negativePenalty = 1e-2
     if np.any(p<0):
-        return 100 * np.linalg.norm(p[p<0]) * residual(p, vVector, y, weights)
+        return negativePenalty * np.linalg.norm(p[p<0]) * residual(p, vVector, y, weights)
     else:
         return residual(p, vVector, y, weights)
 
@@ -459,7 +467,7 @@ class MainWindow(QMainWindow):
             #give 5x weight to data around mpp
             nP = II*VV
             maxnpi = np.argmax(nP)
-            mySigma = np.ones(len(II))
+            weights = np.ones(len(II))
             halfRange = (V_oc_n-VV[maxnpi])/2
             upperTarget = VV[maxnpi] + halfRange
             lowerTarget = VV[maxnpi] - halfRange
@@ -467,21 +475,21 @@ class MainWindow(QMainWindow):
             #upperTarget = V_oc_n
             lowerI = np.argmin(abs(VV-lowerTarget))
             upperI = np.argmin(abs(VV-upperTarget))
-            #mySigma[range(0,lowerI)] = 1.0/3
-            mySigma[range(lowerI,upperI)] = 1.0/5
+            #weights[range(lowerI,upperI)] = 3
+            #weights[maxnpi] = 10
             #todo: play with setting up "key points"
             
             guess = [float(x) for x in guess]
             try:
                 #todo: get rid of this double:
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual2, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1)#,xtol=1e-12,ftol=1e-14
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual2, args=(VV, II, mySigma),x0=fitParams,full_output=1)#,xtol=1e-12,ftol=1e-14
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,maxfev=12000)#,xtol=1e-12,ftol=1e-14
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual2, args=(VV, II, weights),x0=fitParams,full_output=1,xtol=1e-18,ftol=1e-24)#,xtol=1e-12,ftol=1e-14
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
             #catch a failed fit attempt:
             alwaysShowRecap = False
-            if  (ier > 3) or alwaysShowRecap:
+            if  alwaysShowRecap:
                 vv=np.linspace(minVoltage,maxVoltage,1000)
                 print "fit:"
                 print fitParams                
@@ -536,24 +544,27 @@ class MainWindow(QMainWindow):
             #Voc_nn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             #Isc_nn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             FF = pMax/(Voc_nn*Isc_nn)
-
-            #error estimation:
-            alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
-
-            nn = len(VV)    # number of data points
-            p = len(fitParams) # number of parameters
-
-            dof = max(0, nn - p) # number of degrees of freedom
-
-            # student-t value for the dof and confidence level
-            tval = t.ppf(1.0-alpha/2., dof) 
-
-            bounds = []
-            #calculate 95% confidence interval
-            for a, p,var in zip(range(nn), fitParams, np.diag(fitCovariance)):
-                sigma = var**0.5
-                bs = '[{0}  {1}]'.format(p - sigma*tval, p + sigma*tval)
-                bounds.append(bs)
+            
+            if (ier != 7) and (ier != 6):
+                #error estimation:
+                alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
+    
+                nn = len(VV)    # number of data points
+                p = len(fitParams) # number of parameters
+    
+                dof = max(0, nn - p) # number of degrees of freedom
+    
+                # student-t value for the dof and confidence level
+                tval = t.ppf(1.0-alpha/2., dof) 
+    
+                bounds = []
+                #calculate 95% confidence interval
+                for a, p,var in zip(range(nn), fitParams, np.diag(fitCovariance)):
+                    sigma = var**0.5
+                    bs = '[{0}  {1}]'.format(p - sigma*tval, p + sigma*tval)
+                    bounds.append(bs)
+            else:
+                bounds = ('N/A','N/A','N/A','N/A','N/A')
 
             fitX = np.linspace(minVoltage,maxVoltage,1000)
             fitY = cellModel(fitX)
