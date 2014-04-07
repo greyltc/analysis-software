@@ -442,16 +442,16 @@ class MainWindow(QMainWindow):
             if diaplayAllGuesses:
                 evaluateGuessPlot(VV, II, guess)                   
                             
-            #give 10x weight to data around mpp
+            #give 2x weight to data around mpp
             nP = II*VV
             maxnpi = np.argmax(nP)
-            mySigma = np.ones(Nn)*0.2
+            mySigma = II*0.1
             halfRange = (V_oc_n-VV[maxnpi])/2
             upperTarget = VV[maxnpi] + halfRange
             lowerTarget = VV[maxnpi] - halfRange
             lowerI = np.argmin(abs(VV-lowerTarget))
             upperI = np.argmin(abs(VV-upperTarget))
-            mySigma[range(lowerI,upperI)] = 0.8
+            mySigma[range(lowerI,upperI)] = mySigma[range(lowerI,upperI)]*1/5
             
             guess = [float(x) for x in guess]
             try:
@@ -460,8 +460,8 @@ class MainWindow(QMainWindow):
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
             #catch a failed fit attempt:
-            showGuess = False
-            if  (ier > 3) or showGuess:
+            alwaysShowRecap = False
+            if  (ier > 3) or alwaysShowRecap:
                 vv=np.linspace(minVoltage,maxVoltage,1000)
                 print "fit:"
                 print fitParams                
@@ -475,11 +475,10 @@ class MainWindow(QMainWindow):
                 p1, = plt.plot(vv,ii, label='Guess',ls='--')
                 p2, = plt.plot(vv,ii2, label='Fit')
                 p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-                p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='10x Weight Data')
+                p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
                 ax = plt.gca()
                 handles, labels = ax.get_legend_handles_labels()
                 ax.legend(handles, labels, loc=3)
-                #plt.legend([p1, p2, p3, p4],['Guess','Fit','Data','10x Weight Data'])
                 plt.grid(b=True)
                 plt.draw()
                 plt.show()
