@@ -74,6 +74,20 @@ def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
     else:
         return float(sympy.re(current_n(vVector, I0_n,Iph_n,Rsn_n,Rsh_n,n_n)))
     #TODO: this is VERY bad practice to allow global use of current_n in this function 
+    
+#residual function for leastsq fit
+def residual(p, vVector, y, weights):
+    I0_n, Iph_n, Rsn_n, Rsh_n, n_n = p
+    weights = 1.0/np.asarray(weights)
+    return ([float(sympy.re(current_n(x, I0_n,Iph_n,Rsn_n,Rsh_n,n_n))) for x in vVector] - y)*weights
+    #TODO: this is VERY bad practice to allow global use of current_n in this function
+    
+#residual function for leastsq fit with negative penalty
+def residual2(p, vVector, y, weights):
+    if np.any(p<0):
+        return 100 * np.linalg.norm(p[p<0]) * residual(p, vVector, y, weights)
+    else:
+        return residual(p, vVector, y, weights)
 
 class col:
     header = ''
@@ -422,7 +436,7 @@ class MainWindow(QMainWindow):
             I_L_guess = nGuessSln[0]
             R_sh_guess = -1*1/nGuessSln[1]
             R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n)
-            n_initial_guess = 2
+            n_initial_guess = 1
             I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
             
             if diaplayAllGuesses:
@@ -442,20 +456,26 @@ class MainWindow(QMainWindow):
             if diaplayAllGuesses:
                 evaluateGuessPlot(VV, II, guess)                   
                             
-            #give 2x weight to data around mpp
+            #give 5x weight to data around mpp
             nP = II*VV
             maxnpi = np.argmax(nP)
-            mySigma = II*0.1
+            mySigma = np.ones(len(II))
             halfRange = (V_oc_n-VV[maxnpi])/2
             upperTarget = VV[maxnpi] + halfRange
             lowerTarget = VV[maxnpi] - halfRange
+            #lowerTarget = 0
+            #upperTarget = V_oc_n
             lowerI = np.argmin(abs(VV-lowerTarget))
             upperI = np.argmin(abs(VV-upperTarget))
-            mySigma[range(lowerI,upperI)] = mySigma[range(lowerI,upperI)]*1/5
+            #mySigma[range(0,lowerI)] = 1.0/3
+            mySigma[range(lowerI,upperI)] = 1.0/5
+            #todo: play with setting up "key points"
             
             guess = [float(x) for x in guess]
             try:
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(vectorizedCurrent, VV, II,p0=guess,full_output = True,sigma=mySigma)#,xtol=1e-12,sigma=mySigma,ftol=1e-14
+                #todo: get rid of this double:
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual2, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1)#,xtol=1e-12,ftol=1e-14
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual2, args=(VV, II, mySigma),x0=fitParams,full_output=1)#,xtol=1e-12,ftol=1e-14
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
