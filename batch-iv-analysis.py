@@ -491,6 +491,7 @@ class MainWindow(QMainWindow):
             myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000,sstol=1e-20,partol=1e-20)#
             #myoutput = myodr.run()
             #myoutput.pprint()
+            #see http://docs.scipy.org/doc/external/odrpack_guide.pdf
             
             
             try:
@@ -504,7 +505,7 @@ class MainWindow(QMainWindow):
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
-            print myoutput.info
+            #print myoutput.info
             #catch a failed fit attempt:
             alwaysShowRecap = False
             if  alwaysShowRecap:
