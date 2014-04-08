@@ -315,6 +315,7 @@ class MainWindow(QMainWindow):
     def clearTableCall(self):
         self.ui.tableWidget.clearContents()
         self.rows = 0
+        self.graphData = []
 
     def openCall(self):
         #remember the last path th user opened
@@ -486,22 +487,22 @@ class MainWindow(QMainWindow):
             
             guess = [float(x) for x in guess]
             
-            odrMod = odr.Model(odrThing)
-            myData = odr.Data(VV,II)
-            myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000,sstol=1e-20,partol=1e-20)#
+            #odrMod = odr.Model(odrThing)
+            #myData = odr.Data(VV,II)
+            #myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000,sstol=1e-20,partol=1e-20)#
             #myoutput = myodr.run()
             #myoutput.pprint()
             #see http://docs.scipy.org/doc/external/odrpack_guide.pdf
             
             
             try:
-                myoutput = myodr.run()
-                fitParams = myoutput.beta
-                print myoutput.stopreason
-                print myoutput.info
-                ier = 1
-                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,maxfev=12000)#,xtol=1e-12,ftol=1e-14
-                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-24)#,xtol=1e-12,ftol=1e-14
+                #myoutput = myodr.run()
+                #fitParams = myoutput.beta
+                #print myoutput.stopreason
+                #print myoutput.info
+                #ier = 1
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,maxfev=12000)#,xtol=1e-12,ftol=1e-14
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-24)#,xtol=1e-12,ftol=1e-14
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
