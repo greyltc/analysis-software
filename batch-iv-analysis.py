@@ -370,18 +370,7 @@ class MainWindow(QMainWindow):
             #read in data
             VV, II = np.loadtxt(str(thisFile),skiprows=25,unpack=True)
             II = II * -1 /1000*area #flip current and scale it to absolute amps
-            Nn= len(II)
-            sn = Nn/4
-            Vn0 = VV[0]
-            In0 = II[0]
-            Vn1 = VV[round(1*sn)]
-            In1 = II[round(1*sn)]
-            Vn2 = VV[round(2*sn)]
-            In2 = II[round(2*sn)]
-            Vn3 = VV[round(3*sn)]
-            In3 = II[round(3*sn)]
-            Vn4 = VV[-1]
-            In4 = II[-1]            
+            #Nn= len(II)         
 
             #sort data by ascending voltage 
             newOrder = VV.argsort()
@@ -414,9 +403,9 @@ class MainWindow(QMainWindow):
             VVcalc = VV-minVoltage
             IIcalc = II-min(II)
             Pvirtual= np.array(VVcalc*IIcalc)
-            maxIndex = Pvirtual.argmax()
-            V_vmpp_n = VV[maxIndex]
-            I_vmpp_n = II[maxIndex]
+            vMaxIndex = Pvirtual.argmax()
+            V_vmpp_n = VV[vMaxIndex]
+            I_vmpp_n = II[vMaxIndex]
             
             #Vp: half way in voltage between vMpp and the start of the dataset:
             V_vp_n = (V_vmpp_n-V_start_n)/2 +V_start_n
@@ -426,10 +415,6 @@ class MainWindow(QMainWindow):
             I_ip_n = (I_vmpp_n-I_end_n)/2 + I_end_n
             iFit2 = interpolate.interp1d(VV,II-I_ip_n)
             V_ip_n =optimize.brentq(iFit2, minVoltage, maxVoltage)
-            
-            #Voc
-            V_oc_n=optimize.brentq(iFit, minVoltage, maxVoltage)
-            I_oc_n=float(iFit(V_oc_n))
             
             diaplayAllGuesses = False
 
@@ -468,15 +453,22 @@ class MainWindow(QMainWindow):
             R_s_guess = nGuessSln[1]
             guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
             if diaplayAllGuesses:
-                evaluateGuessPlot(VV, II, guess)                   
+                evaluateGuessPlot(VV, II, guess)
+                
+            #todo: handle dark curve here.
+            if I_L_guess/area < 1e-4:
+                isDarkCurve = True
+                print "dark curve detected"
+            else:
+                isDarkCurve = False
                             
             #give 5x weight to data around mpp
-            nP = II*VV
-            maxnpi = np.argmax(nP)
+            #nP = II*VV
+            #maxIndex = np.argmax(nP)
             weights = np.ones(len(II))
-            halfRange = (V_oc_n-VV[maxnpi])/2
-            upperTarget = VV[maxnpi] + halfRange
-            lowerTarget = VV[maxnpi] - halfRange
+            halfRange = (V_vp_n-VV[vMaxIndex])/2
+            upperTarget = VV[vMaxIndex] + halfRange
+            lowerTarget = VV[vMaxIndex] - halfRange
             #lowerTarget = 0
             #upperTarget = V_oc_n
             lowerI = np.argmin(abs(VV-lowerTarget))
@@ -546,20 +538,24 @@ class MainWindow(QMainWindow):
                 #voltageIn = np.array(voltageIn)
                 return -1*voltageIn*cellModel(voltageIn)
 
-            vMaxGuess = VV[np.array(VV*II).argmax()]
-            powerSearchResults = optimize.minimize(invCellPower,vMaxGuess)
+            if not isDarkCurve:
+                vMaxGuess = VV[np.array(VV*II).argmax()]
+                powerSearchResults = optimize.minimize(invCellPower,vMaxGuess)
             
-            #catch a failed max power search:
-            if not powerSearchResults.status == 0:
-                print "power search exit code = " + str(powerSearchResults.status)
-                print powerSearchResults.message
-            
-            vMax = powerSearchResults.x[0]
+                ##catch a failed max power search:
+                if not powerSearchResults.status == 0:
+                    print "power search exit code = " + str(powerSearchResults.status)
+                    print powerSearchResults.message
+                vMax = powerSearchResults.x[0]
+                Voc_nn=optimize.brentq(cellModel, minVoltage, maxVoltage)#more robust than symbolic?
+                #Voc_nn = Voc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})                
+            else:
+                Voc_nn = nan
+                vMax = nan
             iMax = cellModel([vMax])[0]
             pMax = vMax*iMax
             
-            Voc_nn=optimize.brentq(cellModel, minVoltage, maxVoltage)#more robust than symbolic?
-            #Voc_nn = Voc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
+
             Isc_nn = Isc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
             #Voc_nn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             #Isc_nn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
