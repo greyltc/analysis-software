@@ -466,7 +466,7 @@ class MainWindow(QMainWindow):
             #nP = II*VV
             #maxIndex = np.argmax(nP)
             weights = np.ones(len(II))
-            halfRange = (V_vp_n-VV[vMaxIndex])/2
+            halfRange = (V_ip_n-VV[vMaxIndex])/2
             upperTarget = VV[vMaxIndex] + halfRange
             lowerTarget = VV[vMaxIndex] - halfRange
             #lowerTarget = 0
@@ -494,7 +494,7 @@ class MainWindow(QMainWindow):
                 #print myoutput.info
                 #ier = 1
                 fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,maxfev=12000)#,xtol=1e-12,ftol=1e-14
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-24)#,xtol=1e-12,ftol=1e-14
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
