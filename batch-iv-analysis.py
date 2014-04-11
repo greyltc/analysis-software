@@ -380,9 +380,16 @@ class MainWindow(QMainWindow):
             maxVoltage = VV[-1];
             minVoltage = VV[0];
 
-            #smoothingDegree = 3 #must be <=5 int, default 3
-            #smoothingFactor = 0 #zero sends spline through all datapoints, 
-            #iFit = interpolate.UnivariateSpline(VV,II,s=smoothingFactor,k=smoothingDegree)
+            smoothingDegree = 3 #must be <=5 int, default 3
+            smoothingFactor = 9e-6 #zero sends spline through all datapoints, 
+            iFitSpline = interpolate.UnivariateSpline(VV,II,s=smoothingFactor,k=smoothingDegree)
+            splineTestVV=np.linspace(minVoltage,maxVoltage,1000)
+            splineTestII=iFitSpline(splineTestVV)
+            p1, = plt.plot(splineTestVV,splineTestII)
+            p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+            plt.draw()
+            plt.show()            
+            
 
             
             #data point selection:
@@ -456,7 +463,7 @@ class MainWindow(QMainWindow):
                 evaluateGuessPlot(VV, II, guess)
                 
             #todo: handle dark curve here.
-            if I_L_guess/area < 1e-4:
+            if I_L_guess/area < 1e-3:
                 isDarkCurve = True
                 print "dark curve detected"
             else:
@@ -473,7 +480,7 @@ class MainWindow(QMainWindow):
             #upperTarget = V_oc_n
             lowerI = np.argmin(abs(VV-lowerTarget))
             upperI = np.argmin(abs(VV-upperTarget))
-            weights[range(lowerI,upperI)] = 3
+            #weights[range(lowerI,upperI)] = 3
             #weights[maxnpi] = 10
             #todo: play with setting up "key points"
             
