@@ -1,5 +1,16 @@
 from batch_iv_analysis_UI import Ui_batch_iv_analysis
 
+from interpolate import SmoothSpline
+#cite:
+#References
+#----------
+#.. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
+   #Data by Simplified Least Squares Procedures. Analytical
+   #Chemistry, 1964, 36 (8), pp 1627-1639.
+#.. [2] Numerical Recipes 3rd Edition: The Art of Scientific Computing
+   #W.H. Press, S.A. Teukolsky, W.T. Vetterling, B.P. Flannery
+   #Cambridge University Press ISBN-13: 9780521880688
+
 from collections import OrderedDict
 
 import os, sys, inspect, csv
@@ -251,8 +262,10 @@ class MainWindow(QMainWindow):
         plt.scatter(self.graphData[row]['Voc'], 0, c='g',marker='x',s=100)
         plt.scatter(0, self.graphData[row]['Isc'], c='g',marker='x',s=100)
         fitX = self.graphData[row]['fitX']
-        fitY = self.graphData[row]['fitY']
-        plt.plot(fitX, fitY,c='k')
+        modelY = self.graphData[row]['modelY']
+        splineY = self.graphData[row]['splineY']
+        plt.plot(fitX, modelY,c='k')
+        plt.plot(fitX, splineY,c='g')
         plt.autoscale(axis='x', tight=True)
         plt.grid(b=True)
 
@@ -380,15 +393,12 @@ class MainWindow(QMainWindow):
             maxVoltage = VV[-1];
             minVoltage = VV[0];
 
-            smoothingDegree = 3 #must be <=5 int, default 3
-            smoothingFactor = 9e-6 #zero sends spline through all datapoints, 
-            iFitSpline = interpolate.UnivariateSpline(VV,II,s=smoothingFactor,k=smoothingDegree)
-            splineTestVV=np.linspace(minVoltage,maxVoltage,1000)
-            splineTestII=iFitSpline(splineTestVV)
-            p1, = plt.plot(splineTestVV,splineTestII)
-            p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-            plt.draw()
-            plt.show()            
+            #splineTestVV=np.linspace(minVoltage,maxVoltage,1000)
+            #splineTestII=iFitSpline(splineTestVV)
+            #p1, = plt.plot(splineTestVV,splineTestII)
+            #p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+            #plt.draw()
+            #plt.show()            
             
 
             
@@ -500,8 +510,8 @@ class MainWindow(QMainWindow):
                 #print myoutput.stopreason
                 #print myoutput.info
                 #ier = 1
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,maxfev=12000)#,xtol=1e-12,ftol=1e-14
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1)#,xtol=1e-12,ftol=1e-14,maxfev=12000
+                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
             print ier
@@ -536,34 +546,40 @@ class MainWindow(QMainWindow):
             Rs_fit = fitParams[2]
             Rsh_fit = fitParams[3]
             n_fit = fitParams[4]
+            
+            #smoothingDegree = 3 #must be <=5 int, default 3
+            #smoothingFactor = 1.5e-7 #zero sends spline through all datapoints, 
+            #iFitSpline = interpolate.UnivariateSpline(VV,II,s=smoothingFactor,k=smoothingDegree)
+            iFitSpline = SmoothSpline(VV, II, p=1-1e-5)
 
             def cellModel(voltageIn):
                 #voltageIn = np.array(voltageIn)
                 return vectorizedCurrent(voltageIn, I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit)
 
-            def invCellPower(voltageIn):
+            def invCellPowerSpline(voltageIn):
                 #voltageIn = np.array(voltageIn)
-                return -1*voltageIn*cellModel(voltageIn)
+                return -1*voltageIn*iFitSpline(voltageIn)
 
             if not isDarkCurve:
                 vMaxGuess = VV[np.array(VV*II).argmax()]
-                powerSearchResults = optimize.minimize(invCellPower,vMaxGuess)
+                powerSearchResults = optimize.minimize(invCellPowerSpline,vMaxGuess)
             
-                ##catch a failed max power search:
+                #catch a failed max power search:
                 if not powerSearchResults.status == 0:
                     print "power search exit code = " + str(powerSearchResults.status)
                     print powerSearchResults.message
                 vMax = powerSearchResults.x[0]
-                Voc_nn=optimize.brentq(cellModel, minVoltage, maxVoltage)#more robust than symbolic?
+                Voc_nn=optimize.brentq(iFitSpline, minVoltage, maxVoltage)#more robust than symbolic?
                 #Voc_nn = Voc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})                
             else:
                 Voc_nn = nan
                 vMax = nan
-            iMax = cellModel([vMax])[0]
+            iMax = iFitSpline([vMax])[0]
             pMax = vMax*iMax
             
-
-            Isc_nn = Isc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
+            #there is a maddening bug in SmoothingSpline, it can't evaluate 0 alone, so i have to do this:
+            Isc_nn = iFitSpline([0,1e-55])[0]
+            #Isc_nn = Isc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
             #Voc_nn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             #Isc_nn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             FF = pMax/(Voc_nn*Isc_nn)
@@ -590,8 +606,9 @@ class MainWindow(QMainWindow):
                 bounds = ('N/A','N/A','N/A','N/A','N/A')
 
             fitX = np.linspace(minVoltage,maxVoltage,1000)
-            fitY = cellModel(fitX)
-            self.graphData.append({'lowerI':lowerI,'upperI':upperI,'fitX':fitX,'fitY':fitY,'i':II,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn,'Vmax':vMax,'Imax':iMax})			
+            modelY = cellModel(fitX)
+            splineY = iFitSpline(fitX)
+            self.graphData.append({'origRow':self.rows,'lowerI':lowerI,'upperI':upperI,'fitX':fitX,'modelY':modelY,'splineY':splineY,'i':II,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn,'Vmax':vMax,'Imax':iMax})			
 
 
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,float(pMax/area*1e3).__format__('.3f'))
