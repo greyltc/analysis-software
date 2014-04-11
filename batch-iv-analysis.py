@@ -452,7 +452,7 @@ class MainWindow(QMainWindow):
             I_L_guess = nGuessSln[0]
             R_sh_guess = -1*1/nGuessSln[1]
             R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n)
-            n_initial_guess = 1
+            n_initial_guess = 2
             I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
             
             if diaplayAllGuesses:
@@ -510,11 +510,12 @@ class MainWindow(QMainWindow):
                 #print myoutput.stopreason
                 #print myoutput.info
                 #ier = 1
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1)#,xtol=1e-12,ftol=1e-14,maxfev=12000
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-12,ftol=1e-14)
+                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
                 #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14
             except:
                 fitParams, fitCovariance, infodict, errmsg, ier = [[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10]
-            print ier
+            #print ier
             #print myoutput.info
             #catch a failed fit attempt:
             alwaysShowRecap = False
@@ -577,13 +578,13 @@ class MainWindow(QMainWindow):
             iMax = iFitSpline([vMax])[0]
             pMax = vMax*iMax
             
-            #there is a maddening bug in SmoothingSpline, it can't evaluate 0 alone, so i have to do this:
+            #there is a maddening bug in SmoothingSpline: it can't evaluate 0 alone, so I have to do this:
             Isc_nn = iFitSpline([0,1e-55])[0]
             #Isc_nn = Isc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
             #Voc_nn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             #Isc_nn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             FF = pMax/(Voc_nn*Isc_nn)
-            dontFindBounds = True
+            dontFindBounds = False
             if (ier != 7) and (ier != 6) and (not dontFindBounds):
                 #error estimation:
                 alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
