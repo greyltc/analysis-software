@@ -349,9 +349,6 @@ class MainWindow(QMainWindow):
             print "computing: "+ fileName
             for ii in range(len(self.cols)):
                 self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
-            
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
-                      
 
             #do a thing here:
             #grab the area out of the header section of the data file
@@ -363,8 +360,6 @@ class MainWindow(QMainWindow):
                     break
             fp.close()
             area = float(header[14].split(' ')[3])
-            
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))
             
             def evaluateGuessPlot(dataX, dataY, myguess):
                 myguess = [float(x) for x in myguess]
@@ -611,7 +606,9 @@ class MainWindow(QMainWindow):
             splineY = iFitSpline(fitX)
             self.graphData.append({'origRow':self.rows,'lowerI':lowerI,'upperI':upperI,'fitX':fitX,'modelY':modelY,'splineY':splineY,'i':II,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn,'Vmax':vMax,'Imax':iMax})			
 
-
+            
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))            
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,float(pMax/area*1e3).__format__('.3f'))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,float(pMax/area*1e3).__format__('.3f'))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,float(Isc_nn/area*1e3).__format__('.3f'))
