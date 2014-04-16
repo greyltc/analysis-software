@@ -1,5 +1,7 @@
 from batch_iv_analysis_UI import Ui_batch_iv_analysis
 
+#TODO: intigrate QFileSystemWatcher
+
 from interpolate import SmoothSpline
 #cite:
 #References
@@ -132,62 +134,62 @@ class MainWindow(QMainWindow):
         thisKey = 'file'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'File'
-        self.cols[thisKey].tooltip = 'File name'
+        self.cols[thisKey].tooltip = 'File name\nHover to see header from data file'
 
         thisKey = 'pce'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'PCE\n[%]'
-        self.cols[thisKey].tooltip = 'Power conversion efficiency'
+        self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit\nHover for value from characteristic equation fit'
 
         thisKey = 'pmax'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'P_max\n[mW/cm^2]'
-        self.cols[thisKey].tooltip = 'Maximum power density'
+        self.cols[thisKey].tooltip = 'Maximum power density as found from spline fit\nHover for value from characteristic equation fit'
 
         thisKey = 'jsc'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
-        self.cols[thisKey].tooltip = 'Short-circuit current density'
+        self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline fit\nHover for value from characteristic equation fit'
 
         thisKey = 'voc'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'V_oc\n[mV]'
-        self.cols[thisKey].tooltip = 'Open-circuit voltage'
+        self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit\nHover for value from characteristic equation fit'
 
         thisKey = 'ff'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'FF'
-        self.cols[thisKey].tooltip = 'Fill factor'
+        self.cols[thisKey].tooltip = 'Fill factor as found from spline fit\nHover for value from characteristic equation fit'
 
         thisKey = 'rs'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'R_s\n[ohm*cm^2]'
-        self.cols[thisKey].tooltip = 'Specific series resistance'
+        self.cols[thisKey].tooltip = 'Specific series resistance as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'rsh'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'R_sh\n[ohm*cm^2]'
-        self.cols[thisKey].tooltip = 'Specific shunt resistance'
+        self.cols[thisKey].tooltip = 'Specific shunt resistance as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'jph'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
-        self.cols[thisKey].tooltip = 'Photogenerated current density'
+        self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'j0'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
-        self.cols[thisKey].tooltip = 'Reverse saturation current density'
+        self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'n'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'n'
-        self.cols[thisKey].tooltip = 'Diode ideality factor'
+        self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'Vmax'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'V_max\n[mV]'
-        self.cols[thisKey].tooltip = 'Voltage at maximum power point'
+        self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit\nHover for value from characteristic equation fit'
 
         thisKey = 'area'
         self.cols[thisKey] = col()
@@ -197,32 +199,32 @@ class MainWindow(QMainWindow):
         thisKey = 'pmax2'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'P_max\n[mW]'
-        self.cols[thisKey].tooltip = 'Maximum power'
+        self.cols[thisKey].tooltip = 'Maximum power as found from spline fit\nHover for value from characteristic equation fit'
 
         thisKey = 'isc'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'I_sc\n[mA]'
-        self.cols[thisKey].tooltip = 'Short-circuit current'
+        self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'iph'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'I_ph\n[mA]'
-        self.cols[thisKey].tooltip = 'Photogenerated current'
+        self.cols[thisKey].tooltip = 'Photogenerated current as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'i0'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'I_0\n[nA]'
-        self.cols[thisKey].tooltip = 'Reverse saturation current'
+        self.cols[thisKey].tooltip = 'Reverse saturation current as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'rs2'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'R_s\n[ohm]'
-        self.cols[thisKey].tooltip = 'Series resistance'
+        self.cols[thisKey].tooltip = 'Series resistance as found from characteristic equation fit\nHover for 95% confidence interval'
 
         thisKey = 'rsh2'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'R_sh\n[ohm]'
-        self.cols[thisKey].tooltip = 'Shunt resistance'		
+        self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit\nHover for 95% confidence interval'		
 
         self.graphData = []
 
@@ -254,20 +256,23 @@ class MainWindow(QMainWindow):
         plt.title(filename)
         v = self.graphData[row]['v']
         i = self.graphData[row]['i']
-        plt.plot(v, i, c='b', marker='o', ls="None")
+        plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data')
         lI = self.graphData[row]['lowerI']
         uI = self.graphData[row]['upperI']
-        p4, = plt.plot(v[range(lI,uI)],i[range(lI,uI)],ls="None",marker='o', c='r', label='10x Weight Data')
+        #p4, = plt.plot(v[range(lI,uI)],i[range(lI,uI)],ls="None",marker='o', c='r', label='10x Weight Data')
         plt.scatter(self.graphData[row]['Vmax'], self.graphData[row]['Imax'], c='g',marker='x',s=100)
         plt.scatter(self.graphData[row]['Voc'], 0, c='g',marker='x',s=100)
         plt.scatter(0, self.graphData[row]['Isc'], c='g',marker='x',s=100)
         fitX = self.graphData[row]['fitX']
         modelY = self.graphData[row]['modelY']
         splineY = self.graphData[row]['splineY']
-        plt.plot(fitX, modelY,c='k')
-        plt.plot(fitX, splineY,c='g')
+        plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
+        plt.plot(fitX, splineY,c='g', label='Spline Fit')
         plt.autoscale(axis='x', tight=True)
         plt.grid(b=True)
+        ax = plt.gca()
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles, labels, loc=3)
 
         plt.annotate(
             self.graphData[row]['Voc'].__format__('0.4f')+ 'V', 
@@ -555,30 +560,47 @@ class MainWindow(QMainWindow):
             def invCellPowerSpline(voltageIn):
                 #voltageIn = np.array(voltageIn)
                 return -1*voltageIn*iFitSpline(voltageIn)
+                
+            def invCellPowerModel(voltageIn):
+                voltageIn = np.array(voltageIn)
+                return -1*voltageIn*cellModel(voltageIn)
 
             if not isDarkCurve:
                 vMaxGuess = VV[np.array(VV*II).argmax()]
                 powerSearchResults = optimize.minimize(invCellPowerSpline,vMaxGuess)
+                powerSearchResults_charEqn = optimize.minimize(invCellPowerModel,vMaxGuess)
             
                 #catch a failed max power search:
                 if not powerSearchResults.status == 0:
                     print "power search exit code = " + str(powerSearchResults.status)
                     print powerSearchResults.message
+                #catch a failed max power search:
+                if not powerSearchResults_charEqn.status == 0:
+                    print "power search exit code = " + str(powerSearchResults_charEqn.status)
+                    print powerSearchResults_charEqn.message
                 vMax = powerSearchResults.x[0]
-                Voc_nn=optimize.brentq(iFitSpline, minVoltage, maxVoltage)#more robust than symbolic?
-                #Voc_nn = Voc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})                
+                vMax_charEqn = powerSearchResults_charEqn.x[0]
+                Voc_nn=optimize.brentq(iFitSpline, minVoltage, maxVoltage)
+                Voc_nn_charEqn=optimize.brentq(cellModel, minVoltage, maxVoltage)
             else:
                 Voc_nn = nan
                 vMax = nan
+                Voc_nn_charEqn = nan
+                vMax_charEqn = nan
+
             iMax = iFitSpline([vMax])[0]
+            iMax_charEqn = cellModel([vMax_charEqn])[0]
             pMax = vMax*iMax
+            pMax_charEqn = vMax_charEqn*iMax_charEqn
             
             #there is a maddening bug in SmoothingSpline: it can't evaluate 0 alone, so I have to do this:
             Isc_nn = iFitSpline([0,1e-55])[0]
-            #Isc_nn = Isc.evalf(subs={I0:I0_fit, Iph:Iph_fit, Rs:Rs_fit, Rsh:Rsh_fit, n:n_fit, Vth:thermalVoltage})
-            #Voc_nn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
-            #Isc_nn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
+            #Isc_nn_charEqn = vectorizedCurrent(0,I0_fit,Iph_fit,Rs_fit,Rsh_fit,n_fit)
+            Isc_nn_charEqn = cellModel(0)
+            #Voc_nn_charEqn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
+            #Isc_nn_charEqn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
             FF = pMax/(Voc_nn*Isc_nn)
+            FF_charEqn = pMax_charEqn/(Voc_nn_charEqn*Isc_nn_charEqn)
             dontFindBounds = False
             if (ier != 7) and (ier != 6) and (not dontFindBounds):
                 #error estimation:
@@ -592,14 +614,19 @@ class MainWindow(QMainWindow):
                 # student-t value for the dof and confidence level
                 tval = t.ppf(1.0-alpha/2., dof) 
     
-                bounds = []
+                lowers = []
+                uppers = []
                 #calculate 95% confidence interval
                 for a, p,var in zip(range(nn), fitParams, np.diag(fitCovariance)):
                     sigma = var**0.5
-                    bs = '[{0}  {1}]'.format(p - sigma*tval, p + sigma*tval)
-                    bounds.append(bs)
+                    lower = p - sigma*tval
+                    upper = p + sigma*tval
+                    lowers.append(lower)
+                    uppers.append(upper)
+                
             else:
-                bounds = ('N/A','N/A','N/A','N/A','N/A')
+                uppers = [nan,nan,nan,nan,nan]
+                lowers = [nan,nan,nan,nan,nan]
 
             fitX = np.linspace(minVoltage,maxVoltage,1000)
             modelY = cellModel(fitX)
@@ -610,28 +637,40 @@ class MainWindow(QMainWindow):
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))            
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,float(pMax/area*1e3).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setToolTip(str(float(pMax_charEqn/area*1e3).__format__('.3f')))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,float(pMax/area*1e3).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setToolTip(str(float(pMax_charEqn/area*1e3).__format__('.3f')))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,float(Isc_nn/area*1e3).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setToolTip(str(float(Isc_nn_charEqn/area*1e3).__format__('.3f')))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,float(Voc_nn*1e3).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setToolTip(str(float(Voc_nn_charEqn*1e3).__format__('.3f')))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setData(Qt.DisplayRole,float(FF).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setToolTip(str(float(FF_charEqn).__format__('.3f')))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setData(Qt.DisplayRole,float(Rs_fit*area).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setData(Qt.DisplayRole,float(Rsh_fit*area).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,float(Iph_fit/area*1e3).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,float(I0_fit/area*1e9).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,float(n_fit).__format__('.3f'))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setToolTip(bounds[4])
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,float(vMax*1e3).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setToolTip(str(float(vMax_charEqn*1e3).__format__('.3f')))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,float(area).__format__('.3f'))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,float(pMax*1e3).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setToolTip(str(float(pMax_charEqn*1e3).__format__('.3f')))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,float(Isc_nn*1e3).__format__('.3f'))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setToolTip(str(float(Isc_nn_charEqn*1e3).__format__('.3f')))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setData(Qt.DisplayRole,float(Iph_fit*1e3).__format__('.3f'))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setToolTip(bounds[1])
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setData(Qt.DisplayRole,float(I0_fit*1e9).__format__('.3f'))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setToolTip(bounds[0])
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setData(Qt.DisplayRole,float(Rs_fit).__format__('.3f'))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setToolTip(bounds[2])
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setData(Qt.DisplayRole,float(Rsh_fit).__format__('.3f'))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setToolTip(bounds[3])
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
 
             self.rows = self.rows + 1
         self.ui.tableWidget.setVisible(False)
