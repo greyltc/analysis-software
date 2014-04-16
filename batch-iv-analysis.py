@@ -376,11 +376,8 @@ class MainWindow(QMainWindow):
         else:
             delimiter = None
 
-        print "processing: "+ fileName
-        #do a thing here:
-        #grab the area out of the header section of the data file
-        #header = [] 
-
+        self.ui.statusbar.showMessage("processing: "+ fileName,2500)
+        
         fp = open(fullPath, mode='r')
         fileBuffer = fp.read()
         fp.close()
@@ -423,6 +420,7 @@ class MainWindow(QMainWindow):
             print "Could not load data file, prepend # to all non-data lines and try again"
             VV = nan
             II = nan
+            return
         tempFile.close()
         tempFile.remove()
 
