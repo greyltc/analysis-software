@@ -10,7 +10,9 @@ This project is a GUI python program to do batch curve fitting on data files gen
 ---
 - Start the program with `python batch-iv-analysis.py` if you have python and all of the required packages installed
  - If you're running windows and you don't have python installed, you can try running batch-iv-analysis.exe in the exe zip from [the latest release](https://github.com/spraycoater/batch-iv-analysis/releases/latest/)
-- Open the files for analysis with File --> Open (can select multiple files here) 
+- Open the files for analysis with File --> Open (can select multiple files here)
+ - The files must be of the form shown in exampleData.txt, you can open that file to check that everything is working properly
+  - Actually the only things that matter in that file are the number of header rows, the format of the area row and the format of the I and V data columns
 
 ### Features
 ---
@@ -47,4 +49,11 @@ To generate an install package for a specific platform (windows or OSX) you must
 
 ### Python packages required
 ---
-I can't remember
+I can't remember. Here are some:
+mpmath.libmp
+gmpy
+sympy -- must be a recent version, should probably upgrade with pip
+
+To install the requirements in debian/ubuntu you can try:
+`sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-pip python2.7`
+`sudo pip install --upgrade sympy`
