@@ -16,6 +16,7 @@ This project is a GUI python program to do batch curve fitting on data files gen
 
 ### Features
 ---
+- Hover over the column headers for a little blurb on what that column contains
 - Double click anywhere in the table to bring up a graph to compare the fitted curve with the raw data associated with the line you clicked (this is a way to quickly check if the fit is good or bad)
  - This feature seems to crash under windows if you do this without closing a previously opened graph window
 - Hover over the file name in each column to see the LabVIEW generated summary data for that file (for comparison purposes)
