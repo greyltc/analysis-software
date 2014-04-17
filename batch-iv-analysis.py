@@ -244,7 +244,7 @@ class MainWindow(QMainWindow):
         self.graphData = []
 
         #how long status messages show for
-        self.messageDuration = 1000#ms
+        self.messageDuration = 2500#ms
 
         # Set up the user interface from Designer.
         self.ui = Ui_batch_iv_analysis()
@@ -276,9 +276,18 @@ class MainWindow(QMainWindow):
         splineY = self.graphData[row]['splineY']
         a = np.asarray([fitX, modelY, splineY])
         a = np.transpose(a)
-        saveFile = os.path.join(self.workingDirectory,str(self.ui.tableWidget.item(row,self.cols.keys().index('file')).text())+'.csv')
+        destinationFolder = os.path.join(self.workingDirectory,'exports')
+        QDestinationFolder = QDir(destinationFolder)
+        if not QDestinationFolder.exists():
+            QDir().mkdir(destinationFolder)
+        saveFile = os.path.join(destinationFolder,str(self.ui.tableWidget.item(row,self.cols.keys().index('file')).text())+'.csv')
         header = 'Voltage [V],CharEqn Current [mA/cm^2],Spline Current [mA/cm^2]'
-        np.savetxt(saveFile, a, delimiter=",",header=header)
+        try:
+            np.savetxt(saveFile, a, delimiter=",",header=header)
+            self.ui.statusbar.showMessage("Exported " + saveFile,self.messageDuration)
+        except:
+            self.ui.statusbar.showMessage("Could not export " + saveFile,self.messageDuration)
+        
 
 
     def handleButton(self):
@@ -290,7 +299,6 @@ class MainWindow(QMainWindow):
             self.rowGraph(row)
         if col == 1:
             self.exportInterp(row)
-            self.ui.statusbar.showMessage("Data export complete.",self.messageDuration)
 
 
     def rowGraph(self,row):
