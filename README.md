@@ -51,10 +51,10 @@ To generate an install package for a specific platform (windows or OSX) you must
 ### Python packages required
 ---
 I can't remember. Here are some:
-mpmath.libmp
-gmpy
-sympy -- must be a recent version, should probably upgrade with pip
+- mpmath.libmp  
+- gmpy
+- sympy -- must be a recent version, should probably upgrade with pip
 
-To install the requirements in debian/ubuntu you can try:
-`sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-pip python2.7`
+To install the requirements in debian/ubuntu you can try:  
+`sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-pip python2.7`  
 `sudo pip install --upgrade sympy`
