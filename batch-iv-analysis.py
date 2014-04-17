@@ -267,6 +267,8 @@ class MainWindow(QMainWindow):
         self.ui.actionOpen.triggered.connect(self.openCall)
         self.ui.actionEnable_Watching.triggered.connect(self.watchCall)
         self.ui.actionSave.triggered.connect(self.handleSave)
+        self.ui.actionWatch_2.triggered.connect(self.handleWatchAction)
+        
 
         self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
 
@@ -840,7 +842,9 @@ class MainWindow(QMainWindow):
         else:
             openDir = '.'
 
-        fileNames = QFileDialog.getOpenFileNamesAndFilter(directory = openDir, caption="Select one or more files to open", filter = '(*.txt *.csv)')       
+        #fileNames = QFileDialog.getOpenFileNamesAndFilter(directory = openDir, caption="Select one or more files to open", filter = '(*.txt *.csv);;Folders (*)')       
+        fileNames = QFileDialog.getExistingDirectory(directory = openDir, caption="Select one or more files to open")       
+        
         if len(fileNames[0])>0:#check if user clicked cancel
             self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
             self.settings.setValue('lastFolder',self.workingDirectory)
@@ -850,13 +854,36 @@ class MainWindow(QMainWindow):
         
             if self.ui.actionEnable_Watching.isChecked():
                 self.handleWatchUpdate(self.workingDirectory)
+                watchedDirs = self.watcher.directories()
+                self.watcher.removePaths(watchedDirs)
                 self.watcher.addPath(self.workingDirectory)
+    
+    def handleWatchAction(self):
+        #remember the last path th user opened
+        if self.settings.contains('lastFolder'):
+            self.settings.value('lastFolder')
+            openDir = self.settings.value('lastFolder').toString()
+        else:
+            openDir = '.'
+        
+        myDir = QFileDialog.getExistingDirectory(directory = openDir, caption="Select folder to watch")
+        
+        if len(myDir)>0:#check if user clicked cancel
+            self.workingDirectory = str(myDir)
+            self.settings.setValue('lastFolder',self.workingDirectory)
+            self.ui.actionEnable_Watching.setChecked(True)
+            watchedDirs = self.watcher.directories()
+            self.watcher.removePaths(watchedDirs)
+            self.watcher.addPath(self.workingDirectory)
+            self.handleWatchUpdate(self.workingDirectory)
+            
     
     def watchCall(self):
         watchedDirs = self.watcher.directories()
         if self.ui.actionEnable_Watching.isChecked():
             if (self.workingDirectory != ''):
                 self.watcher.addPath(self.workingDirectory)
+                self.handleWatchUpdate(self.workingDirectory)
         else:
             self.watcher.removePaths(watchedDirs)
             

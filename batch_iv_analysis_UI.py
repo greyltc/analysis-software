@@ -2,7 +2,7 @@
 
 # Form implementation generated from reading ui file 'batch-iv-analysis.ui'
 #
-# Created: Thu Apr 17 10:11:32 2014
+# Created: Thu Apr 17 12:52:25 2014
 #      by: PyQt4 UI code generator 4.10.2
 #
 # WARNING! All changes made in this file will be lost!
@@ -76,7 +76,10 @@ class Ui_batch_iv_analysis(object):
         self.actionEnable_Watching.setCheckable(True)
         self.actionEnable_Watching.setChecked(True)
         self.actionEnable_Watching.setObjectName(_fromUtf8("actionEnable_Watching"))
+        self.actionWatch_2 = QtGui.QAction(batch_iv_analysis)
+        self.actionWatch_2.setObjectName(_fromUtf8("actionWatch_2"))
         self.menuFile.addAction(self.actionOpen)
+        self.menuFile.addAction(self.actionWatch_2)
         self.menuFile.addSeparator()
         self.menuFile.addAction(self.actionSave)
         self.menuFile.addSeparator()
@@ -108,4 +111,6 @@ class Ui_batch_iv_analysis(object):
         self.actionWatch.setText(_translate("batch_iv_analysis", "Watch", None))
         self.actionWatch.setShortcut(_translate("batch_iv_analysis", "Ctrl+W", None))
         self.actionEnable_Watching.setText(_translate("batch_iv_analysis", "Enable Watching", None))
+        self.actionWatch_2.setText(_translate("batch_iv_analysis", "Watch", None))
+        self.actionWatch_2.setShortcut(_translate("batch_iv_analysis", "Ctrl+W", None))
 

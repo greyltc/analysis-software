@@ -71,6 +71,7 @@
      <string>File</string>
     </property>
     <addaction name="actionOpen"/>
+    <addaction name="actionWatch_2"/>
     <addaction name="separator"/>
     <addaction name="actionSave"/>
     <addaction name="separator"/>
@@ -146,6 +147,14 @@
    </property>
    <property name="text">
     <string>Enable Watching</string>
+   </property>
+  </action>
+  <action name="actionWatch_2">
+   <property name="text">
+    <string>Watch</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+W</string>
    </property>
   </action>
  </widget>
