@@ -1,4 +1,5 @@
 from batch_iv_analysis_UI import Ui_batch_iv_analysis
+import StringIO
 
 #TODO: intigrate QFileSystemWatcher
 
@@ -17,7 +18,7 @@ from collections import OrderedDict
 
 import os, sys, inspect, csv
 
-from PyQt4.QtCore import QString, QThread, pyqtSignal, QTimer, QSettings, Qt, QSignalMapper
+from PyQt4.QtCore import QString, QThread, pyqtSignal, QTimer, QSettings, Qt, QSignalMapper, QTemporaryFile
 from PyQt4.QtGui import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QWidget
 
 import platform
@@ -371,37 +372,66 @@ class MainWindow(QMainWindow):
         self.graphData = []
         
     def processFile(self,fullPath):
+        fileName, fileExtension = os.path.splitext(fullPath)
         fileName = os.path.basename(fullPath)
+        if fileExtension == '.csv':
+            delimiter = ','
+        else:
+            delimiter = None
+            
         print "processing: "+ fileName
         #do a thing here:
         #grab the area out of the header section of the data file
-        #header = []
-        fp = open(fullPath, mode='rw', buffering=1)
-        firstChar = fp.read(1)
-        if not firstChar == '#':#the first line is not a comment
-            firstLine = fp.readline()
-            if firstLine.find('/') != -1: #the first line is probably a date (assume mcgehee iv file format)
-                #comment out the first 25 rows here
-                
-                for ii in range(24):
-                    
-            elif not firstChar.isdigit():
-                print "Unknown file format, prepend # to all non-data lines and try again"
-                
-        fp.close()   
+        #header = [] 
         
-            
+        fp = open(fullPath, mode='r')
+        fileBuffer = fp.read()
+        fp.close()
+        if not fileBuffer[0] == '#':#the first line is not a comment
+            if fileBuffer[0:3].find('/') != -1: #the first line is probably a date (assume mcgehee iv file format)
+                isMcFileFormat = True
+                #comment out the first 25 rows here
+                fileBuffer = '#'+fileBuffer
+                fileBuffer = fileBuffer.replace('\n', '\n#',24)
+            else:
+                isMcFileFormat = False
+        
         #for ii, line in enumerate(fp):
         #    header.append(line)
         #    if ii == 21:
         #        break
         #fp.close()
-        #area = float(header[14].split(' ')[3])              
+        #
         
-      
-
+        splitBuffer = fileBuffer.splitlines(True)
+        
+        #extract header lines
+        header = []
+        for line in splitBuffer:
+            if line.startswith('#'):
+                header.append(line)
+            else:
+                break
+        
+        if isMcFileFormat:
+            area = float(header[14].split(' ')[3])
+        else:
+            area = 1
+        tempFile = QTemporaryFile()
+        tempFile.open()
+        tempFile.writeData(fileBuffer)
+        tempFile.flush()
         #read in data
-        VV, II = np.loadtxt(str(fullPath),unpack=True)
+        
+        try:
+            VV, II = np.loadtxt(str(tempFile.fileName()),unpack=True,delimiter=delimiter)
+        except:
+            print "Could not load data file, prepend # to all non-data lines and try again"
+            VV = nan
+            II = nan
+        tempFile.close()
+        tempFile.remove()
+            
         #todo: get header lines somehow
         #find area somehow
         II = II * -1 /1000*area #flip current and scale it to absolute amps
@@ -433,10 +463,11 @@ class MainWindow(QMainWindow):
         V_end_n = VV[-1]
         I_end_n = II[-1]
         
+        #TODO: check that V goes negative
         #Isc
         iFit = interpolate.interp1d(VV,II)
         V_sc_n = 0
-        I_sc_n = float(iFit(V_sc_n))            
+        I_sc_n = float(iFit(V_sc_n))
 
         #mpp
         VVcalc = VV-minVoltage
@@ -485,7 +516,7 @@ class MainWindow(QMainWindow):
         
         I_L_guess = nGuessSln[0]
         R_sh_guess = -1*1/nGuessSln[1]
-        R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n)
+        R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
         n_initial_guess = 2
         I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
         
@@ -614,7 +645,10 @@ class MainWindow(QMainWindow):
                 print powerSearchResults_charEqn.message
             vMax = powerSearchResults.x[0]
             vMax_charEqn = powerSearchResults_charEqn.x[0]
-            Voc_nn=optimize.brentq(iFitSpline, minVoltage, maxVoltage)
+            try:
+                Voc_nn = optimize.brentq(iFitSpline, minVoltage, maxVoltage)
+            except:
+                Voc_nn = nan
             Voc_nn_charEqn=optimize.brentq(cellModel, minVoltage, maxVoltage)
         else:
             Voc_nn = nan
@@ -734,7 +768,7 @@ class MainWindow(QMainWindow):
         else:
             openDir = '.'
         
-        fileNames = QFileDialog.getOpenFileNamesAndFilter(directory = openDir, caption="Select one or more files to open", filter = '*.txt')       
+        fileNames = QFileDialog.getOpenFileNamesAndFilter(directory = openDir, caption="Select one or more files to open", filter = 'IV Data Files (*.txt *.csv)')       
         self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
         self.settings.setValue('lastFolder',self.workingDirectory)
         for fullPath in fileNames[0]:
