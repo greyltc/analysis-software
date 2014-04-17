@@ -80,8 +80,8 @@
     <property name="title">
      <string>Tools</string>
     </property>
-    <addaction name="actionSet_Bounds"/>
     <addaction name="actionClear_Table"/>
+    <addaction name="actionEnable_Watching"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuTools"/>
@@ -127,6 +127,25 @@
   <action name="actionSet_Bounds">
    <property name="text">
     <string>Set Bounds</string>
+   </property>
+  </action>
+  <action name="actionWatch">
+   <property name="text">
+    <string>Watch</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+W</string>
+   </property>
+  </action>
+  <action name="actionEnable_Watching">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Enable Watching</string>
    </property>
   </action>
  </widget>

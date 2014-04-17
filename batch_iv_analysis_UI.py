@@ -2,7 +2,7 @@
 
 # Form implementation generated from reading ui file 'batch-iv-analysis.ui'
 #
-# Created: Fri Apr  4 01:32:08 2014
+# Created: Thu Apr 17 10:11:32 2014
 #      by: PyQt4 UI code generator 4.10.2
 #
 # WARNING! All changes made in this file will be lost!
@@ -70,13 +70,19 @@ class Ui_batch_iv_analysis(object):
         self.actionFsadf.setObjectName(_fromUtf8("actionFsadf"))
         self.actionSet_Bounds = QtGui.QAction(batch_iv_analysis)
         self.actionSet_Bounds.setObjectName(_fromUtf8("actionSet_Bounds"))
+        self.actionWatch = QtGui.QAction(batch_iv_analysis)
+        self.actionWatch.setObjectName(_fromUtf8("actionWatch"))
+        self.actionEnable_Watching = QtGui.QAction(batch_iv_analysis)
+        self.actionEnable_Watching.setCheckable(True)
+        self.actionEnable_Watching.setChecked(True)
+        self.actionEnable_Watching.setObjectName(_fromUtf8("actionEnable_Watching"))
         self.menuFile.addAction(self.actionOpen)
         self.menuFile.addSeparator()
         self.menuFile.addAction(self.actionSave)
         self.menuFile.addSeparator()
         self.menuFile.addAction(self.actionQuit)
-        self.menuTools.addAction(self.actionSet_Bounds)
         self.menuTools.addAction(self.actionClear_Table)
+        self.menuTools.addAction(self.actionEnable_Watching)
         self.menubar.addAction(self.menuFile.menuAction())
         self.menubar.addAction(self.menuTools.menuAction())
 
@@ -99,4 +105,7 @@ class Ui_batch_iv_analysis(object):
         self.actionClear_Table.setShortcut(_translate("batch_iv_analysis", "Ctrl+Backspace", None))
         self.actionFsadf.setText(_translate("batch_iv_analysis", "fsadf", None))
         self.actionSet_Bounds.setText(_translate("batch_iv_analysis", "Set Bounds", None))
+        self.actionWatch.setText(_translate("batch_iv_analysis", "Watch", None))
+        self.actionWatch.setShortcut(_translate("batch_iv_analysis", "Ctrl+W", None))
+        self.actionEnable_Watching.setText(_translate("batch_iv_analysis", "Enable Watching", None))
 
