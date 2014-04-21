@@ -22,7 +22,7 @@ This project is a GUI python program to do batch curve fitting on data files gen
 - Hover over the file name in each column to see the LabVIEW generated summary data for that file (for comparison purposes)
 - Hover over certian values in the table (only those calculated from the solar cell fit) to see their +/- 95% confidence intervals
 
-### Files contained here
+### Files here
 ---
 - **batch-iv-analysis.py**
  - Main python script. Run this to use the tool. You can edit the code in this file directly using your favorite editor.
