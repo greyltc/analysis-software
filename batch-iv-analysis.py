@@ -496,10 +496,11 @@ class MainWindow(QMainWindow):
         Rsh_fit = fitParams[3]
         n_fit = fitParams[4]
 
-        #smoothingDegree = 3 #must be <=5 int, default 3
-        #smoothingFactor = 1.5e-7 #zero sends spline through all datapoints, 
-        #iFitSpline = interpolate.UnivariateSpline(VV,II,s=smoothingFactor,k=smoothingDegree)
-        iFitSpline = SmoothSpline(VV, II, p=1-1e-5)
+        
+        #0 -> LS-straight line
+        #1 -> cubic spline interpolant
+        smoothingParameter = 1-2e-6
+        iFitSpline = SmoothSpline(VV, II, p=smoothingParameter)
 
         def cellModel(voltageIn):
             #voltageIn = np.array(voltageIn)
