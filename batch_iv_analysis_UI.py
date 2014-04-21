@@ -2,7 +2,7 @@
 
 # Form implementation generated from reading ui file 'batch-iv-analysis.ui'
 #
-# Created: Thu Apr 17 12:52:25 2014
+# Created: Sun Apr 20 10:25:15 2014
 #      by: PyQt4 UI code generator 4.10.2
 #
 # WARNING! All changes made in this file will be lost!
@@ -65,6 +65,7 @@ class Ui_batch_iv_analysis(object):
         self.actionSave = QtGui.QAction(batch_iv_analysis)
         self.actionSave.setObjectName(_fromUtf8("actionSave"))
         self.actionClear_Table = QtGui.QAction(batch_iv_analysis)
+        self.actionClear_Table.setEnabled(False)
         self.actionClear_Table.setObjectName(_fromUtf8("actionClear_Table"))
         self.actionFsadf = QtGui.QAction(batch_iv_analysis)
         self.actionFsadf.setObjectName(_fromUtf8("actionFsadf"))

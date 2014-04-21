@@ -386,6 +386,7 @@ class MainWindow(QMainWindow):
         self.ui.tableWidget.clearContents()
         self.rows = 0
         self.graphData = []
+        fileNames = []
 
     def processFile(self,fullPath):
         fileName, fileExtension = os.path.splitext(fullPath)
