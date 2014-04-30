@@ -283,7 +283,7 @@ class MainWindow(QMainWindow):
         if not QDestinationFolder.exists():
             QDir().mkdir(destinationFolder)
         saveFile = os.path.join(destinationFolder,str(self.ui.tableWidget.item(row,self.cols.keys().index('file')).text())+'.csv')
-        header = 'Voltage [V],CharEqn Current [mA/cm^2],Spline Current [mA/cm^2]'
+        header = '#Voltage [V],CharEqn Current [mA/cm^2],Spline Current [mA/cm^2]'
         try:
             np.savetxt(saveFile, a, delimiter=",",header=header)
             self.ui.statusbar.showMessage("Exported " + saveFile,self.messageDuration)
