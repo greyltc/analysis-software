@@ -2,8 +2,8 @@
 
 # Form implementation generated from reading ui file 'batch-iv-analysis.ui'
 #
-# Created: Sun Apr 20 21:51:52 2014
-#      by: PyQt4 UI code generator 4.10.2
+# Created: Wed Apr 30 20:20:49 2014
+#      by: PyQt4 UI code generator 4.9.6
 #
 # WARNING! All changes made in this file will be lost!
 
@@ -41,14 +41,14 @@ class Ui_batch_iv_analysis(object):
         self.tableWidget.setRowCount(0)
         self.tableWidget.horizontalHeader().setCascadingSectionResizes(False)
         self.tableWidget.horizontalHeader().setDefaultSectionSize(92)
-        self.tableWidget.horizontalHeader().setSortIndicatorShown(False)
+        self.tableWidget.horizontalHeader().setSortIndicatorShown(True)
         self.tableWidget.verticalHeader().setVisible(False)
         self.tableWidget.verticalHeader().setDefaultSectionSize(30)
-        self.tableWidget.verticalHeader().setSortIndicatorShown(False)
+        self.tableWidget.verticalHeader().setSortIndicatorShown(True)
         self.gridLayout.addWidget(self.tableWidget, 0, 0, 1, 1)
         batch_iv_analysis.setCentralWidget(self.centralwidget)
         self.menubar = QtGui.QMenuBar(batch_iv_analysis)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 1238, 27))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 1238, 21))
         self.menubar.setObjectName(_fromUtf8("menubar"))
         self.menuFile = QtGui.QMenu(self.menubar)
         self.menuFile.setObjectName(_fromUtf8("menuFile"))
@@ -96,7 +96,7 @@ class Ui_batch_iv_analysis(object):
 
     def retranslateUi(self, batch_iv_analysis):
         batch_iv_analysis.setWindowTitle(_translate("batch_iv_analysis", "batch-iv-analysis", None))
-        self.tableWidget.setSortingEnabled(False)
+        self.tableWidget.setSortingEnabled(True)
         self.menuFile.setTitle(_translate("batch_iv_analysis", "File", None))
         self.menuTools.setTitle(_translate("batch_iv_analysis", "Tools", None))
         self.actionQuit.setText(_translate("batch_iv_analysis", "Quit", None))

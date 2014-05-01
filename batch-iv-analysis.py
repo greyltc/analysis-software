@@ -20,7 +20,7 @@ from collections import OrderedDict
 
 import os, sys, inspect, csv
 
-from PyQt4.QtCore import QString, QThread, pyqtSignal, QTimer, QSettings, Qt, QSignalMapper, QTemporaryFile, QFileSystemWatcher, QDir, QStringList
+from PyQt4.QtCore import QString, QThread, pyqtSignal, QTimer, QSettings, Qt, QSignalMapper, QTemporaryFile, QFileSystemWatcher, QDir, QStringList, QFileInfo
 from PyQt4.QtGui import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QWidget
 
 import platform
@@ -59,25 +59,26 @@ charEqn = sympy.Eq(lhs,rhs)
 current = sympy.solve(charEqn,I)
 
 #isolate voltage term in solar cell equation
-voltage = sympy.solve(charEqn,V)
+#voltage = sympy.solve(charEqn,V)
 
 #isolate I0  in solar cell equation
 eyeNot = sympy.solve(charEqn,I0)
 #isolate n  in solar cell equation
-nidf = sympy.solve(charEqn,n)
-RshEqn = sympy.solve(charEqn,Rsh)
+#nidf = sympy.solve(charEqn,n)
+#RshEqn = sympy.solve(charEqn,Rsh)
+RsEqn = sympy.solve(charEqn,Rs)
 
 #solve for I0 in terms of n:
-I0_in_n = eyeNot[0].subs(V,V_I0).subs(I,I_I0)
+#I0_in_n = eyeNot[0].subs(V,V_I0).subs(I,I_I0)
 
 #use I0 to find a guess value for n:
-nEqn = sympy.Eq(n,nidf[0].subs(I0,I0_in_n).subs(V,V_n).subs(I,I_n))
+#nEqn = sympy.Eq(n,nidf[0].subs(I0,I0_in_n).subs(V,V_n).subs(I,I_n))
 #forNguess = sympy.solve(nEqn,n)
 
 
-Isc = current[0].subs(V,0)
+#Isc = current[0].subs(V,0)
 #Isc_n = sympy.lambdify((I0,Iph,Rs,Rsh,n,Vth),Isc)
-Voc = voltage[0].subs(I,0)
+#Voc = voltage[0].subs(I,0)
 #Voc_n = sympy.lambdify((I0,Iph,Rs,Rsh,n,Vth),Voc)
 
 #numeric substitution for thermalVoltage
@@ -241,7 +242,6 @@ class MainWindow(QMainWindow):
         self.cols[thisKey].header = 'R_sh\n[ohm]'
         self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit\nHover for 95% confidence interval'		
 
-        self.graphData = []
 
         #how long status messages show for
         self.messageDuration = 2500#ms
@@ -273,9 +273,10 @@ class MainWindow(QMainWindow):
         self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
 
     def exportInterp(self,row):
-        fitX = self.graphData[row]['fitX']
-        modelY = self.graphData[row]['modelY']
-        splineY = self.graphData[row]['splineY']
+        thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole).toPyObject()
+        fitX = thisGraphData[QString(u'fitX')]
+        modelY = thisGraphData[QString(u'modelY')]
+        splineY = thisGraphData[QString(u'splineY')]
         a = np.asarray([fitX, modelY, splineY])
         a = np.transpose(a)
         destinationFolder = os.path.join(self.workingDirectory,'exports')
@@ -286,7 +287,7 @@ class MainWindow(QMainWindow):
         header = 'Voltage [V],CharEqn Current [mA/cm^2],Spline Current [mA/cm^2]'
         try:
             np.savetxt(saveFile, a, delimiter=",",header=header)
-            self.ui.statusbar.showMessage("Exported " + saveFile,self.messageDuration)
+            self.ui.statusbar.showMessage("Exported " + saveFile,5000)
         except:
             self.ui.statusbar.showMessage("Could not export " + saveFile,self.messageDuration)
         
@@ -304,17 +305,18 @@ class MainWindow(QMainWindow):
 
 
     def rowGraph(self,row):
+        thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole).toPyObject()
         filename = str(self.ui.tableWidget.item(row,self.cols.keys().index('file')).text())
         plt.title(filename)
-        v = self.graphData[row]['v']
-        i = self.graphData[row]['i']
+        v = thisGraphData[QString(u'v')]
+        i = thisGraphData[QString(u'i')]
         plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data')
-        plt.scatter(self.graphData[row]['Vmax'], self.graphData[row]['Imax'], c='g',marker='x',s=100)
-        plt.scatter(self.graphData[row]['Voc'], 0, c='g',marker='x',s=100)
-        plt.scatter(0, self.graphData[row]['Isc'], c='g',marker='x',s=100)
-        fitX = self.graphData[row]['fitX']
-        modelY = self.graphData[row]['modelY']
-        splineY = self.graphData[row]['splineY']
+        plt.scatter(thisGraphData[QString(u'Vmax')], thisGraphData[QString(u'Imax')], c='g',marker='x',s=100)
+        plt.scatter(thisGraphData[QString(u'Voc')], 0, c='g',marker='x',s=100)
+        plt.scatter(0, thisGraphData[QString(u'Isc')], c='g',marker='x',s=100)
+        fitX = thisGraphData[QString(u'fitX')]
+        modelY = thisGraphData[QString(u'modelY')]
+        splineY = thisGraphData[QString(u'splineY')]
         if not np.isnan(modelY[0]):
             plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
         plt.plot(fitX, splineY,c='g', label='Spline Fit')
@@ -325,22 +327,22 @@ class MainWindow(QMainWindow):
         ax.legend(handles, labels, loc=3)
 
         plt.annotate(
-            self.graphData[row]['Voc'].__format__('0.4f')+ ' V', 
-            xy = (self.graphData[row]['Voc'], 0), xytext = (40, 20),
+            thisGraphData[QString(u'Voc')].__format__('0.4f')+ ' V', 
+            xy = (thisGraphData[QString(u'Voc')], 0), xytext = (40, 20),
             textcoords = 'offset points', ha = 'right', va = 'bottom',
             bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
             arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
         plt.annotate(
-            float(self.graphData[row]['Isc']).__format__('0.4f') + ' mA/cm^2', 
-            xy = (0,self.graphData[row]['Isc']), xytext = (40, 20),
+            float(thisGraphData[QString(u'Isc')]).__format__('0.4f') + ' mA/cm^2', 
+            xy = (0,thisGraphData[QString(u'Isc')]), xytext = (40, 20),
             textcoords = 'offset points', ha = 'right', va = 'bottom',
             bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
             arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
         plt.annotate(
-            float(self.graphData[row]['Imax']*self.graphData[row]['Vmax']).__format__('0.4f') + '% @(' + float(self.graphData[row]['Vmax']).__format__('0.4f') + ',' + float(self.graphData[row]['Imax']).__format__('0.4f') + ')', 
-            xy = (self.graphData[row]['Vmax'],self.graphData[row]['Imax']), xytext = (80, 40),
+            float(thisGraphData[QString(u'Imax')]*thisGraphData[QString(u'Vmax')]).__format__('0.4f') + '% @(' + float(thisGraphData[QString(u'Vmax')]).__format__('0.4f') + ',' + float(thisGraphData[QString(u'Imax')]).__format__('0.4f') + ')', 
+            xy = (thisGraphData[QString(u'Vmax')],thisGraphData[QString(u'Imax')]), xytext = (80, 40),
             textcoords = 'offset points', ha = 'right', va = 'bottom',
             bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
             arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
@@ -353,7 +355,6 @@ class MainWindow(QMainWindow):
 
     def handleSave(self):
         if self.settings.contains('lastFolder'):
-            self.settings.value('lastFolder')
             saveDir = self.settings.value('lastFolder').toString()
         else:
             saveDir = '.'        
@@ -385,8 +386,7 @@ class MainWindow(QMainWindow):
             self.ui.tableWidget.removeRow(0)
         self.ui.tableWidget.clearContents()
         self.rows = 0
-        self.graphData = []
-        fileNames = []
+        self.fileNames = []
 
     def processFile(self,fullPath):
         fileName, fileExtension = os.path.splitext(fullPath)
@@ -399,33 +399,45 @@ class MainWindow(QMainWindow):
 
         self.ui.statusbar.showMessage("processing: "+ fileName,2500)
         
+        #wait here for the file to be completely written to disk and closed before trying to read it
+
+        fi = QFileInfo(fullPath)
+        while (not fi.isWritable()):
+                time.sleep(0.001)
+                fi.refresh()
+        
         fp = open(fullPath, mode='r')
         fileBuffer = fp.read()
         fp.close()
-        isMcFileFormat = False
-        if not fileBuffer[0] == '#':#the first line is not a comment
-            if fileBuffer[0:3].find('/') != -1: #the first line is probably a date (assume mcgehee iv file format)
-                isMcFileFormat = True
-                #comment out the first 25 rows here
-                fileBuffer = '#'+fileBuffer
-                fileBuffer = fileBuffer.replace('\n', '\n#',24)
+        first10 = fileBuffer[0:10]
+        nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
+        isMcFile = False #true if this is a McGehee iv file format
+        if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
+            #the first 8 chars do not contain comment symbol and do contain / and a tab, it's safe to assume mcgehee iv file format
+            isMcFile = True
+            #comment out the first 25 rows here
+            fileBuffer = '#'+fileBuffer
+            fileBuffer = fileBuffer.replace('\n', '\n#',nMcHeaderLines-1)
 
         splitBuffer = fileBuffer.splitlines(True)
-
-        #extract header lines
+        
+        
+        area = 1
+        noArea = True
+        vsTime = False #this is not an i,v vs t data file
+        #extract header lines and search for area
         header = []
         for line in splitBuffer:
             if line.startswith('#'):
                 header.append(line)
+                if line.__contains__('Area'):
+                    area = float(line.split(' ')[3])
+                    noArea = False
+                if line.__contains__('I&V vs t'):
+                    if float(line.split(' ')[5]) == 1:
+                        vsTime = True
             else:
                 break
-
-        if isMcFileFormat:
-            area = float(header[14].split(' ')[3])
-            noArea = False
-        else:
-            area = 1
-            noArea = True
 
         tempFile = QTemporaryFile()
         tempFile.open()
@@ -437,21 +449,27 @@ class MainWindow(QMainWindow):
             data = np.loadtxt(str(tempFile.fileName()),delimiter=delimiter)
             VV = data[:,0]
             II = data[:,1]
+            if vsTime:
+                time = data[:,2]
         except:
             self.ui.statusbar.showMessage('Could not read' + fileName +'. Prepend # to all non-data lines and try again',2500)
-            VV = nan
-            II = nan
             return
         tempFile.close()
         tempFile.remove()
 
-        #assumes current data has the wrong sign and it is in mA
-        II = II * -1 /1000*area #flip current and scale it to absolute amps
+        
+        if isMcFile: #convert to amps
+            II = II/1000*area
 
-        #sort data by ascending voltage 
-        newOrder = VV.argsort()
-        VV=VV[newOrder]
-        II=II[newOrder]
+        if not vsTime:
+            #sort data by ascending voltage
+            newOrder = VV.argsort()
+            VV=VV[newOrder]
+            II=II[newOrder]
+        
+            #remove duplicate voltage entries
+            VV, indices = np.unique(VV, return_index =True)
+            II = II[indices]
 
         #catch and fix flipped current sign:
         if II[0] < II[-1]:
@@ -462,33 +480,17 @@ class MainWindow(QMainWindow):
             isDarkCurve = False
         else:
             self.ui.statusbar.showMessage("Dark curve detected",500)
-            isDarkCurve = True        
+            isDarkCurve = True
+        
+        
+        if vsTime:
+            self.ui.statusbar.showMessage("I,V vs time files not supported",1500)
+            #TODO: support I,V vs time files
+            return
 
         fitParams, fitCovariance, infodict, errmsg, ier = self.bestEffortFit(VV,II)
-
-        alwaysShowRecap = False
-        if  alwaysShowRecap:
-            vv=np.linspace(VV[0],VV[-1],1000)
-            print "fit:"
-            print fitParams                
-            print "guess:"
-            print guess
-            print ier
-            print errmsg
-            ii=vectorizedCurrent(vv,guess[0],guess[1],guess[2],guess[3],guess[4])
-            ii2=vectorizedCurrent(vv,fitParams[0],fitParams[1],fitParams[2],fitParams[3],fitParams[4])
-            plt.title('Fit analysis for' + fileName)
-            p1, = plt.plot(vv,ii, label='Guess',ls='--')
-            p2, = plt.plot(vv,ii2, label='Fit')
-            p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-            #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
-            ax = plt.gca()
-            handles, labels = ax.get_legend_handles_labels()
-            ax.legend(handles, labels, loc=3)
-            plt.grid(b=True)
-            plt.draw()
-            plt.show()
-
+        
+        #print errmsg
 
         I0_fit = fitParams[0]
         Iph_fit = fitParams[1]
@@ -590,13 +592,10 @@ class MainWindow(QMainWindow):
             Isc_nn = iFitSpline([0,1e-55])[0]
         except:
             Isc_nn = nan
-        #Isc_nn_charEqn = vectorizedCurrent(0,I0_fit,Iph_fit,Rs_fit,Rsh_fit,n_fit)
 
-        #Voc_nn_charEqn = Voc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
-        #Isc_nn_charEqn = Isc_n(I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit, thermalVoltage)
         FF = pMax/(Voc_nn*Isc_nn)
 
-        if (ier != 7) and (ier != 6) and (not dontFindBounds):
+        if (ier != 7) and (ier != 6) and (not dontFindBounds) and (type(fitCovariance) is not float):
             #error estimation:
             alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
 
@@ -630,7 +629,7 @@ class MainWindow(QMainWindow):
         else:
             modelY = np.empty(plotPoints)*nan
         splineY = iFitSpline(fitX)*outputScaleFactor
-        self.graphData.append({'origRow':self.rows,'fitX':fitX,'modelY':modelY,'splineY':splineY,'i':II*outputScaleFactor,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn*outputScaleFactor,'Vmax':vMax,'Imax':iMax*outputScaleFactor})			
+        graphData = {'origRow':self.rows,'fitX':fitX,'modelY':modelY,'splineY':splineY,'i':II*outputScaleFactor,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn*outputScaleFactor,'Vmax':vMax,'Imax':iMax*outputScaleFactor}		
 
         self.ui.tableWidget.insertRow(self.rows)
         for ii in range(len(self.cols)):
@@ -641,6 +640,7 @@ class MainWindow(QMainWindow):
         plotBtn.setText('Plot')
         plotBtn.clicked.connect(self.handleButton)
         self.ui.tableWidget.setCellWidget(self.rows,self.cols.keys().index('plotBtn'), plotBtn)
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('plotBtn')).setData(Qt.UserRole,graphData)
 
         #export button
         exportBtn = QPushButton(self.ui.tableWidget)
@@ -687,9 +687,9 @@ class MainWindow(QMainWindow):
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
 
         self.rows = self.rows + 1
-        self.ui.tableWidget.setVisible(False)
+        #self.ui.tableWidget.setVisible(False)
         self.ui.tableWidget.resizeColumnsToContents()
-        self.ui.tableWidget.setVisible(True)        
+        #self.ui.tableWidget.setVisible(True)        
 
     def bestEffortFit(self,VV,II):
 
@@ -775,17 +775,26 @@ class MainWindow(QMainWindow):
         I_L_guess = nGuessSln[0]
         R_sh_guess = -1*1/nGuessSln[1]
         R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
-        n_initial_guess = 2
+        n_initial_guess = 1 #TODO: maybe a more intelegant guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
         I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
 
+        initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
         if diaplayAllGuesses:
-            initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
-            evaluateGuessPlot(VV, II, initial_guess)                
+            evaluateGuessPlot(VV, II, initial_guess)
+            
+        # let's try the fit now, if it works great, we're done, otherwise we can continue
+        try:
+            guess = initial_guess
+            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15)
+            return(fitParams, fitCovariance, infodict, errmsg, ier)
+        except:
+            pass        
 
         #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
         eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
         eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
         eqnSys = (eqnSys1,eqnSys2)
+        
         try:
             nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
         except:
@@ -793,9 +802,16 @@ class MainWindow(QMainWindow):
 
         I0_guess = nGuessSln[0]
         R_s_guess = nGuessSln[1]
+        
+        #Rs_initial_guess = RsEqn[0].evalf(subs={I0:I0_initial_guess,Vth:thermalVoltage,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_end_n,V:V_end_n})
+        #I0_guess = I0_initial_guess
+        #R_s_guess = Rs_initial_guess
+        
         guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
         if diaplayAllGuesses:
             evaluateGuessPlot(VV, II, guess)
+            
+        #nidf
 
         #give 5x weight to data around mpp
         #nP = II*VV
@@ -828,9 +844,33 @@ class MainWindow(QMainWindow):
             #print myoutput.stopreason
             #print myoutput.info
             #ier = 1
-            return(optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-12,ftol=1e-14))
+            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15)
             #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
-            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14
+            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14            
+        
+            alwaysShowRecap = False
+            if  alwaysShowRecap:
+                vv=np.linspace(VV[0],VV[-1],1000)
+                print "fit:"
+                print fitParams                
+                print "guess:"
+                print guess
+                print ier
+                print errmsg
+                ii=vectorizedCurrent(vv,guess[0],guess[1],guess[2],guess[3],guess[4])
+                ii2=vectorizedCurrent(vv,fitParams[0],fitParams[1],fitParams[2],fitParams[3],fitParams[4])
+                plt.title('Fit analysis')
+                p1, = plt.plot(vv,ii, label='Guess',ls='--')
+                p2, = plt.plot(vv,ii2, label='Fit')
+                p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+                #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
+                ax = plt.gca()
+                handles, labels = ax.get_legend_handles_labels()
+                ax.legend(handles, labels, loc=3)
+                plt.grid(b=True)
+                plt.draw()
+                plt.show()
+            return(fitParams, fitCovariance, infodict, errmsg, ier)
         except:
             return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
 
@@ -839,7 +879,6 @@ class MainWindow(QMainWindow):
     def openCall(self):
         #remember the last path th user opened
         if self.settings.contains('lastFolder'):
-            self.settings.value('lastFolder')
             openDir = self.settings.value('lastFolder').toString()
         else:
             openDir = '.'
@@ -855,15 +894,15 @@ class MainWindow(QMainWindow):
                 self.processFile(fullPath)
         
             if self.ui.actionEnable_Watching.isChecked():
-                self.handleWatchUpdate(self.workingDirectory)
                 watchedDirs = self.watcher.directories()
                 self.watcher.removePaths(watchedDirs)
                 self.watcher.addPath(self.workingDirectory)
+                self.handleWatchUpdate(self.workingDirectory)
     
+    #user chose file --> watch
     def handleWatchAction(self):
         #remember the last path th user opened
         if self.settings.contains('lastFolder'):
-            self.settings.value('lastFolder')
             openDir = self.settings.value('lastFolder').toString()
         else:
             openDir = '.'
@@ -878,16 +917,15 @@ class MainWindow(QMainWindow):
             self.watcher.removePaths(watchedDirs)
             self.watcher.addPath(self.workingDirectory)
             self.handleWatchUpdate(self.workingDirectory)
-            
     
+    #user toggeled Tools --> Enable Watching
     def watchCall(self):
         watchedDirs = self.watcher.directories()
+        self.watcher.removePaths(watchedDirs)
         if self.ui.actionEnable_Watching.isChecked():
             if (self.workingDirectory != ''):
                 self.watcher.addPath(self.workingDirectory)
                 self.handleWatchUpdate(self.workingDirectory)
-        else:
-            self.watcher.removePaths(watchedDirs)
             
     def handleWatchUpdate(self,path):
         myDir = QDir(path)
@@ -895,9 +933,7 @@ class MainWindow(QMainWindow):
         allFilesNow = myDir.entryList()
         allFilesNow = list(allFilesNow)
         allFilesNow = [str(item) for item in allFilesNow]
-        #print allFilesNow
-        #print self.fileNames
-        #print set(allFilesNow) & set(self.fileNames)
+
         differentFiles = list(set(allFilesNow) ^ set(self.fileNames))
         if differentFiles != []:
             for aFile in differentFiles:
