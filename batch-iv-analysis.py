@@ -650,46 +650,46 @@ class MainWindow(QMainWindow):
 
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))            
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,float(pMax/area*1e3).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setToolTip(str(float(pMax_charEqn/area*1e3).__format__('.3f')))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,float(pMax/area*1e3).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setToolTip(str(float(pMax_charEqn/area*1e3).__format__('.3f')))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,float(Isc_nn/area*1e3).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setToolTip(str(float(Isc_nn_charEqn/area*1e3).__format__('.3f')))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,float(Voc_nn*1e3).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setToolTip(str(float(Voc_nn_charEqn*1e3).__format__('.3f')))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setData(Qt.DisplayRole,float(FF).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setToolTip(str(float(FF_charEqn).__format__('.3f')))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setData(Qt.DisplayRole,float(Rs_fit*area).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,round(Isc_nn/area*1e3,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setToolTip(str(round(Isc_nn_charEqn/area*1e3,3)))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,round(Voc_nn*1e3,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setToolTip(str(round(Voc_nn_charEqn*1e3,3)))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setData(Qt.DisplayRole,round(FF,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setToolTip(str(round(FF_charEqn,3)))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setData(Qt.DisplayRole,round(Rs_fit*area,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setData(Qt.DisplayRole,float(Rsh_fit*area).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setData(Qt.DisplayRole,round(Rsh_fit*area,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,float(Iph_fit/area*1e3).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,round(Iph_fit/area*1e3,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,float(I0_fit/area*1e9).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,round(I0_fit/area*1e9,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,float(n_fit).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,round(n_fit,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,float(vMax*1e3).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setToolTip(str(float(vMax_charEqn*1e3).__format__('.3f')))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,float(area).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,float(pMax*1e3).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setToolTip(str(float(pMax_charEqn*1e3).__format__('.3f')))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,float(Isc_nn*1e3).__format__('.3f'))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setToolTip(str(float(Isc_nn_charEqn*1e3).__format__('.3f')))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setData(Qt.DisplayRole,float(Iph_fit*1e3).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,round(vMax*1e3,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setToolTip(str(round(vMax_charEqn*1e3,3)))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,round(area,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,round(pMax*1e3,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setToolTip(str(round(pMax_charEqn*1e3,3)))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,round(Isc_nn*1e3,3))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setToolTip(str(round(Isc_nn_charEqn*1e3,3)))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setData(Qt.DisplayRole,round(Iph_fit*1e3,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setData(Qt.DisplayRole,float(I0_fit*1e9).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setData(Qt.DisplayRole,round(I0_fit*1e9,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setData(Qt.DisplayRole,float(Rs_fit).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setData(Qt.DisplayRole,round(Rs_fit,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setData(Qt.DisplayRole,float(Rsh_fit).__format__('.3f'))
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setData(Qt.DisplayRole,round(Rsh_fit,3))
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
+        
+        self.ui.tableWidget.resizeColumnsToContents()
 
         self.rows = self.rows + 1
-        #self.ui.tableWidget.setVisible(False)
-        self.ui.tableWidget.resizeColumnsToContents()
-        #self.ui.tableWidget.setVisible(True)        
+
 
     def bestEffortFit(self,VV,II):
 
@@ -775,7 +775,7 @@ class MainWindow(QMainWindow):
         I_L_guess = nGuessSln[0]
         R_sh_guess = -1*1/nGuessSln[1]
         R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
-        n_initial_guess = 1 #TODO: maybe a more intelegant guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
+        n_initial_guess = 2 #TODO: maybe a more intelegant guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
         I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
 
         initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
@@ -783,12 +783,12 @@ class MainWindow(QMainWindow):
             evaluateGuessPlot(VV, II, initial_guess)
             
         # let's try the fit now, if it works great, we're done, otherwise we can continue
-        try:
-            guess = initial_guess
-            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15)
-            return(fitParams, fitCovariance, infodict, errmsg, ier)
-        except:
-            pass        
+        #try:
+            #guess = initial_guess
+            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15)
+            #return(fitParams, fitCovariance, infodict, errmsg, ier)
+        #except:
+            #pass        
 
         #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
         eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
@@ -943,6 +943,7 @@ class MainWindow(QMainWindow):
                 else:
                     #process the new file
                     self.processFile(os.path.join(self.workingDirectory,aFile))
+
         
         
 
