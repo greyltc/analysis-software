@@ -45,6 +45,7 @@ To generate an install package for a specific platform (windows or OSX) you must
  - Make sure you can run the program directly with `python batch-iv-analysis.py` before proceeding
 - Install cx_freeze
 - run `python setup.py build`
+ - If you see an issue with exec_py3...something you can safely delete this file to solve the problem
 - The standalone release files will be in a newly created folder called build
  - These files can then be copied to another computer to run the tool there
 - It's also possible to generate installers with setup.py see the cx_Freeze docs for more info
