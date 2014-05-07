@@ -1,7 +1,5 @@
 from batch_iv_analysis_UI import Ui_batch_iv_analysis
 
-#TODO: intigrate QFileSystemWatcher
-#TODO: enable table sorting
 #TODO: make area editable
 #TODO: handle area from custom input file
 
@@ -20,7 +18,7 @@ from collections import OrderedDict
 
 import os, sys, inspect, csv
 
-from PyQt4.QtCore import QString, QThread, pyqtSignal, QTimer, QSettings, Qt, QSignalMapper, QTemporaryFile, QFileSystemWatcher, QDir, QStringList, QFileInfo
+from PyQt4.QtCore import QString, QSettings, Qt, QSignalMapper, QTemporaryFile, QFileSystemWatcher, QDir, QStringList, QFileInfo
 from PyQt4.QtGui import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QWidget
 
 import platform
@@ -310,46 +308,52 @@ class MainWindow(QMainWindow):
         plt.title(filename)
         v = thisGraphData[QString(u'v')]
         i = thisGraphData[QString(u'i')]
-        plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data')
-        plt.scatter(thisGraphData[QString(u'Vmax')], thisGraphData[QString(u'Imax')], c='g',marker='x',s=100)
-        plt.scatter(thisGraphData[QString(u'Voc')], 0, c='g',marker='x',s=100)
-        plt.scatter(0, thisGraphData[QString(u'Isc')], c='g',marker='x',s=100)
-        fitX = thisGraphData[QString(u'fitX')]
-        modelY = thisGraphData[QString(u'modelY')]
-        splineY = thisGraphData[QString(u'splineY')]
-        if not np.isnan(modelY[0]):
-            plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
-        plt.plot(fitX, splineY,c='g', label='Spline Fit')
-        plt.autoscale(axis='x', tight=True)
-        plt.grid(b=True)
-        ax = plt.gca()
-        handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles, labels, loc=3)
-
-        plt.annotate(
-            thisGraphData[QString(u'Voc')].__format__('0.4f')+ ' V', 
-            xy = (thisGraphData[QString(u'Voc')], 0), xytext = (40, 20),
-            textcoords = 'offset points', ha = 'right', va = 'bottom',
-            bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-            arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
-
-        plt.annotate(
-            float(thisGraphData[QString(u'Isc')]).__format__('0.4f') + ' mA/cm^2', 
-            xy = (0,thisGraphData[QString(u'Isc')]), xytext = (40, 20),
-            textcoords = 'offset points', ha = 'right', va = 'bottom',
-            bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-            arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
-
-        plt.annotate(
-            float(thisGraphData[QString(u'Imax')]*thisGraphData[QString(u'Vmax')]).__format__('0.4f') + '% @(' + float(thisGraphData[QString(u'Vmax')]).__format__('0.4f') + ',' + float(thisGraphData[QString(u'Imax')]).__format__('0.4f') + ')', 
-            xy = (thisGraphData[QString(u'Vmax')],thisGraphData[QString(u'Imax')]), xytext = (80, 40),
-            textcoords = 'offset points', ha = 'right', va = 'bottom',
-            bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-            arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
-
-        plt.ylabel('Current [mA/cm^2]')
-        plt.xlabel('Voltage [V]')
-
+        if not thisGraphData[QString(u'vsTime')]:
+            plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data')
+            plt.scatter(thisGraphData[QString(u'Vmax')], thisGraphData[QString(u'Imax')], c='g',marker='x',s=100)
+            plt.scatter(thisGraphData[QString(u'Voc')], 0, c='g',marker='x',s=100)
+            plt.scatter(0, thisGraphData[QString(u'Isc')], c='g',marker='x',s=100)
+            fitX = thisGraphData[QString(u'fitX')]
+            modelY = thisGraphData[QString(u'modelY')]
+            splineY = thisGraphData[QString(u'splineY')]
+            if not np.isnan(modelY[0]):
+                plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
+            plt.plot(fitX, splineY,c='g', label='Spline Fit')
+            plt.autoscale(axis='x', tight=True)
+            plt.grid(b=True)
+            ax = plt.gca()
+            handles, labels = ax.get_legend_handles_labels()
+            ax.legend(handles, labels, loc=3)
+    
+            plt.annotate(
+                thisGraphData[QString(u'Voc')].__format__('0.4f')+ ' V', 
+                xy = (thisGraphData[QString(u'Voc')], 0), xytext = (40, 20),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+    
+            plt.annotate(
+                float(thisGraphData[QString(u'Isc')]).__format__('0.4f') + ' mA/cm^2', 
+                xy = (0,thisGraphData[QString(u'Isc')]), xytext = (40, 20),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+    
+            plt.annotate(
+                float(thisGraphData[QString(u'Imax')]*thisGraphData[QString(u'Vmax')]).__format__('0.4f') + '% @(' + float(thisGraphData[QString(u'Vmax')]).__format__('0.4f') + ',' + float(thisGraphData[QString(u'Imax')]).__format__('0.4f') + ')', 
+                xy = (thisGraphData[QString(u'Vmax')],thisGraphData[QString(u'Imax')]), xytext = (80, 40),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
+    
+            plt.ylabel('Current [mA/cm^2]')
+            plt.xlabel('Voltage [V]')
+        else: #vs time
+            time = thisGraphData[QString(u'time')]
+            print time
+            plt.ylabel('Current [mA/cm^2]')
+            plt.xlabel('Time [V]')
+            plt.plot(time, v,label='Voltage [V]')
         plt.draw()
         plt.show()
 
@@ -438,6 +442,8 @@ class MainWindow(QMainWindow):
                         vsTime = True
             else:
                 break
+        
+        outputScaleFactor = np.array(1000/area) #for converstion to [mA/cm^2]
 
         tempFile = QTemporaryFile()
         tempFile.open()
@@ -466,10 +472,16 @@ class MainWindow(QMainWindow):
             newOrder = VV.argsort()
             VV=VV[newOrder]
             II=II[newOrder]
-        
             #remove duplicate voltage entries
             VV, indices = np.unique(VV, return_index =True)
             II = II[indices]
+        else:
+            #sort data by ascending time
+            newOrder = time.argsort()
+            VV=VV[newOrder]
+            II=II[newOrder]
+            time=time[newOrder]
+            time=time-time[0]#start time at t=0
 
         #catch and fix flipped current sign:
         if II[0] < II[-1]:
@@ -482,212 +494,212 @@ class MainWindow(QMainWindow):
             self.ui.statusbar.showMessage("Dark curve detected",500)
             isDarkCurve = True
         
+        #put items in table
+        self.ui.tableWidget.insertRow(self.rows)
+        for ii in range(len(self.cols)):
+            self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())        
         
-        if vsTime:
-            self.ui.statusbar.showMessage("I,V vs time files not supported",1500)
-            #TODO: support I,V vs time files
-            return
-
-        fitParams, fitCovariance, infodict, errmsg, ier = self.bestEffortFit(VV,II)
+        if not vsTime:
+            fitParams, fitCovariance, infodict, errmsg, ier = self.bestEffortFit(VV,II)
         
-        #print errmsg
-
-        I0_fit = fitParams[0]
-        Iph_fit = fitParams[1]
-        Rs_fit = fitParams[2]
-        Rsh_fit = fitParams[3]
-        n_fit = fitParams[4]
-
-        
-        #0 -> LS-straight line
-        #1 -> cubic spline interpolant
-        smoothingParameter = 1-2e-6
-        iFitSpline = SmoothSpline(VV, II, p=smoothingParameter)
-
-        def cellModel(voltageIn):
-            #voltageIn = np.array(voltageIn)
-            return vectorizedCurrent(voltageIn, I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit)
-
-        def invCellPowerSpline(voltageIn):
-            if voltageIn < 0:
-                return 0
+            #print errmsg
+    
+            I0_fit = fitParams[0]
+            Iph_fit = fitParams[1]
+            Rs_fit = fitParams[2]
+            Rsh_fit = fitParams[3]
+            n_fit = fitParams[4]
+    
+            
+            #0 -> LS-straight line
+            #1 -> cubic spline interpolant
+            smoothingParameter = 1-2e-6
+            iFitSpline = SmoothSpline(VV, II, p=smoothingParameter)
+    
+            def cellModel(voltageIn):
+                #voltageIn = np.array(voltageIn)
+                return vectorizedCurrent(voltageIn, I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit)
+    
+            def invCellPowerSpline(voltageIn):
+                if voltageIn < 0:
+                    return 0
+                else:
+                    return -1*voltageIn*iFitSpline(voltageIn)
+    
+            def invCellPowerModel(voltageIn):
+                if voltageIn < 0:
+                    return 0
+                else:
+                    return -1*voltageIn*cellModel(voltageIn)
+    
+            if not isDarkCurve:
+                VVq1 = VV[indexInQuad1]
+                IIq1 = II[indexInQuad1]
+                vMaxGuess = VVq1[np.array(VVq1*IIq1).argmax()]
+                powerSearchResults = optimize.minimize(invCellPowerSpline,vMaxGuess)
+                #catch a failed max power search:
+                if not powerSearchResults.status == 0:
+                    print "power search exit code = " + str(powerSearchResults.status)
+                    print powerSearchResults.message
+                    vMax = nan
+                    iMax = nan
+                    pMax = nan
+                else:
+                    vMax = powerSearchResults.x[0]
+                    iMax = iFitSpline([vMax])[0]
+                    pMax = vMax*iMax                
+    
+                #only do this stuff if the char eqn fit was good
+                if ier < 5:
+                    powerSearchResults_charEqn = optimize.minimize(invCellPowerModel,vMaxGuess)
+                    #catch a failed max power search:
+                    if not powerSearchResults_charEqn.status == 0:
+                        print "power search exit code = " + str(powerSearchResults_charEqn.status)
+                        print powerSearchResults_charEqn.message
+                        vMax_charEqn = nan
+                    else:
+                        vMax_charEqn = powerSearchResults_charEqn.x[0]
+                    #dude
+                    try:
+                        Voc_nn_charEqn=optimize.brentq(cellModel, VV[0], VV[-1])
+                    except:
+                        Voc_nn_charEqn = nan
+                else:
+                    Voc_nn_charEqn = nan
+                    vMax_charEqn = nan
+    
+    
+                try:
+                    Voc_nn = optimize.brentq(iFitSpline, VV[0], VV[-1])
+                except:
+                    Voc_nn = nan
+    
             else:
-                return -1*voltageIn*iFitSpline(voltageIn)
-
-        def invCellPowerModel(voltageIn):
-            if voltageIn < 0:
-                return 0
-            else:
-                return -1*voltageIn*cellModel(voltageIn)
-
-        if not isDarkCurve:
-            VVq1 = VV[indexInQuad1]
-            IIq1 = II[indexInQuad1]
-            vMaxGuess = VVq1[np.array(VVq1*IIq1).argmax()]
-            powerSearchResults = optimize.minimize(invCellPowerSpline,vMaxGuess)
-            #catch a failed max power search:
-            if not powerSearchResults.status == 0:
-                print "power search exit code = " + str(powerSearchResults.status)
-                print powerSearchResults.message
+                Voc_nn = nan
                 vMax = nan
                 iMax = nan
                 pMax = nan
-            else:
-                vMax = powerSearchResults.x[0]
-                iMax = iFitSpline([vMax])[0]
-                pMax = vMax*iMax                
-
-            #only do this stuff if the char eqn fit was good
-            if ier < 5:
-                powerSearchResults_charEqn = optimize.minimize(invCellPowerModel,vMaxGuess)
-                #catch a failed max power search:
-                if not powerSearchResults_charEqn.status == 0:
-                    print "power search exit code = " + str(powerSearchResults_charEqn.status)
-                    print powerSearchResults_charEqn.message
-                    vMax_charEqn = nan
-                else:
-                    vMax_charEqn = powerSearchResults_charEqn.x[0]
-                #dude
-                try:
-                    Voc_nn_charEqn=optimize.brentq(cellModel, VV[0], VV[-1])
-                except:
-                    Voc_nn_charEqn = nan
-            else:
                 Voc_nn_charEqn = nan
                 vMax_charEqn = nan
-
-
+                iMax_charEqn = nan
+                pMax_charEqn = nan
+    
+    
+    
+            if ier < 5:
+                dontFindBounds = False
+                iMax_charEqn = cellModel([vMax_charEqn])[0]
+                pMax_charEqn = vMax_charEqn*iMax_charEqn
+                Isc_nn_charEqn = cellModel(0)
+                FF_charEqn = pMax_charEqn/(Voc_nn_charEqn*Isc_nn_charEqn)
+            else:
+                dontFindBounds = True
+                iMax_charEqn = nan
+                pMax_charEqn = nan
+                Isc_nn_charEqn = nan
+                FF_charEqn = nan
+    
+            #there is a maddening bug in SmoothingSpline: it can't evaluate 0 alone, so I have to do this:
             try:
-                Voc_nn = optimize.brentq(iFitSpline, VV[0], VV[-1])
+                Isc_nn = iFitSpline([0,1e-55])[0]
             except:
-                Voc_nn = nan
+                Isc_nn = nan
+    
+            FF = pMax/(Voc_nn*Isc_nn)
+    
+            if (ier != 7) and (ier != 6) and (not dontFindBounds) and (type(fitCovariance) is not float):
+                #error estimation:
+                alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
+    
+                nn = len(VV)    # number of data points
+                p = len(fitParams) # number of parameters
+    
+                dof = max(0, nn - p) # number of degrees of freedom
+    
+                # student-t value for the dof and confidence level
+                tval = t.ppf(1.0-alpha/2., dof) 
+    
+                lowers = []
+                uppers = []
+                #calculate 95% confidence interval
+                for a, p,var in zip(range(nn), fitParams, np.diag(fitCovariance)):
+                    sigma = var**0.5
+                    lower = p - sigma*tval
+                    upper = p + sigma*tval
+                    lowers.append(lower)
+                    uppers.append(upper)
+    
+            else:
+                uppers = [nan,nan,nan,nan,nan]
+                lowers = [nan,nan,nan,nan,nan]
+    
+            plotPoints = 1000
+            fitX = np.linspace(VV[0],VV[-1],plotPoints)
+            
+            if ier < 5:
+                modelY = cellModel(fitX)*outputScaleFactor
+            else:
+                modelY = np.empty(plotPoints)*nan
+            splineY = iFitSpline(fitX)*outputScaleFactor
+            graphData = {'vsTime':vsTime,'origRow':self.rows,'fitX':fitX,'modelY':modelY,'splineY':splineY,'i':II*outputScaleFactor,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn*outputScaleFactor,'Vmax':vMax,'Imax':iMax*outputScaleFactor}		
+    
+            #export button
+            exportBtn = QPushButton(self.ui.tableWidget)
+            exportBtn.setText('Export')
+            exportBtn.clicked.connect(self.handleButton)
+            self.ui.tableWidget.setCellWidget(self.rows,self.cols.keys().index('exportBtn'), exportBtn)
+              
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,round(Isc_nn/area*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setToolTip(str(round(Isc_nn_charEqn/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,round(Voc_nn*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setToolTip(str(round(Voc_nn_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setData(Qt.DisplayRole,round(FF,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setToolTip(str(round(FF_charEqn,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setData(Qt.DisplayRole,round(Rs_fit*area,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setData(Qt.DisplayRole,round(Rsh_fit*area,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,round(Iph_fit/area*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,round(I0_fit/area*1e9,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,round(n_fit,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,round(vMax*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setToolTip(str(round(vMax_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,round(area,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,round(pMax*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setToolTip(str(round(pMax_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,round(Isc_nn*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setToolTip(str(round(Isc_nn_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setData(Qt.DisplayRole,round(Iph_fit*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setData(Qt.DisplayRole,round(I0_fit*1e9,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setData(Qt.DisplayRole,round(Rs_fit,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setData(Qt.DisplayRole,round(Rsh_fit,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
+        
+        else:#vs time
+            graphData = {'vsTime':vsTime,'origRow':self.rows,'time':time,'i':II*outputScaleFactor,'v':VV}
 
-        else:
-            Voc_nn = nan
-            vMax = nan
-            iMax = nan
-            pMax = nan
-            Voc_nn_charEqn = nan
-            vMax_charEqn = nan
-            iMax_charEqn = nan
-            pMax_charEqn = nan
-
-
-
-        if ier < 5:
-            dontFindBounds = False
-            iMax_charEqn = cellModel([vMax_charEqn])[0]
-            pMax_charEqn = vMax_charEqn*iMax_charEqn
-            Isc_nn_charEqn = cellModel(0)
-            FF_charEqn = pMax_charEqn/(Voc_nn_charEqn*Isc_nn_charEqn)
-        else:
-            dontFindBounds = True
-            iMax_charEqn = nan
-            pMax_charEqn = nan
-            Isc_nn_charEqn = nan
-            FF_charEqn = nan
-
-        #there is a maddening bug in SmoothingSpline: it can't evaluate 0 alone, so I have to do this:
-        try:
-            Isc_nn = iFitSpline([0,1e-55])[0]
-        except:
-            Isc_nn = nan
-
-        FF = pMax/(Voc_nn*Isc_nn)
-
-        if (ier != 7) and (ier != 6) and (not dontFindBounds) and (type(fitCovariance) is not float):
-            #error estimation:
-            alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
-
-            nn = len(VV)    # number of data points
-            p = len(fitParams) # number of parameters
-
-            dof = max(0, nn - p) # number of degrees of freedom
-
-            # student-t value for the dof and confidence level
-            tval = t.ppf(1.0-alpha/2., dof) 
-
-            lowers = []
-            uppers = []
-            #calculate 95% confidence interval
-            for a, p,var in zip(range(nn), fitParams, np.diag(fitCovariance)):
-                sigma = var**0.5
-                lower = p - sigma*tval
-                upper = p + sigma*tval
-                lowers.append(lower)
-                uppers.append(upper)
-
-        else:
-            uppers = [nan,nan,nan,nan,nan]
-            lowers = [nan,nan,nan,nan,nan]
-
-        plotPoints = 1000
-        fitX = np.linspace(VV[0],VV[-1],plotPoints)
-        outputScaleFactor = np.array(1000/area)
-        if ier < 5:
-            modelY = cellModel(fitX)*outputScaleFactor
-        else:
-            modelY = np.empty(plotPoints)*nan
-        splineY = iFitSpline(fitX)*outputScaleFactor
-        graphData = {'origRow':self.rows,'fitX':fitX,'modelY':modelY,'splineY':splineY,'i':II*outputScaleFactor,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn*outputScaleFactor,'Vmax':vMax,'Imax':iMax*outputScaleFactor}		
-
-        self.ui.tableWidget.insertRow(self.rows)
-        for ii in range(len(self.cols)):
-            self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
-
+        #file name
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))          
+        
         #plot button
         plotBtn = QPushButton(self.ui.tableWidget)
         plotBtn.setText('Plot')
         plotBtn.clicked.connect(self.handleButton)
         self.ui.tableWidget.setCellWidget(self.rows,self.cols.keys().index('plotBtn'), plotBtn)
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('plotBtn')).setData(Qt.UserRole,graphData)
-
-        #export button
-        exportBtn = QPushButton(self.ui.tableWidget)
-        exportBtn.setText('Export')
-        exportBtn.clicked.connect(self.handleButton)
-        self.ui.tableWidget.setCellWidget(self.rows,self.cols.keys().index('exportBtn'), exportBtn)
-
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))            
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,round(Isc_nn/area*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setToolTip(str(round(Isc_nn_charEqn/area*1e3,3)))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,round(Voc_nn*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setToolTip(str(round(Voc_nn_charEqn*1e3,3)))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setData(Qt.DisplayRole,round(FF,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setToolTip(str(round(FF_charEqn,3)))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setData(Qt.DisplayRole,round(Rs_fit*area,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setData(Qt.DisplayRole,round(Rsh_fit*area,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,round(Iph_fit/area*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,round(I0_fit/area*1e9,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,round(n_fit,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,round(vMax*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setToolTip(str(round(vMax_charEqn*1e3,3)))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,round(area,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,round(pMax*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setToolTip(str(round(pMax_charEqn*1e3,3)))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,round(Isc_nn*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setToolTip(str(round(Isc_nn_charEqn*1e3,3)))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setData(Qt.DisplayRole,round(Iph_fit*1e3,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setData(Qt.DisplayRole,round(I0_fit*1e9,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setData(Qt.DisplayRole,round(Rs_fit,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setData(Qt.DisplayRole,round(Rsh_fit,3))
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
         
         self.ui.tableWidget.resizeColumnsToContents()
-
         self.rows = self.rows + 1
 
 
