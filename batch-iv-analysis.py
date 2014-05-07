@@ -305,7 +305,7 @@ class MainWindow(QMainWindow):
     def rowGraph(self,row):
         thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole).toPyObject()
         filename = str(self.ui.tableWidget.item(row,self.cols.keys().index('file')).text())
-        plt.title(filename)
+        
         v = thisGraphData[QString(u'v')]
         i = thisGraphData[QString(u'i')]
         if not thisGraphData[QString(u'vsTime')]:
@@ -350,10 +350,22 @@ class MainWindow(QMainWindow):
             plt.xlabel('Voltage [V]')
         else: #vs time
             time = thisGraphData[QString(u'time')]
-            print time
-            plt.ylabel('Current [mA/cm^2]')
-            plt.xlabel('Time [V]')
-            plt.plot(time, v,label='Voltage [V]')
+            
+            fig, ax1 = plt.subplots()
+            ax1.plot(time, v, 'b-',label='Voltage [V]')
+            ax1.set_xlabel('Time [s]')
+            # Make the y-axis label and tick labels match the line color.
+            ax1.set_ylabel('Voltage [V]', color='b')
+            for tl in ax1.get_yticklabels():
+                tl.set_color('b')
+            #fdsf
+            ax2 = ax1.twinx()
+            ax2.plot(time, i, 'r-')
+            ax2.set_ylabel('Current [A]', color='r')
+            for tl in ax2.get_yticklabels():
+                tl.set_color('r')            
+        
+        plt.title(filename)
         plt.draw()
         plt.show()
 
