@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
             #fdsf
             ax2 = ax1.twinx()
             ax2.plot(time, i, 'r-')
-            ax2.set_ylabel('Current [A]', color='r')
+            ax2.set_ylabel('Current [mA/cm^2]', color='r')
             for tl in ax2.get_yticklabels():
                 tl.set_color('r')            
         
