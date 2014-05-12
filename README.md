@@ -21,6 +21,7 @@ This project is a GUI python program to do batch curve fitting on data files gen
  - This feature seems to crash under windows if you do this without closing a previously opened graph window
 - Hover over the file name in each column to see the LabVIEW generated summary data for that file (for comparison purposes)
 - Hover over certian values in the table (only those calculated from the solar cell fit) to see their +/- 95% confidence intervals
+- Plots i,v vs time data files. Does no analysis on them currently (but could in the future).
 
 ### Files here
 ---
