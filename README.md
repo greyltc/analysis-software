@@ -5,6 +5,11 @@ This project is a GUI python program to do batch curve fitting on data files gen
 
 ![Equation](http://upload.wikimedia.org/math/4/7/d/47d17d3c2fe8840d0b3181860bd22f0a.png)
 
+### If you find this code useful...
+---
+Please cite our work:  
+[DOI: 10.1039/C4EE02465F](http://pubs.rsc.org/en/Content/ArticleLanding/2014/EE/C4EE02465F)  
+and shoot me an email. grey [AT] christoforo [DOT] net
 
 ### How to use
 ---
