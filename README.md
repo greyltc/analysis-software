@@ -65,5 +65,7 @@ I can't remember. Here are some:
 - sympy -- must be a recent version, should probably upgrade with pip
 
 To install the requirements in debian/ubuntu you can try:  
-`sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-pip python2.7`  
-`sudo pip install --upgrade sympy`
+```
+sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-pip python2.7
+sudo pip install --upgrade sympy
+```
