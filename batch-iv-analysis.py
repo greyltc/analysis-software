@@ -3,6 +3,10 @@ from batch_iv_analysis_UI import Ui_batch_iv_analysis
 #TODO: make area editable
 #TODO: handle area from custom input file
 
+# make matplotlib QT match the gui's version
+import matplotlib
+matplotlib.use("Qt4Agg")
+
 from interpolate import SmoothSpline
 #cite:
 #References
