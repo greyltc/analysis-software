@@ -64,8 +64,13 @@ I can't remember. Here are some:
 - gmpy
 - sympy -- must be a recent version, should probably upgrade with pip
 
-To install the requirements in debian/ubuntu you can try:  
+To install the requirements in Debian/Ubuntu you can try:  
 ```
 sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-pip python2.7
 sudo pip install --upgrade sympy
+```
+
+To install the requirements in Arch Linux you can try:  
+```
+sudo pacman -S python2 python2-mpmath python2-gmpy2 python2-sympy python2-scipy
 ```
