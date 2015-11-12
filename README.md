@@ -55,7 +55,7 @@ To generate an install package for a specific platform (windows or OSX) you must
  - If you see an issue with exec_py3...something you can safely delete this file to solve the problem
 - The standalone release files will be in a newly created folder called build
  - These files can then be copied to another computer to run the tool there
-- It's also possible to generate installers with setup.py see the cx_Freeze docs for more info
+- It's also possible to generate installers with `setup.py`, see the cx_Freeze docs for more info
 
 ### Python packages required
 ---
