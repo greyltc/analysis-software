@@ -63,15 +63,14 @@ I can't remember. Here are some:
 - mpmath.libmp  
 - gmpy
 - scipy
-- sympy -- must be a recent version, should probably upgrade with pip
+- sympy
 
-To install the requirements in Debian/Ubuntu you can try:  
+To install these requirements under Debian/Ubuntu (tested under Ubuntu 15.10) do this:  
 ```
-sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-pip python2.7 python-scipy
-sudo pip install --upgrade sympy
+sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-scipy python-numpy libsuitesparse-dev python-pip libopenblas-dev swig
+sudo pip install scikit-umfpack
 ```
-
-To install the requirements in Arch Linux you can try:  
+To install these requirements in Arch Linux, do this:  
 ```
 sudo pacman -S python2 python2-mpmath python2-gmpy2 python2-sympy python2-scipy
 ```
