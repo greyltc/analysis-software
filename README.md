@@ -72,5 +72,5 @@ sudo pip install scikit-umfpack
 ```
 To install these requirements in Arch Linux, do this:  
 ```
-sudo pacman -S python2 python2-mpmath python2-gmpy2 python2-sympy python2-scipy
+sudo pacman -S python2 python2-mpmath python2-gmpy2 python2-sympy python2-scipy python2-pyqt4
 ```
