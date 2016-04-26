@@ -1,3 +1,9 @@
+#!/usr/bin/env python2
+
+# written by Grey Christoforo <first name [at] last name [not] net>
+# please cite our work if you can!
+# DOI: 10.3390/photonics2041101
+
 from batch_iv_analysis_UI import Ui_batch_iv_analysis
 
 #TODO: make area editable
@@ -120,6 +126,14 @@ def residual2(p, vVector, y, weights):
         return negativePenalty * np.linalg.norm(p[p<0]) * residual(p, vVector, y, weights)
     else:
         return residual(p, vVector, y, weights)
+
+# tests if string is a number
+def isNumber(s):
+    try:
+        float(s)
+    except ValueError:
+        return False
+    return True
 
 class col:
     header = ''
@@ -412,15 +426,17 @@ class MainWindow(QMainWindow):
         fileName, fileExtension = os.path.splitext(fullPath)
         fileName = os.path.basename(fullPath)
         self.fileNames.append(fileName)
+        isSnaithFile = False
         if fileExtension == '.csv':
             delimiter = ','
+        if fileExtension == '.tsv':
+            delimiter = '\t'        
         else:
             delimiter = None
 
         self.ui.statusbar.showMessage("processing: "+ fileName,2500)
         
         #wait here for the file to be completely written to disk and closed before trying to read it
-
         fi = QFileInfo(fullPath)
         while (not fi.isWritable()):
                 time.sleep(0.001)
@@ -429,35 +445,61 @@ class MainWindow(QMainWindow):
         fp = open(fullPath, mode='r')
         fileBuffer = fp.read()
         fp.close()
+        if len(fileBuffer) < 25:
+            self.ui.statusbar.showMessage('Could not read' + fileName +'. This file is less than 25 characters long.',2500)
+            return
         first10 = fileBuffer[0:10]
-        nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
+        last25 = fileBuffer[-26:-1]
+
         isMcFile = False #true if this is a McGehee iv file format
+        isSnaithFile = False # true if this is a Snaith iv file format
+        #mcFile test:
         if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
+            nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
             #the first 8 chars do not contain comment symbol and do contain / and a tab, it's safe to assume mcgehee iv file format
             isMcFile = True
             #comment out the first 25 rows here
             fileBuffer = '#'+fileBuffer
             fileBuffer = fileBuffer.replace('\n', '\n#',nMcHeaderLines-1)
+        #snaithFile test:
+        elif last25.__contains__('suns:\t'):
+            nSnaithFooterLines = 11 #number of footer lines in snaith IV file format
+            isSnaithFile = True
+            delimiter = '\t'
+            if fileExtension == '.liv1':
+                snaithReverse = True
+            if fileExtension == '.liv2':
+                snaithReverse = False
+            fileBuffer = fileBuffer[::-1] # reverse the buffer
+            fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
+            fileBuffer = fileBuffer[::-1] # un-reverse the buffer
+            fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
 
         splitBuffer = fileBuffer.splitlines(True)
         
-        
-        area = 1
+        suns = 1
+        area = 1 # in cm^2
         noArea = True
+        noIntensity = True
         vsTime = False #this is not an i,v vs t data file
-        #extract header lines and search for area
-        header = []
+        #extract comments lines and search for area and intensity
+        comments = []
         for line in splitBuffer:
             if line.startswith('#'):
-                header.append(line)
+                comments.append(line)
                 if line.__contains__('Area'):
-                    area = float(line.split(' ')[3])
-                    noArea = False
-                if line.__contains__('I&V vs t'):
+                    numbersHere = [float(s) for s in line.split() if isNumber(s)]
+                    if len(numbersHere) is 1:
+                        area = numbersHere[0]
+                        noArea = False
+                elif line.__contains__('I&V vs t'):
                     if float(line.split(' ')[5]) == 1:
                         vsTime = True
-            else:
-                break
+                elif line.__contains__('Number of suns:'):
+                    numbersHere = [float(s) for s in line.split() if isNumber(s)]
+                    if len(numbersHere) is 1:
+                        suns = numbersHere[0]
+                        noIntensity = False                
         
         outputScaleFactor = np.array(1000/area) #for converstion to [mA/cm^2]
 
@@ -479,8 +521,7 @@ class MainWindow(QMainWindow):
         tempFile.close()
         tempFile.remove()
 
-        
-        if isMcFile: #convert to amps
+        if isMcFile or isSnaithFile: #convert to amps
             II = II/1000*area
 
         if not vsTime:
@@ -499,9 +540,10 @@ class MainWindow(QMainWindow):
             time=time[newOrder]
             time=time-time[0]#start time at t=0
 
-        #catch and fix flipped current sign:
+        #catch and fix flipped current sign
+        #The philosoply in use here is that energy producers have positive current defined as flowing out of the positive terminal
         if II[0] < II[-1]:
-            II = II * -1       
+            II = II * -1
 
         indexInQuad1 = np.logical_and(VV>0,II>0)
         if any(indexInQuad1): #enters statement if there is at least one datapoint in quadrant 1
@@ -519,6 +561,7 @@ class MainWindow(QMainWindow):
             fitParams, fitCovariance, infodict, errmsg, ier = self.bestEffortFit(VV,II)
         
             #print errmsg
+            self.ui.statusbar.showMessage(errmsg,2500)
     
             I0_fit = fitParams[0]
             Iph_fit = fitParams[1]
@@ -528,8 +571,9 @@ class MainWindow(QMainWindow):
     
             
             #0 -> LS-straight line
-            #1 -> cubic spline interpolant
+            #1 -> cubic spline interpolant (thr)
             smoothingParameter = 1-2e-6
+            #iFitSpline = interpolate.UnivariateSpline(VV, II, s=99)
             iFitSpline = SmoothSpline(VV, II, p=smoothingParameter)
     
             def cellModel(voltageIn):
@@ -665,8 +709,8 @@ class MainWindow(QMainWindow):
             exportBtn.clicked.connect(self.handleButton)
             self.ui.tableWidget.setCellWidget(self.rows,self.cols.keys().index('exportBtn'), exportBtn)
               
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,round(pMax/area/suns*1e3,3))
+            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setToolTip(str(round(pMax_charEqn/area/suns*1e3,3)))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
             self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,round(Isc_nn/area*1e3,3))
@@ -706,7 +750,7 @@ class MainWindow(QMainWindow):
 
         #file name
         self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(header))          
+        self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(comments))          
         
         #plot button
         plotBtn = QPushButton(self.ui.tableWidget)
@@ -872,7 +916,7 @@ class MainWindow(QMainWindow):
             #print myoutput.stopreason
             #print myoutput.info
             #ier = 1
-            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15)
+            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15,maxfev=12000)
             #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
             #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14            
         
@@ -899,8 +943,10 @@ class MainWindow(QMainWindow):
                 plt.draw()
                 plt.show()
             return(fitParams, fitCovariance, infodict, errmsg, ier)
+        #except RuntimeError as e:
+        #    return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Runtime Error({0}): {1}".format(e.errno, e.strerror), 10])
         except:
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
 
 
 
@@ -911,7 +957,7 @@ class MainWindow(QMainWindow):
         else:
             openDir = '.'
 
-        fileNames = QFileDialog.getOpenFileNamesAndFilter(directory = openDir, caption="Select one or more files to open", filter = '(*.txt *.csv);;Folders (*)')       
+        fileNames = QFileDialog.getOpenFileNamesAndFilter(directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2);;Folders (*)')       
         #fileNames = QFileDialog.getExistingDirectory(directory = openDir, caption="Select one or more files to open")       
         
         if len(fileNames[0])>0:#check if user clicked cancel
