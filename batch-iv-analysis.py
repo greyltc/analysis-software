@@ -429,7 +429,7 @@ class MainWindow(QMainWindow):
         isSnaithFile = False
         if fileExtension == '.csv':
             delimiter = ','
-        if fileExtension == '.tsv':
+        elif fileExtension == '.tsv':
             delimiter = '\t'        
         else:
             delimiter = None
