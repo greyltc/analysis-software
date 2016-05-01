@@ -9,10 +9,6 @@ from batch_iv_analysis_UI import Ui_batch_iv_analysis
 #TODO: make area editable
 #TODO: handle area from custom input file
 
-# make matplotlib QT match the gui's version
-import matplotlib
-matplotlib.use("Qt4Agg")
-
 from interpolate import SmoothSpline
 #cite:
 #References
@@ -28,8 +24,8 @@ from collections import OrderedDict
 
 import os, sys, inspect, csv
 
-from PyQt4.QtCore import QString, QSettings, Qt, QSignalMapper, QTemporaryFile, QFileSystemWatcher, QDir, QStringList, QFileInfo
-from PyQt4.QtGui import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QWidget
+from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QTemporaryFile, QFileSystemWatcher, QDir, QFileInfo
+from PyQt5.QtWidgets import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
 
 import platform
 if not platform.system()=='Windows':
@@ -143,7 +139,7 @@ class col:
 class MainWindow(QMainWindow):
     workingDirectory = ''
     fileNames = []
-    supportedExtensions = QStringList(('*.txt','*.csv'))
+    supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2']
     def __init__(self):
         QMainWindow.__init__(self)
 
@@ -284,15 +280,16 @@ class MainWindow(QMainWindow):
         self.ui.actionEnable_Watching.triggered.connect(self.watchCall)
         self.ui.actionSave.triggered.connect(self.handleSave)
         self.ui.actionWatch_2.triggered.connect(self.handleWatchAction)
+        self.ui.actionFit_Constraints.triggered.connect(self.openFitConstraintDialog)
         
 
         self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
 
     def exportInterp(self,row):
-        thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole).toPyObject()
-        fitX = thisGraphData[QString(u'fitX')]
-        modelY = thisGraphData[QString(u'modelY')]
-        splineY = thisGraphData[QString(u'splineY')]
+        thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole)
+        fitX = thisGraphData["fitX"]
+        modelY = thisGraphData["modelY"]
+        splineY = thisGraphData["splineY"]
         a = np.asarray([fitX, modelY, splineY])
         a = np.transpose(a)
         destinationFolder = os.path.join(self.workingDirectory,'exports')
@@ -321,19 +318,19 @@ class MainWindow(QMainWindow):
 
 
     def rowGraph(self,row):
-        thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole).toPyObject()
+        thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole)
         filename = str(self.ui.tableWidget.item(row,self.cols.keys().index('file')).text())
         
-        v = thisGraphData[QString(u'v')]
-        i = thisGraphData[QString(u'i')]
-        if not thisGraphData[QString(u'vsTime')]:
+        v = thisGraphData["v"]
+        i = thisGraphData["i"]
+        if not thisGraphData["vsTime"]:
             plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data')
-            plt.scatter(thisGraphData[QString(u'Vmax')], thisGraphData[QString(u'Imax')], c='g',marker='x',s=100)
-            plt.scatter(thisGraphData[QString(u'Voc')], 0, c='g',marker='x',s=100)
-            plt.scatter(0, thisGraphData[QString(u'Isc')], c='g',marker='x',s=100)
-            fitX = thisGraphData[QString(u'fitX')]
-            modelY = thisGraphData[QString(u'modelY')]
-            splineY = thisGraphData[QString(u'splineY')]
+            plt.scatter(thisGraphData["Vmax"], thisGraphData["Imax"], c='g',marker='x',s=100)
+            plt.scatter(thisGraphData["Voc"], 0, c='g',marker='x',s=100)
+            plt.scatter(0, thisGraphData["Isc"], c='g',marker='x',s=100)
+            fitX = thisGraphData["fitX"]
+            modelY = thisGraphData["modelY"]
+            splineY = thisGraphData["splineY"]
             if not np.isnan(modelY[0]):
                 plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
             plt.plot(fitX, splineY,c='g', label='Spline Fit')
@@ -344,22 +341,22 @@ class MainWindow(QMainWindow):
             ax.legend(handles, labels, loc=3)
     
             plt.annotate(
-                thisGraphData[QString(u'Voc')].__format__('0.4f')+ ' V', 
-                xy = (thisGraphData[QString(u'Voc')], 0), xytext = (40, 20),
+                thisGraphData["Voc"].__format__('0.4f')+ ' V', 
+                xy = (thisGraphData["Voc"], 0), xytext = (40, 20),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
     
             plt.annotate(
-                float(thisGraphData[QString(u'Isc')]).__format__('0.4f') + ' mA/cm^2', 
-                xy = (0,thisGraphData[QString(u'Isc')]), xytext = (40, 20),
+                float(thisGraphData["Isc"]).__format__('0.4f') + ' mA/cm^2', 
+                xy = (0,thisGraphData["Isc"]), xytext = (40, 20),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
     
             plt.annotate(
-                float(thisGraphData[QString(u'Imax')]*thisGraphData[QString(u'Vmax')]).__format__('0.4f') + '% @(' + float(thisGraphData[QString(u'Vmax')]).__format__('0.4f') + ',' + float(thisGraphData[QString(u'Imax')]).__format__('0.4f') + ')', 
-                xy = (thisGraphData[QString(u'Vmax')],thisGraphData[QString(u'Imax')]), xytext = (80, 40),
+                float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + '% @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
+                xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
@@ -367,7 +364,7 @@ class MainWindow(QMainWindow):
             plt.ylabel('Current [mA/cm^2]')
             plt.xlabel('Voltage [V]')
         else: #vs time
-            time = thisGraphData[QString(u'time')]
+            time = thisGraphData["time"]
             
             fig, ax1 = plt.subplots()
             ax1.plot(time, v, 'b-',label='Voltage [V]')
@@ -387,14 +384,15 @@ class MainWindow(QMainWindow):
         plt.draw()
         plt.show()
 
+    # TODO: fix for csv data cells seem to be shifted by 1 to the left
     def handleSave(self):
         if self.settings.contains('lastFolder'):
-            saveDir = self.settings.value('lastFolder').toString()
+            saveDir = self.settings.value('lastFolder')
         else:
-            saveDir = '.'        
-        path = QFileDialog.getSaveFileName(self, caption='Save File', directory=saveDir)
+            saveDir = '.'
+        path = QFileDialog.getSaveFileName(self, caption='Set Export File', directory=saveDir)
         if not str(path[0]) == '':
-            with open(unicode(path), 'wb') as stream:
+            with open(path[0], 'a+b') as stream:
                 writer = csv.writer(stream)
                 rowdata = []
                 for column in range(self.ui.tableWidget.columnCount()):
@@ -916,6 +914,7 @@ class MainWindow(QMainWindow):
             #print myoutput.stopreason
             #print myoutput.info
             #ier = 1
+            #TODO: scipy optimize 1.7 makes setting bounds on fit parameters easy. allow the user to do this.
             fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15,maxfev=12000)
             #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
             #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14            
@@ -951,14 +950,13 @@ class MainWindow(QMainWindow):
 
 
     def openCall(self):
-        #remember the last path th user opened
+        #remember the last path the user opened
         if self.settings.contains('lastFolder'):
-            openDir = self.settings.value('lastFolder').toString()
+            openDir = self.settings.value('lastFolder')
         else:
             openDir = '.'
-
-        fileNames = QFileDialog.getOpenFileNamesAndFilter(directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2);;Folders (*)')       
-        #fileNames = QFileDialog.getExistingDirectory(directory = openDir, caption="Select one or more files to open")       
+        
+        fileNames = QFileDialog.getOpenFileNames(self, directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2);;Folders (*)')
         
         if len(fileNames[0])>0:#check if user clicked cancel
             self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
@@ -977,11 +975,11 @@ class MainWindow(QMainWindow):
     def handleWatchAction(self):
         #remember the last path th user opened
         if self.settings.contains('lastFolder'):
-            openDir = self.settings.value('lastFolder').toString()
+            openDir = self.settings.value('lastFolder')
         else:
             openDir = '.'
         
-        myDir = QFileDialog.getExistingDirectory(directory = openDir, caption="Select folder to watch")
+        myDir = QFileDialog.getExistingDirectory(self,directory = openDir, caption="Select folder to watch")
         
         if len(myDir)>0:#check if user clicked cancel
             self.workingDirectory = str(myDir)
@@ -1019,7 +1017,10 @@ class MainWindow(QMainWindow):
                     self.processFile(os.path.join(self.workingDirectory,aFile))
 
         
-        
+    def openFitConstraintDialog(self):
+        #TODO: draw fit constraint selection dialog here.
+        self.ui.statusbar.showMessage("Coming soon!",2500)
+        pass
 
 
 if __name__ == "__main__":
