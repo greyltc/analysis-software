@@ -1,9 +1,21 @@
 batch-iv-analysis
 =================
 
-This project is a GUI python program to do batch curve fitting on solar cell IV curve data. The algorithm here attempts to fit IV data points to the characteristic equation of a solar cell:  
+This project is a GUI program written in python, intended to make it easy for solar cell researchers to characterize the electrical properties of the solar cells they make. The code here takes IV (current-voltage sweep) data files (of various formats, new format additions welcome!) and uses it to find values for the components of the following solar cell circuit model:
+
+![Circuit](https://upload.wikimedia.org/wikipedia/commons/c/c4/Solar_cell_equivalent_circuit.svg)
+
+where `R_S` is the series resistance  
+`R_SH` is the shunt resistance,  
+`I_D` is the diode current,  
+`I_L` is the light current,  
+`I` is the current out of the positive terminal of the cell (given)  
+and `V` is the voltage across the cell (given)  
+which is described by
 
 ![Equation](http://upload.wikimedia.org/math/4/7/d/47d17d3c2fe8840d0b3181860bd22f0a.png)
+
+`I_L`, `I_0`, `n`, `R_S` and `R_SH` are found by [nonlinear regression](https://en.wikipedia.org/wiki/Nonlinear_regression) via [`scipy.optimize.curve_fit()`](http://docs.scipy.org/doc/scipy-0.17.0/reference/generated/scipy.optimize.curve_fit.html).
 
 ### If you find this code useful...
 ---
