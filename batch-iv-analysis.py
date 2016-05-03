@@ -39,6 +39,9 @@ from numpy import inf
 
 from scipy.special import lambertw
 
+import matplotlib
+matplotlib.use("Qt5Agg")
+
 from scipy import odr
 from scipy import interpolate
 from scipy import optimize
