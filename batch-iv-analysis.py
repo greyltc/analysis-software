@@ -27,11 +27,8 @@ import os, sys, inspect, csv
 from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo
 from PyQt5.QtWidgets import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
 
-import platform
-if not platform.system()=='Windows':
-    #these next two lines ensure numerical operation under linux is fast (i can't get gmpy to work on windows, so it's much slower):
-    import mpmath.libmp
-    assert mpmath.libmp.BACKEND == 'gmpy'
+import mpmath.libmp
+assert mpmath.libmp.BACKEND == 'gmpy'
 import numpy as np
 import sympy
 from numpy import nan
@@ -39,14 +36,12 @@ from numpy import inf
 
 from scipy.special import lambertw
 
-import matplotlib
-matplotlib.use("Qt5Agg")
-
 from scipy import odr
 from scipy import interpolate
 from scipy import optimize
 from scipy.stats.distributions import  t #needed for confidence interval calculation
 import matplotlib.pyplot as plt
+plt.switch_backend("Qt5Agg")
 #from uncertainties import ufloat
 
 I0, Iph, Rs, Rsh, n, I, V, Vth, V_I0, I_I0, V_n, I_n = sympy.symbols('I0 Iph Rs Rsh n I V Vth V_I0 I_I0 V_n I_n')
