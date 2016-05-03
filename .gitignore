@@ -2,3 +2,4 @@
 exports/
 __pycache__/
 *.bak
+*.spec
