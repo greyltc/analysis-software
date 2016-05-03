@@ -58,34 +58,35 @@ I'd be super happy to accept pull requests or ideas you have for improving this!
 - **setup.py**
  - Use this file to generate standalone release packages (see instructions below)
 
-### How to generate a standalone release package (for windows/OSX)
+### Install
 ---
-To generate an install package for a specific platform (windows or OSX) you must do these steps on that platform. This has only been tested under windows but should also work for macs. There is no need to generate a release package for Linux, just run the script directly.
-- Install python and all the packages this project depends on
- - Make sure you can run the program directly with `python batch-iv-analysis.py` before proceeding
-- Install cx_freeze
-- run `python setup.py build`
- - If you see an issue with exec_py3...something you can safely delete this file to solve the problem
-- The standalone release files will be in a newly created folder called build
- - These files can then be copied to another computer to run the tool there
-- It's also possible to generate installers with `setup.py`, see the cx_Freeze docs for more info  
+#### Windows
+Download and extract the latest windows exe release zip [from here](https://github.com/greysAcademicCode/batch-iv-analysis/releases/latest) and run batch-iv-analysis.exe  
 
-__NOTE:__ To get Umfpack to work in windows, you might have to look [here](http://www.lfd.uci.edu/~gohlke/pythonlibs/) for a precompiled pip wheel package to install.
+__==Alternatively==__
 
-### Python packages required
----
-I can't remember. Here are some:
-- mpmath.libmp  
-- gmpy
-- scipy
-- sympy
+1. Download and extract the latest WinPython release [from here](https://github.com/winpython/winpython/releases/latest). Choose a 32bit flavor with python3 and QT5 (the release package file I used as of this writing was named WinPython-32bit-3.4.4.2Qt5.exe).
+1. Install [git](https://git-scm.com/downloads)
+1. Download a precompiled Scikit-umfpack .whl for windows (maybe from [this guy's site](http://www.lfd.uci.edu/~gohlke/pythonlibs/)) that matches the python version you got in step one. The file I used was called `scikit_umfpack-0.2.1-cp34-none-win32.whl`
+1. In your winpython folder, run WinPython Control Panel.exe and drag the scikit-umfpack .whl file from the previous step into that control panel window, then click the install button that appears in the list there.
+1. In your WinPython folder, run WinPython Command Prompt.exe and type  
 
-To install these requirements under Debian/Ubuntu (tested under Ubuntu 15.10) do this (these are now out of date since I've moved to python3):  
+  ```
+git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
+cd batch-iv-analysis
+python batch-iv-analysis.py
 ```
-sudo apt-get install python2.7 python-mpmath python-gmpy python-sympy python-scipy python-numpy libsuitesparse-dev python-pip libopenblas-dev swig
-sudo pip install scikit-umfpack
+#### Arch Linux
 ```
-To install these requirements in Arch Linux, do this:  
+pacaur --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5 python-scikit-umfpack
+git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
+cd batch-iv-analysis
+./batch-iv-analysis.py
 ```
-pacaur --needed -S python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5 python-scikit-umfpack
+#### Ubuntu Linux
+```
+# TODO: install deps
+git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
+cd batch-iv-analysis
+./batch-iv-analysis.py
 ```
