@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 # written by Grey Christoforo <first name [at] last name [not] net>
 # please cite our work if you can!
@@ -21,10 +21,10 @@ from interpolate import SmoothSpline
     #Cambridge University Press ISBN-13: 9780521880688
 
 from collections import OrderedDict
-
+from io import StringIO
 import os, sys, inspect, csv
 
-from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QTemporaryFile, QFileSystemWatcher, QDir, QFileInfo
+from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo
 from PyQt5.QtWidgets import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
 
 import platform
@@ -35,6 +35,7 @@ if not platform.system()=='Windows':
 import numpy as np
 import sympy
 from numpy import nan
+from numpy import inf
 
 from scipy.special import lambertw
 
@@ -95,8 +96,10 @@ def odrThing(B,x):
     I0, Iph, Rs, Rsh, n = B
     return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))    
 
+lambertWTol = 1e-15
 def optimizeThis (x,I0, Iph, Rs, Rsh, n):
-    return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))
+    #return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh)),tol=lambertWTol))/(Rs*(Rs + Rsh))
+    return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh)),tol=lambertWTol))/(Rs*(Rs + Rsh)))
 
 #allow current solutoin to operate on vectors of voltages (needed for curve fitting)
 def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
@@ -265,12 +268,12 @@ class MainWindow(QMainWindow):
         #insert cols
         for item in self.cols:
             blankItem = QTableWidgetItem()
-            thisCol = self.cols.keys().index(item)
+            thisCol = list(self.cols.keys()).index(item)
             self.ui.tableWidget.insertColumn(thisCol)
             blankItem.setToolTip(self.cols[item].tooltip)
             blankItem.setText(self.cols[item].header)
             self.ui.tableWidget.setHorizontalHeaderItem(thisCol,blankItem)
-        
+
         #file system watcher
         self.watcher = QFileSystemWatcher(self)
         self.watcher.directoryChanged.connect(self.handleWatchUpdate)
@@ -281,12 +284,12 @@ class MainWindow(QMainWindow):
         self.ui.actionSave.triggered.connect(self.handleSave)
         self.ui.actionWatch_2.triggered.connect(self.handleWatchAction)
         self.ui.actionFit_Constraints.triggered.connect(self.openFitConstraintDialog)
-        
+        self.ui.statusbar.messageChanged.connect(self.statusChanged)
 
         self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
 
     def exportInterp(self,row):
-        thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole)
+        thisGraphData = self.ui.tableWidget.item(row,list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)
         fitX = thisGraphData["fitX"]
         modelY = thisGraphData["modelY"]
         splineY = thisGraphData["splineY"]
@@ -296,15 +299,15 @@ class MainWindow(QMainWindow):
         QDestinationFolder = QDir(destinationFolder)
         if not QDestinationFolder.exists():
             QDir().mkdir(destinationFolder)
-        saveFile = os.path.join(destinationFolder,str(self.ui.tableWidget.item(row,self.cols.keys().index('file')).text())+'.csv')
+        saveFile = os.path.join(destinationFolder,str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('file')).text())+'.csv')
         header = 'Voltage [V],CharEqn Current [mA/cm^2],Spline Current [mA/cm^2]'
         try:
             np.savetxt(saveFile, a, delimiter=",",header=header)
+            self.goodMessage()
             self.ui.statusbar.showMessage("Exported " + saveFile,5000)
         except:
+            self.badMessage()
             self.ui.statusbar.showMessage("Could not export " + saveFile,self.messageDuration)
-        
-
 
     def handleButton(self):
         btn = self.sender()
@@ -318,9 +321,9 @@ class MainWindow(QMainWindow):
 
 
     def rowGraph(self,row):
-        thisGraphData = self.ui.tableWidget.item(row,self.cols.keys().index('plotBtn')).data(Qt.UserRole)
-        filename = str(self.ui.tableWidget.item(row,self.cols.keys().index('file')).text())
-        
+        thisGraphData = self.ui.tableWidget.item(row,list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)
+        filename = str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('file')).text())
+
         v = thisGraphData["v"]
         i = thisGraphData["i"]
         if not thisGraphData["vsTime"]:
@@ -339,33 +342,33 @@ class MainWindow(QMainWindow):
             ax = plt.gca()
             handles, labels = ax.get_legend_handles_labels()
             ax.legend(handles, labels, loc=3)
-    
+
             plt.annotate(
                 thisGraphData["Voc"].__format__('0.4f')+ ' V', 
                 xy = (thisGraphData["Voc"], 0), xytext = (40, 20),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
-    
+
             plt.annotate(
                 float(thisGraphData["Isc"]).__format__('0.4f') + ' mA/cm^2', 
                 xy = (0,thisGraphData["Isc"]), xytext = (40, 20),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
-    
+
             plt.annotate(
                 float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + '% @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
                 xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
-    
+
             plt.ylabel('Current [mA/cm^2]')
             plt.xlabel('Voltage [V]')
         else: #vs time
             time = thisGraphData["time"]
-            
+
             fig, ax1 = plt.subplots()
             ax1.plot(time, v, 'b-',label='Voltage [V]')
             ax1.set_xlabel('Time [s]')
@@ -379,7 +382,7 @@ class MainWindow(QMainWindow):
             ax2.set_ylabel('Current [mA/cm^2]', color='r')
             for tl in ax2.get_yticklabels():
                 tl.set_color('r')            
-        
+
         plt.title(filename)
         plt.draw()
         plt.show()
@@ -392,25 +395,25 @@ class MainWindow(QMainWindow):
             saveDir = '.'
         path = QFileDialog.getSaveFileName(self, caption='Set Export File', directory=saveDir)
         if not str(path[0]) == '':
-            with open(path[0], 'a+b') as stream:
+            with open(path[0], 'w') as stream:
                 writer = csv.writer(stream)
                 rowdata = []
                 for column in range(self.ui.tableWidget.columnCount()):
                     item = self.ui.tableWidget.horizontalHeaderItem(column)
                     if item is not None:
-                        rowdata.append(unicode(item.text()).encode('utf8').replace('\n',' '))
+                        rowdata.append(str(item.text()).replace('\n',' '))
                     else:
-                        rowdata.append('')
-                writer.writerow(rowdata)                
+                        rowdata.append(b'')
+                writer.writerow(rowdata[2:])                
                 for row in range(self.ui.tableWidget.rowCount()):
                     rowdata = []
                     for column in range(self.ui.tableWidget.columnCount()):
                         item = self.ui.tableWidget.item(row, column)
                         if item is not None:
-                            rowdata.append(unicode(item.text()).encode('utf8'))
+                            rowdata.append(str(item.text()))
                         else:
                             rowdata.append('')
-                    writer.writerow(rowdata)
+                    writer.writerow(rowdata[2:])
                 stream.close()
 
     def clearTableCall(self):
@@ -433,17 +436,18 @@ class MainWindow(QMainWindow):
             delimiter = None
 
         self.ui.statusbar.showMessage("processing: "+ fileName,2500)
-        
+
         #wait here for the file to be completely written to disk and closed before trying to read it
         fi = QFileInfo(fullPath)
         while (not fi.isWritable()):
-                time.sleep(0.001)
-                fi.refresh()
-        
+            time.sleep(0.001)
+            fi.refresh()
+
         fp = open(fullPath, mode='r')
         fileBuffer = fp.read()
         fp.close()
         if len(fileBuffer) < 25:
+            self.badMessage()
             self.ui.statusbar.showMessage('Could not read' + fileName +'. This file is less than 25 characters long.',2500)
             return
         first10 = fileBuffer[0:10]
@@ -474,7 +478,7 @@ class MainWindow(QMainWindow):
             fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
 
         splitBuffer = fileBuffer.splitlines(True)
-        
+
         suns = 1
         area = 1 # in cm^2
         noArea = True
@@ -498,26 +502,22 @@ class MainWindow(QMainWindow):
                     if len(numbersHere) is 1:
                         suns = numbersHere[0]
                         noIntensity = False                
-        
+
         outputScaleFactor = np.array(1000/area) #for converstion to [mA/cm^2]
 
-        tempFile = QTemporaryFile()
-        tempFile.open()
-        tempFile.writeData(fileBuffer)
-        tempFile.flush()
+        c = StringIO(fileBuffer) # makes string look like a file 
 
         #read in data
         try:
-            data = np.loadtxt(str(tempFile.fileName()),delimiter=delimiter)
-            VV = data[:,0]
-            II = data[:,1]
-            if vsTime:
-                time = data[:,2]
+            data = np.loadtxt(c,delimiter=delimiter)
         except:
+            self.badMessage()
             self.ui.statusbar.showMessage('Could not read' + fileName +'. Prepend # to all non-data lines and try again',2500)
             return
-        tempFile.close()
-        tempFile.remove()
+        VV = data[:,0]
+        II = data[:,1]
+        if vsTime:
+            time = data[:,2]
 
         if isMcFile or isSnaithFile: #convert to amps
             II = II/1000*area
@@ -549,47 +549,50 @@ class MainWindow(QMainWindow):
         else:
             self.ui.statusbar.showMessage("Dark curve detected",500)
             isDarkCurve = True
-        
+
         #put items in table
         self.ui.tableWidget.insertRow(self.rows)
         for ii in range(len(self.cols)):
             self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())        
-        
+
         if not vsTime:
             fitParams, fitCovariance, infodict, errmsg, ier = self.bestEffortFit(VV,II)
-        
-            #print errmsg
-            self.ui.statusbar.showMessage(errmsg,2500)
-    
+
+            if ier < 5: # no error
+                self.goodMessage()
+                self.ui.statusbar.showMessage("Good fit because: " + errmsg,2500) #print the fit message
+            else:
+                self.badMessage()
+
             I0_fit = fitParams[0]
             Iph_fit = fitParams[1]
             Rs_fit = fitParams[2]
             Rsh_fit = fitParams[3]
             n_fit = fitParams[4]
-    
-            
+
+
             #0 -> LS-straight line
             #1 -> cubic spline interpolant (thr)
             smoothingParameter = 1-2e-6
             #iFitSpline = interpolate.UnivariateSpline(VV, II, s=99)
             iFitSpline = SmoothSpline(VV, II, p=smoothingParameter)
-    
+
             def cellModel(voltageIn):
                 #voltageIn = np.array(voltageIn)
                 return vectorizedCurrent(voltageIn, I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit)
-    
+
             def invCellPowerSpline(voltageIn):
                 if voltageIn < 0:
                     return 0
                 else:
                     return -1*voltageIn*iFitSpline(voltageIn)
-    
+
             def invCellPowerModel(voltageIn):
                 if voltageIn < 0:
                     return 0
                 else:
                     return -1*voltageIn*cellModel(voltageIn)
-    
+
             if not isDarkCurve:
                 VVq1 = VV[indexInQuad1]
                 IIq1 = II[indexInQuad1]
@@ -597,8 +600,8 @@ class MainWindow(QMainWindow):
                 powerSearchResults = optimize.minimize(invCellPowerSpline,vMaxGuess)
                 #catch a failed max power search:
                 if not powerSearchResults.status == 0:
-                    print "power search exit code = " + str(powerSearchResults.status)
-                    print powerSearchResults.message
+                    print("power search exit code = " + str(powerSearchResults.status))
+                    print(powerSearchResults.message)
                     vMax = nan
                     iMax = nan
                     pMax = nan
@@ -606,14 +609,14 @@ class MainWindow(QMainWindow):
                     vMax = powerSearchResults.x[0]
                     iMax = iFitSpline([vMax])[0]
                     pMax = vMax*iMax                
-    
+
                 #only do this stuff if the char eqn fit was good
                 if ier < 5:
                     powerSearchResults_charEqn = optimize.minimize(invCellPowerModel,vMaxGuess)
                     #catch a failed max power search:
                     if not powerSearchResults_charEqn.status == 0:
-                        print "power search exit code = " + str(powerSearchResults_charEqn.status)
-                        print powerSearchResults_charEqn.message
+                        print("power search exit code = " + str(powerSearchResults_charEqn.status))
+                        print(powerSearchResults_charEqn.message)
                         vMax_charEqn = nan
                     else:
                         vMax_charEqn = powerSearchResults_charEqn.x[0]
@@ -625,13 +628,13 @@ class MainWindow(QMainWindow):
                 else:
                     Voc_nn_charEqn = nan
                     vMax_charEqn = nan
-    
-    
+
+
                 try:
                     Voc_nn = optimize.brentq(iFitSpline, VV[0], VV[-1])
                 except:
                     Voc_nn = nan
-    
+
             else:
                 Voc_nn = nan
                 vMax = nan
@@ -641,9 +644,9 @@ class MainWindow(QMainWindow):
                 vMax_charEqn = nan
                 iMax_charEqn = nan
                 pMax_charEqn = nan
-    
-    
-    
+
+
+
             if ier < 5:
                 dontFindBounds = False
                 iMax_charEqn = cellModel([vMax_charEqn])[0]
@@ -656,107 +659,107 @@ class MainWindow(QMainWindow):
                 pMax_charEqn = nan
                 Isc_nn_charEqn = nan
                 FF_charEqn = nan
-    
+
             #there is a maddening bug in SmoothingSpline: it can't evaluate 0 alone, so I have to do this:
             try:
                 Isc_nn = iFitSpline([0,1e-55])[0]
             except:
                 Isc_nn = nan
-    
+
             FF = pMax/(Voc_nn*Isc_nn)
-    
+
             if (ier != 7) and (ier != 6) and (not dontFindBounds) and (type(fitCovariance) is not float):
                 #error estimation:
                 alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
-    
+
                 nn = len(VV)    # number of data points
                 p = len(fitParams) # number of parameters
-    
+
                 dof = max(0, nn - p) # number of degrees of freedom
-    
+
                 # student-t value for the dof and confidence level
                 tval = t.ppf(1.0-alpha/2., dof) 
-    
+
                 lowers = []
                 uppers = []
                 #calculate 95% confidence interval
-                for a, p,var in zip(range(nn), fitParams, np.diag(fitCovariance)):
+                for a, p,var in zip(list(range(nn)), fitParams, np.diag(fitCovariance)):
                     sigma = var**0.5
                     lower = p - sigma*tval
                     upper = p + sigma*tval
                     lowers.append(lower)
                     uppers.append(upper)
-    
+
             else:
                 uppers = [nan,nan,nan,nan,nan]
                 lowers = [nan,nan,nan,nan,nan]
-    
+
             plotPoints = 1000
             fitX = np.linspace(VV[0],VV[-1],plotPoints)
-            
+
             if ier < 5:
                 modelY = cellModel(fitX)*outputScaleFactor
             else:
                 modelY = np.empty(plotPoints)*nan
             splineY = iFitSpline(fitX)*outputScaleFactor
             graphData = {'vsTime':vsTime,'origRow':self.rows,'fitX':fitX,'modelY':modelY,'splineY':splineY,'i':II*outputScaleFactor,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn*outputScaleFactor,'Vmax':vMax,'Imax':iMax*outputScaleFactor}		
-    
+
             #export button
             exportBtn = QPushButton(self.ui.tableWidget)
             exportBtn.setText('Export')
             exportBtn.clicked.connect(self.handleButton)
-            self.ui.tableWidget.setCellWidget(self.rows,self.cols.keys().index('exportBtn'), exportBtn)
-              
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setData(Qt.DisplayRole,round(pMax/area/suns*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pce')).setToolTip(str(round(pMax_charEqn/area/suns*1e3,3)))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setData(Qt.DisplayRole,round(pMax/area*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setData(Qt.DisplayRole,round(Isc_nn/area*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jsc')).setToolTip(str(round(Isc_nn_charEqn/area*1e3,3)))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setData(Qt.DisplayRole,round(Voc_nn*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('voc')).setToolTip(str(round(Voc_nn_charEqn*1e3,3)))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setData(Qt.DisplayRole,round(FF,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('ff')).setToolTip(str(round(FF_charEqn,3)))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setData(Qt.DisplayRole,round(Rs_fit*area,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setData(Qt.DisplayRole,round(Rsh_fit*area,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setData(Qt.DisplayRole,round(Iph_fit/area*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setData(Qt.DisplayRole,round(I0_fit/area*1e9,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setData(Qt.DisplayRole,round(n_fit,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setData(Qt.DisplayRole,round(vMax*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('Vmax')).setToolTip(str(round(vMax_charEqn*1e3,3)))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('area')).setData(Qt.DisplayRole,round(area,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setData(Qt.DisplayRole,round(pMax*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('pmax2')).setToolTip(str(round(pMax_charEqn*1e3,3)))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setData(Qt.DisplayRole,round(Isc_nn*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('isc')).setToolTip(str(round(Isc_nn_charEqn*1e3,3)))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setData(Qt.DisplayRole,round(Iph_fit*1e3,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setData(Qt.DisplayRole,round(I0_fit*1e9,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setData(Qt.DisplayRole,round(Rs_fit,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setData(Qt.DisplayRole,round(Rsh_fit,3))
-            self.ui.tableWidget.item(self.rows,self.cols.keys().index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
-        
+            self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)
+
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setData(Qt.DisplayRole,float(round(pMax/area/suns*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setToolTip(str(round(pMax_charEqn/area/suns*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setData(Qt.DisplayRole,float(round(pMax/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setData(Qt.DisplayRole,float(round(Isc_nn/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setToolTip(str(round(Isc_nn_charEqn/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setData(Qt.DisplayRole,round(Voc_nn*1e3,3))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setToolTip(str(round(Voc_nn_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setData(Qt.DisplayRole,float(round(FF,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setToolTip(str(round(FF_charEqn,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setData(Qt.DisplayRole,float(round(Rs_fit*area,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setData(Qt.DisplayRole,float(round(Rsh_fit*area,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setData(Qt.DisplayRole,float(round(Iph_fit/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setData(Qt.DisplayRole,float(round(I0_fit/area*1e9,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setData(Qt.DisplayRole,float(round(n_fit,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setData(Qt.DisplayRole,float(round(vMax*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setToolTip(str(round(vMax_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('area')).setData(Qt.DisplayRole,round(area,3))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setData(Qt.DisplayRole,float(round(pMax*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setToolTip(str(round(pMax_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setData(Qt.DisplayRole,float(round(Isc_nn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setToolTip(str(round(Isc_nn_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setData(Qt.DisplayRole,float(round(Iph_fit*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setData(Qt.DisplayRole,float(round(I0_fit*1e9,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setData(Qt.DisplayRole,float(round(Rs_fit,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setData(Qt.DisplayRole,float(round(Rsh_fit,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
+
         else:#vs time
             graphData = {'vsTime':vsTime,'origRow':self.rows,'time':time,'i':II*outputScaleFactor,'v':VV}
 
         #file name
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setText(fileName)
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('file')).setToolTip(''.join(comments))          
-        
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setText(fileName)
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setToolTip(''.join(comments))          
+
         #plot button
         plotBtn = QPushButton(self.ui.tableWidget)
         plotBtn.setText('Plot')
         plotBtn.clicked.connect(self.handleButton)
-        self.ui.tableWidget.setCellWidget(self.rows,self.cols.keys().index('plotBtn'), plotBtn)
-        self.ui.tableWidget.item(self.rows,self.cols.keys().index('plotBtn')).setData(Qt.UserRole,graphData)
-        
+        self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('plotBtn'), plotBtn)
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('plotBtn')).setData(Qt.UserRole,graphData)
+
         self.ui.tableWidget.resizeColumnsToContents()
         self.rows = self.rows + 1
 
@@ -813,8 +816,8 @@ class MainWindow(QMainWindow):
         diaplayAllGuesses = False
         def evaluateGuessPlot(dataX, dataY, myguess):
             myguess = [float(x) for x in myguess]
-            print "myguess:"
-            print myguess
+            print("myguess:")
+            print(myguess)
             vv=np.linspace(min(dataX),max(dataX),1000)
             ii=vectorizedCurrent(vv,myguess[0],myguess[1],myguess[2],myguess[3],myguess[4])
             plt.title('Guess and raw data')
@@ -824,11 +827,11 @@ class MainWindow(QMainWindow):
             plt.draw()
             plt.show()
 
-        #phase 1 guesses:
+        # phase 1 guesses:
         I_L_initial_guess = I_sc_n
         R_sh_initial_guess = 1e6
 
-        #compute intellegent guesses for Iph, Rsh by forcing the curve through several data points and numerically solving the resulting system of eqns
+        # compute intellegent guesses for Iph, Rsh by forcing the curve through several data points and numerically solving the resulting system of eqns
         newRhs = rhs - I
         aLine = Rsh*V+Iph-I
         eqnSys1 = aLine.subs([(V,V_start_n),(I,I_start_n)])
@@ -841,7 +844,6 @@ class MainWindow(QMainWindow):
         except:
             return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
 
-
         I_L_guess = nGuessSln[0]
         R_sh_guess = -1*1/nGuessSln[1]
         R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
@@ -851,7 +853,7 @@ class MainWindow(QMainWindow):
         initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
         if diaplayAllGuesses:
             evaluateGuessPlot(VV, II, initial_guess)
-            
+
         # let's try the fit now, if it works great, we're done, otherwise we can continue
         #try:
             #guess = initial_guess
@@ -864,7 +866,7 @@ class MainWindow(QMainWindow):
         eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
         eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
         eqnSys = (eqnSys1,eqnSys2)
-        
+
         try:
             nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
         except:
@@ -872,15 +874,15 @@ class MainWindow(QMainWindow):
 
         I0_guess = nGuessSln[0]
         R_s_guess = nGuessSln[1]
-        
+
         #Rs_initial_guess = RsEqn[0].evalf(subs={I0:I0_initial_guess,Vth:thermalVoltage,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_end_n,V:V_end_n})
         #I0_guess = I0_initial_guess
         #R_s_guess = Rs_initial_guess
-        
+
         guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
         if diaplayAllGuesses:
             evaluateGuessPlot(VV, II, guess)
-            
+
         #nidf
 
         #give 5x weight to data around mpp
@@ -899,6 +901,8 @@ class MainWindow(QMainWindow):
         #todo: play with setting up "key points"
 
         guess = [float(x) for x in guess]
+        #VV = [np.float(x) for x in VV]
+        #II = [np.float(x) for x in II]
 
         #odrMod = odr.Model(odrThing)
         #myData = odr.Data(VV,II)
@@ -914,20 +918,58 @@ class MainWindow(QMainWindow):
             #print myoutput.stopreason
             #print myoutput.info
             #ier = 1
-            #TODO: scipy optimize 1.7 makes setting bounds on fit parameters easy. allow the user to do this.
-            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15,maxfev=12000)
-            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
-            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14            
-        
-            alwaysShowRecap = False
-            if  alwaysShowRecap:
+            myXtol = np.float(1e-15)
+            myFtol = np.float(1e-15)
+            myGtol = np.float(1e-15)
+            myMax_nfev = 12000
+            
+            constrainedFit = False
+            #constrainedFit = False
+            if constrainedFit:
+                #TODO: scipy optimize 1.7 makes setting bounds on fit parameters easy. allow the user to do this.
+                # constrain the fit here:
+                I0_bounds = [0, inf]
+                I_L_bounds = [0, inf]
+                R_s_bounds = [0, inf]
+                R_sh_bounds = [0, inf]
+                n_bounds = [0, 4]                
+                myBounds=([I0_bounds[0], I_L_bounds[0], R_s_bounds[0], R_sh_bounds[0], n_bounds[0]], [I0_bounds[1], I_L_bounds[1], R_s_bounds[1], R_sh_bounds[1], n_bounds[1]])
+                myMethod = 'trf'
+                #myMethod = 'dogbox'
+                redirected_output = sys.stdout = StringIO()
+                redirected_error = sys.stderr = StringIO()
+                fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method=myMethod, jac ='cs', x_scale="jac", xtol=myXtol, ftol=myFtol, gtol=myGtol, max_nfev=myMax_nfev, loss="soft_l1", tr_options={'tr_solver': "lsmr"}, verbose=2)
+                #fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method=myMethod, x_scale="jac", xtol=myXtol, ftol=myFtol, gtol=myGtol, max_nfev=myMax_nfev, verbose=2)
+                out = redirected_output.getvalue()
+                err = redirected_error.getvalue()                
+                sys.stdout = sys.__stdout__
+                sys.stderr = sys.__stderr__                
+                infodict = out
+                errmsg = out.splitlines()[0]
+                ier = 0
+            else:
+                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, full_output = True, xtol=myXtol, ftol=myFtol, gtol=myGtol, maxfev=myMax_nfev)
+                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, full_output = True, xtol=1e-13, ftol=1e-15, maxfev=12000)
+                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
+                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14                                     
+
+    
+            showFitRecap = False
+            if  showFitRecap:
                 vv=np.linspace(VV[0],VV[-1],1000)
-                print "fit:"
-                print fitParams                
-                print "guess:"
-                print guess
-                print ier
-                print errmsg
+                sumSqErr = sum(optimizeThis(VV, *fitParams)-II)**2
+                print("Sum of square of errors:")
+                print(sumSqErr)
+                print("fit:")
+                print(fitParams)                
+                print("guess:")
+                print(guess)
+                print("ier:")
+                print(ier)
+                print("errmsg:")
+                print(errmsg)
+                print("infodict:")
+                print(infodict)
                 ii=vectorizedCurrent(vv,guess[0],guess[1],guess[2],guess[3],guess[4])
                 ii2=vectorizedCurrent(vv,fitParams[0],fitParams[1],fitParams[2],fitParams[3],fitParams[4])
                 plt.title('Fit analysis')
@@ -945,9 +987,9 @@ class MainWindow(QMainWindow):
         #except RuntimeError as e:
         #    return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Runtime Error({0}): {1}".format(e.errno, e.strerror), 10])
         except:
+            sys.stdout = sys.__stdout__
+            sys.stderr = sys.__stderr__             
             return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
-
-
 
     def openCall(self):
         #remember the last path the user opened
@@ -955,22 +997,22 @@ class MainWindow(QMainWindow):
             openDir = self.settings.value('lastFolder')
         else:
             openDir = '.'
-        
+
         fileNames = QFileDialog.getOpenFileNames(self, directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2);;Folders (*)')
-        
+
         if len(fileNames[0])>0:#check if user clicked cancel
             self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
             self.settings.setValue('lastFolder',self.workingDirectory)
             for fullPath in fileNames[0]:
                 fullPath = str(fullPath)
                 self.processFile(fullPath)
-        
+
             if self.ui.actionEnable_Watching.isChecked():
                 watchedDirs = self.watcher.directories()
                 self.watcher.removePaths(watchedDirs)
                 self.watcher.addPath(self.workingDirectory)
                 self.handleWatchUpdate(self.workingDirectory)
-    
+
     #user chose file --> watch
     def handleWatchAction(self):
         #remember the last path th user opened
@@ -978,9 +1020,9 @@ class MainWindow(QMainWindow):
             openDir = self.settings.value('lastFolder')
         else:
             openDir = '.'
-        
+
         myDir = QFileDialog.getExistingDirectory(self,directory = openDir, caption="Select folder to watch")
-        
+
         if len(myDir)>0:#check if user clicked cancel
             self.workingDirectory = str(myDir)
             self.settings.setValue('lastFolder',self.workingDirectory)
@@ -989,7 +1031,7 @@ class MainWindow(QMainWindow):
             self.watcher.removePaths(watchedDirs)
             self.watcher.addPath(self.workingDirectory)
             self.handleWatchUpdate(self.workingDirectory)
-    
+
     #user toggeled Tools --> Enable Watching
     def watchCall(self):
         watchedDirs = self.watcher.directories()
@@ -998,7 +1040,7 @@ class MainWindow(QMainWindow):
             if (self.workingDirectory != ''):
                 self.watcher.addPath(self.workingDirectory)
                 self.handleWatchUpdate(self.workingDirectory)
-            
+
     def handleWatchUpdate(self,path):
         myDir = QDir(path)
         myDir.setNameFilters(self.supportedExtensions)
@@ -1016,12 +1058,20 @@ class MainWindow(QMainWindow):
                     #process the new file
                     self.processFile(os.path.join(self.workingDirectory,aFile))
 
-        
     def openFitConstraintDialog(self):
         #TODO: draw fit constraint selection dialog here.
         self.ui.statusbar.showMessage("Coming soon!",2500)
-        pass
 
+    def statusChanged(self,args):
+        if not args:
+            # reset the statusbar background
+            self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(0,0,0,0);color:black;font-weight:bold;}")
+
+    def goodMessage(self):
+        self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(0,128,0,255);color:black;font-weight:bold;}")
+
+    def badMessage(self):
+        self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(255,0,0,255);color:black;font-weight:bold;}")    
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

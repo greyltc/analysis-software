@@ -104,15 +104,14 @@ def polyint(p, m=1, k=None):
     """
     m = int(m)
     if m < 0:
-        raise ValueError, "Order of integral must be positive (see polyder)"
+        raise ValueError("Order of integral must be positive (see polyder)")
     if k is None:
         k = zeros(m, float)
     k = atleast_1d(k)
     if len(k) == 1 and m > 1:
         k = k[0] * ones(m, float)
     if len(k) < m:
-        raise ValueError, \
-              "k must be a scalar or a rank-1 array of length 1 or >m."
+        raise ValueError("k must be a scalar or a rank-1 array of length 1 or >m.")
     truepoly = isinstance(p, poly1d)
     p = asarray(p)
     if m == 0:
@@ -188,7 +187,7 @@ def polyder(p, m=1):
     """
     m = int(m)
     if m < 0:
-        raise ValueError, "Order of derivative must be positive (see polyint)"
+        raise ValueError("Order of derivative must be positive (see polyint)")
     truepoly = isinstance(p, poly1d)
     p = asarray(p)
     if m == 0:
@@ -891,7 +890,7 @@ def cheb2poly(ck, a= -1, b=1):
     y2 = 2. * y
 
     # Clenshaw recurence
-    for ix in xrange(n - 1):
+    for ix in range(n - 1):
         tmp = b_Nmi
         b_Nmi = polymul(y2, b_Nmi) # polynomial multiplication
         nb = len(b_Nmip1)
@@ -1243,7 +1242,7 @@ def _chebval(x, ck, kind=1):
     b_Nmip1 = b_Nmi.copy()    # b_(N-i+1)
     x2 = 2 * x
     # Clenshaw reccurence
-    for ix in xrange(n - 1):
+    for ix in range(n - 1):
         tmp = b_Nmi
         b_Nmi = x2 * b_Nmi - b_Nmip1 + ck[ix]
         b_Nmip1 = tmp
@@ -1359,7 +1358,7 @@ def chebder(ck, a= -1, b=1):
     cder = zeros(n, dtype=asarray(ck).dtype)
     cder[0] = 2 * n * ck[0]
     cder[1] = 2 * (n - 1) * ck[1]
-    for j in xrange(2, n):
+    for j in range(2, n):
         cder[j] = cder[j - 2] + 2 * (n - j) * ck[j]
 
     return cder * 2. / (b - a) # Normalize to the interval b-a.
@@ -1441,12 +1440,12 @@ class Cheb1d(object):
     kind = None
     def __init__(self, ck, a= -1, b=1, kind=1):
         if isinstance(ck, Cheb1d):
-            for key in ck.__dict__.keys():
+            for key in list(ck.__dict__.keys()):
                 self.__dict__[key] = ck.__dict__[key]
             return
         cki = trim_zeros(atleast_1d(ck), 'b')
         if len(cki.shape) > 1:
-            raise ValueError, "Polynomial must be 1d only."
+            raise ValueError("Polynomial must be 1d only.")
         self.__dict__['coeffs'] = cki
         self.__dict__['order'] = len(cki) - 1
         self.__dict__['a'] = a
@@ -1512,7 +1511,7 @@ class Cheb1d(object):
         return any(self.coeffs != other.coeffs) or (self.a != other.a) or (self.b != other.b) or (self.kind != other.kind)
 
     def __setattr__(self, key, val):
-        raise ValueError, "Attributes cannot be changed this way."
+        raise ValueError("Attributes cannot be changed this way.")
 
     def __getattr__(self, key):
         if key in ['c', 'coef', 'coefficients']:
@@ -1540,7 +1539,7 @@ class Cheb1d(object):
     def __setitem__(self, key, val):
         #ind = self.order - key
         if key < 0:
-            raise ValueError, "Does not support negative powers."
+            raise ValueError("Does not support negative powers.")
         if key > self.order:
             zr = zeros(key - self.order, self.coeffs.dtype)
             self.__dict__['coeffs'] = concatenate((self.coeffs, zr))
@@ -1739,17 +1738,17 @@ def padefitlsq(fun, m, k, a= -1, b=1, trace=False, x=None, end_points=True):
     mad = 0
 
     u = zeros((npt, ncof))
-    for ix in xrange(MAXIT):
+    for ix in range(MAXIT):
         #% Set up design matrix for least squares fit.
         pow1 = wt
         bb = pow1 * (fs + abs(mad) * sign(ee))
 
-        for jx in xrange(m + 1):
+        for jx in range(m + 1):
             u[:, jx] = pow1
             pow1 = pow1 * x
 
         pow1 = -bb
-        for jx in xrange(m + 1, ncof):
+        for jx in range(m + 1, ncof):
             pow1 = pow1 * x
             u[:, jx] = pow1
 
@@ -1771,7 +1770,7 @@ def padefitlsq(fun, m, k, a= -1, b=1, trace=False, x=None, end_points=True):
             c2 = cof[ncof:m:-1].tolist() + [1, ]
 
         if trace:
-            print('Iteration=%d,  max error=%g' % (ix, devmax))
+            print(('Iteration=%d,  max error=%g' % (ix, devmax)))
             plt.plot(x, fs, x, ee + fs)
     #c1=c1(:)
     #c2=c2(:)
@@ -1827,7 +1826,7 @@ def main():
     py = polyishift(px, 0, 5);
     t1 = polyval(px, [0, 2.5, 5])  #% This is the same as the line below
     t2 = polyval(py, [-1, 0, 1 ])
-    print(t1, t2)
+    print((t1, t2))
 
 def test_docstrings():
     import doctest

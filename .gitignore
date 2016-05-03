@@ -1,2 +1,4 @@
 *.pyc
 exports/
+__pycache__/
+*.bak

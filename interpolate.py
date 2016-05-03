@@ -9,7 +9,7 @@
 # Licence:     <your licence>
 #-------------------------------------------------------------------------
 #!/usr/bin/env python
-from __future__ import division
+
 import numpy as np
 import scipy.signal
 import scipy.special as spec
@@ -92,7 +92,7 @@ def savitzky_golay(y, window_size, order, deriv=0):
         raise TypeError("window_size size must be a positive odd number")
     if window_size < order + 2:
         raise TypeError("window_size is too small for the polynomials order")
-    order_range = range(order + 1)
+    order_range = list(range(order + 1))
     half_window = (window_size - 1) // 2
     # precompute coefficients
     b = np.mat([[k ** i for i in order_range]
@@ -336,7 +336,7 @@ class PPform(object):
         dx = xx - self.breaks.take(indxs)
         if True:
             v = pp[0, indxs]
-            for i in xrange(1, self.order):
+            for i in range(1, self.order):
                 v = dx * v + pp[i, indxs]
             values = v
         else:
@@ -344,7 +344,7 @@ class PPform(object):
             # values = np.diag(dot(V,pp[:,indxs]))
             dot = np.dot
             values = np.array([dot(V[k, :], pp[:, indxs[k]])
-                              for k in xrange(len(xx))])
+                              for k in range(len(xx))])
 
         res[mask] = values
         res.shape = saveshape
@@ -429,7 +429,7 @@ class PPform(object):
 
             vv = xs * cof[0, index]
             k = self.order
-            for i in xrange(1, k):
+            for i in range(1, k):
                 vv = xs * (vv + cof[i, index])
 
             cof[-1] = np.hstack((0, vv)).cumsum()
@@ -979,7 +979,7 @@ class StinemanInterp2(PiecewisePolynomial):
     def __init__(self, x, y, yp=None, method='parabola', monotone=False):
         if yp is None:
             yp = slopes(x, y, method, monotone=monotone)
-        super(StinemanInterp2, self).__init__(x, zip(y, yp))
+        super(StinemanInterp2, self).__init__(x, list(zip(y, yp)))
 
 
 class CubicHermiteSpline(PiecewisePolynomial):
@@ -992,7 +992,7 @@ class CubicHermiteSpline(PiecewisePolynomial):
     def __init__(self, x, y, yp=None, method='Catmull-Rom'):
         if yp is None:
             yp = slopes(x, y, method, monotone=False)
-        super(CubicHermiteSpline, self).__init__(x, zip(y, yp), orders=3)
+        super(CubicHermiteSpline, self).__init__(x, list(zip(y, yp)), orders=3)
 
 
 class Pchip(PiecewisePolynomial):
@@ -1068,7 +1068,7 @@ class Pchip(PiecewisePolynomial):
     def __init__(self, x, y, yp=None, method='secant'):
         if yp is None:
             yp = slopes(x, y, method=method, monotone=True)
-        super(Pchip, self).__init__(x, zip(y, yp), orders=3)
+        super(Pchip, self).__init__(x, list(zip(y, yp)), orders=3)
 
 
 def test_smoothing_spline():
