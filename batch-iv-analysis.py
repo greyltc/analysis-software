@@ -955,7 +955,7 @@ class MainWindow(QMainWindow):
             showFitRecap = False
             if  showFitRecap:
                 vv=np.linspace(VV[0],VV[-1],1000)
-                sumSqErr = sum(optimizeThis(VV, *fitParams)-II)**2
+                sumSqErr = sum([(optimizeThis(x, *fitParams)-y)**2 for x,y in zip(VV,II)])
                 print("Sum of square of errors:")
                 print(sumSqErr)
                 print("fit:")
