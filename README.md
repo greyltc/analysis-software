@@ -21,8 +21,8 @@ which is described by
 ---
 Please cite our work:  
 [DOI: 10.3390/photonics2041101](http://www.mdpi.com/2304-6732/2/4/1101/htm)  
-and shoot me an email. grey [AT] christoforo [DOT] net  
-I'd be super happy to accept pull requests or ideas you have for improving this!
+and feel free to shoot me an email with comments or suggestions. grey [AT] christoforo [DOT] net  
+I'd be super happy to accept pull requests or ideas you have for improving this and I can probably help add support for your own custom IV data file input format. 
 
 ### How to use
 ---
