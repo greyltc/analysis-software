@@ -33,24 +33,25 @@ import numpy as np
 import sympy
 from numpy import nan
 from numpy import inf
+from numpy import exp
 
 from scipy.special import lambertw
 
 from scipy import odr
 from scipy import interpolate
 from scipy import optimize
-from scipy.stats.distributions import  t #needed for confidence interval calculation
+from scipy.stats.distributions import t #needed for confidence interval calculation
 import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
 #from uncertainties import ufloat
 
 I0, Iph, Rs, Rsh, n, I, V, Vth, V_I0, I_I0, V_n, I_n = sympy.symbols('I0 Iph Rs Rsh n I V Vth V_I0 I_I0 V_n I_n')
 
-cellTemp = 29; #degC all analysis is done assuming the cell is at 29 degC
-T = 273.15 + cellTemp; #cell temp in K
-K = 1.3806488e-23; #boltzman constant
-q = 1.60217657e-19; #electron charge
-thermalVoltage = K*T/q; #thermal voltage ~26mv		
+cellTemp = 29 #degC all analysis is done assuming the cell is at 29 degC
+T = 273.15 + cellTemp #cell temp in K
+K = 1.3806488e-23 #boltzman constant
+q = 1.60217657e-19 #electron charge
+thermalVoltage = K*T/q #thermal voltage ~26mv
 
 #this stuff is from http://dx.doi.org/10.1016/j.solmat.2003.11.018
 #symbolic representation for solar cell equation:
@@ -94,10 +95,18 @@ def odrThing(B,x):
     I0, Iph, Rs, Rsh, n = B
     return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))    
 
-lambertWTol = 1e-15
-def optimizeThis (x,I0, Iph, Rs, Rsh, n):
-    #return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh)),tol=lambertWTol))/(Rs*(Rs + Rsh))
-    return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh)),tol=lambertWTol))/(Rs*(Rs + Rsh)))
+# find the sum of the square of errors for a fit to some data
+# given the fit function, the fit parameters and the x and y data
+def sse(fun,params,x,y):
+    return sum([(fun(X, *params)-Y)**2 for X,Y in zip(x,y)])
+    
+# the 0th branch of the lambertW function
+def w(x):
+    return np.real_if_close(lambertw(x, k=0, tol=1e-15))
+
+# here's the function we want to fit to
+def optimizeThis (x, I0, Iph, Rs, Rsh, n):
+    return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
 
 #allow current solutoin to operate on vectors of voltages (needed for curve fitting)
 def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
@@ -273,37 +282,21 @@ def makeAGuess(VV,II):
     #see http://docs.scipy.org/doc/external/odrpack_guide.pdf    
     return guess
 
-def bestEffortFit(VV,II):
-    guess = makeAGuess(VV,II)
-    
+def doTheFit(VV,II,guess):
     try:
-        #myoutput = myodr.run()
-        #fitParams = myoutput.beta
-        #print myoutput.stopreason
-        #print myoutput.info
-        #ier = 1
-        myXtol = np.float(1e-15)
-        myFtol = np.float(1e-15)
-        myGtol = np.float(1e-15)
-        myMax_nfev = 12000
-    
-        constrainedFit = False
+        constrainedFit = True
         #constrainedFit = False
         if constrainedFit:
-            #TODO: scipy optimize 1.7 makes setting bounds on fit parameters easy. allow the user to do this.
             # constrain the fit here:
-            I0_bounds = [0, inf]
+            I0_bounds = [0, inf] # TODO: allow the user to edit these in the GUI
             I_L_bounds = [0, inf]
             R_s_bounds = [0, inf]
             R_sh_bounds = [0, inf]
-            n_bounds = [0, 4]                
+            n_bounds = [1, 4]                
             myBounds=([I0_bounds[0], I_L_bounds[0], R_s_bounds[0], R_sh_bounds[0], n_bounds[0]], [I0_bounds[1], I_L_bounds[1], R_s_bounds[1], R_sh_bounds[1], n_bounds[1]])
-            myMethod = 'trf'
-            #myMethod = 'dogbox'
             redirected_output = sys.stdout = StringIO()
             redirected_error = sys.stderr = StringIO()
-            fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method=myMethod, jac ='cs', x_scale="jac", xtol=myXtol, ftol=myFtol, gtol=myGtol, max_nfev=myMax_nfev, loss="soft_l1", tr_options={'tr_solver': "lsmr"}, verbose=2)
-            #fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method=myMethod, x_scale="jac", xtol=myXtol, ftol=myFtol, gtol=myGtol, max_nfev=myMax_nfev, verbose=2)
+            fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
             out = redirected_output.getvalue()
             err = redirected_error.getvalue()                
             sys.stdout = sys.__stdout__
@@ -311,49 +304,43 @@ def bestEffortFit(VV,II):
             infodict = out
             errmsg = out.splitlines()[0]
             ier = 0
-        else:
-            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, full_output = True, xtol=myXtol, ftol=myFtol, gtol=myGtol, maxfev=myMax_nfev)
-            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, full_output = True, xtol=1e-13, ftol=1e-15, maxfev=12000)
-            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
-            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14                                     
-    
-    
-        showFitRecap = False
-        if  showFitRecap:
-            vv=np.linspace(VV[0],VV[-1],1000)
-            sumSqErr = sum([(optimizeThis(x, *fitParams)-y)**2 for x,y in zip(VV,II)])
-            print("Sum of square of errors:")
-            print(sumSqErr)
-            print("fit:")
-            print(fitParams)                
-            print("guess:")
-            print(guess)
-            print("ier:")
-            print(ier)
-            print("errmsg:")
-            print(errmsg)
-            print("infodict:")
-            print(infodict)
-            ii=vectorizedCurrent(vv,guess[0],guess[1],guess[2],guess[3],guess[4])
-            ii2=vectorizedCurrent(vv,fitParams[0],fitParams[1],fitParams[2],fitParams[3],fitParams[4])
-            plt.title('Fit analysis')
-            p1, = plt.plot(vv,ii, label='Guess',ls='--')
-            p2, = plt.plot(vv,ii2, label='Fit')
-            p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-            #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
-            ax = plt.gca()
-            handles, labels = ax.get_legend_handles_labels()
-            ax.legend(handles, labels, loc=3)
-            plt.grid(b=True)
-            plt.draw()
-            plt.show()
+        else: # unconstrained "l-m" fit
+            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, method="lm", full_output=True)
         return(fitParams, fitCovariance, infodict, errmsg, ier)
-    #except RuntimeError as e:
-    #    return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Runtime Error({0}): {1}".format(e.errno, e.strerror), 10])
     except:
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__             
         return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
+
+def analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict):
+    SSE = sse(optimizeThis, fitParams, VV, II)
+    print("Sum of square of errors:")
+    print(SSE)
+    print("fit:")
+    print(fitParams)                
+    print("guess:")
+    print(guess)
+    print("ier:")
+    print(ier)
+    print("errmsg:")
+    print(errmsg)
+    print("infodict:")
+    print(infodict)
+    
+    vv=np.linspace(VV[0],VV[-1],1000)
+    ii=vectorizedCurrent(vv,guess[0],guess[1],guess[2],guess[3],guess[4])
+    ii2=vectorizedCurrent(vv,fitParams[0],fitParams[1],fitParams[2],fitParams[3],fitParams[4])
+    plt.title('Fit analysis')
+    p1, = plt.plot(vv,ii, label='Guess',ls='--')
+    p2, = plt.plot(vv,ii2, label='Fit')
+    p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+    #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
+    ax = plt.gca()
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, loc=3)
+    plt.grid(b=True)
+    plt.draw()
+    plt.show()    
 
 class col:
     header = ''
@@ -608,7 +595,6 @@ class MainWindow(QMainWindow):
         plt.draw()
         plt.show()
 
-    # TODO: fix for csv data cells seem to be shifted by 1 to the left
     def handleSave(self):
         if self.settings.contains('lastFolder'):
             saveDir = self.settings.value('lastFolder')
@@ -777,7 +763,33 @@ class MainWindow(QMainWindow):
             self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())        
 
         if not vsTime:
-            fitParams, fitCovariance, infodict, errmsg, ier = bestEffortFit(VV,II)
+            # scale the current up so that the curve fit algorithm doesn't run into machine precision
+            currentScaleFactor = 1e3 
+            II = II*currentScaleFactor
+            
+            guess = makeAGuess(VV,II)
+            fitParams, fitCovariance, infodict, errmsg, ier = doTheFit(VV,II,guess)
+            
+            # now unscale everything
+            II = II/currentScaleFactor
+            fitParams[0] = fitParams[0]/currentScaleFactor
+            fitParams[1] = fitParams[1]/currentScaleFactor
+            fitParams[2] = fitParams[2]*currentScaleFactor
+            fitParams[3] = fitParams[3]*currentScaleFactor
+            guess[0] = guess[0]/currentScaleFactor
+            guess[1] = guess[1]/currentScaleFactor
+            guess[2] = guess[2]*currentScaleFactor
+            guess[3] = guess[3]*currentScaleFactor
+            fitCovariance[0] = fitCovariance[0]/currentScaleFactor
+            fitCovariance[1] = fitCovariance[1]/currentScaleFactor
+            fitCovariance[2] = fitCovariance[2]*currentScaleFactor
+            fitCovariance[3] = fitCovariance[3]*currentScaleFactor
+            
+            # this will produce an evaluation of how well the fit worked
+            #analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict)
+            
+            # TODO: this needs to be a column in the GUI
+            SSE = sse(optimizeThis, fitParams, VV, II) # sum of square of differences between data and fit [A^2]
 
             if ier < 5: # no error
                 self.goodMessage()
