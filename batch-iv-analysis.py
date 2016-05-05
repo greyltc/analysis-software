@@ -132,6 +132,229 @@ def isNumber(s):
         return False
     return True
 
+def makeAGuess(VV,II):
+    #data point selection:
+    #lowest voltage (might be same as Isc)
+    V_start_n = VV[0]
+    I_start_n = II[0]
+    
+    #highest voltage
+    V_end_n = VV[-1]
+    I_end_n = II[-1]
+    
+    #Isc
+    iFit = interpolate.interp1d(VV,II)
+    V_sc_n = 0
+    try:
+        I_sc_n = float(iFit(V_sc_n))
+    except:
+        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+    
+    #mpp
+    VVcalc = VV-VV[0]
+    IIcalc = II-min(II)
+    Pvirtual= np.array(VVcalc*IIcalc)
+    vMaxIndex = Pvirtual.argmax()
+    V_vmpp_n = VV[vMaxIndex]
+    I_vmpp_n = II[vMaxIndex]
+    
+    #Vp: half way in voltage between vMpp and the start of the dataset:
+    V_vp_n = (V_vmpp_n-V_start_n)/2 +V_start_n
+    try:
+        I_vp_n = float(iFit(V_vp_n))
+    except:
+        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+    
+    #Ip: half way in current between vMpp and the end of the dataset:
+    I_ip_n = (I_vmpp_n-I_end_n)/2 + I_end_n
+    iFit2 = interpolate.interp1d(VV,II-I_ip_n)
+    try:
+        V_ip_n = optimize.brentq(iFit2, VV[0], VV[-1])
+    except:
+        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+    
+    diaplayAllGuesses = False
+    def evaluateGuessPlot(dataX, dataY, myguess):
+        myguess = [float(x) for x in myguess]
+        print("myguess:")
+        print(myguess)
+        vv=np.linspace(min(dataX),max(dataX),1000)
+        ii=vectorizedCurrent(vv,myguess[0],myguess[1],myguess[2],myguess[3],myguess[4])
+        plt.title('Guess and raw data')
+        plt.plot(vv,ii)
+        plt.scatter(dataX,dataY)
+        plt.grid(b=True)
+        plt.draw()
+        plt.show()
+    
+    # phase 1 guesses:
+    I_L_initial_guess = I_sc_n
+    R_sh_initial_guess = 1e6
+    
+    # compute intellegent guesses for Iph, Rsh by forcing the curve through several data points and numerically solving the resulting system of eqns
+    newRhs = rhs - I
+    aLine = Rsh*V+Iph-I
+    eqnSys1 = aLine.subs([(V,V_start_n),(I,I_start_n)])
+    eqnSys2 = aLine.subs([(V,V_vp_n),(I,I_vp_n)])
+    
+    eqnSys = (eqnSys1,eqnSys2)
+    
+    try:
+        nGuessSln = sympy.nsolve(eqnSys,(Iph,Rsh),(I_L_initial_guess,R_sh_initial_guess),maxsteps=10000)
+    except:
+        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+    
+    I_L_guess = nGuessSln[0]
+    R_sh_guess = -1*1/nGuessSln[1]
+    R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
+    n_initial_guess = 2 #TODO: maybe a more intelegant guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
+    I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
+    
+    initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
+    if diaplayAllGuesses:
+        evaluateGuessPlot(VV, II, initial_guess)
+    
+    # let's try the fit now, if it works great, we're done, otherwise we can continue
+    #try:
+        #guess = initial_guess
+        #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15)
+        #return(fitParams, fitCovariance, infodict, errmsg, ier)
+    #except:
+        #pass        
+    
+    #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
+    eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
+    eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
+    eqnSys = (eqnSys1,eqnSys2)
+    
+    try:
+        nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
+    except:
+        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+    
+    I0_guess = nGuessSln[0]
+    R_s_guess = nGuessSln[1]
+    
+    #Rs_initial_guess = RsEqn[0].evalf(subs={I0:I0_initial_guess,Vth:thermalVoltage,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_end_n,V:V_end_n})
+    #I0_guess = I0_initial_guess
+    #R_s_guess = Rs_initial_guess
+    
+    guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
+    
+    if diaplayAllGuesses:
+        evaluateGuessPlot(VV, II, guess)
+    
+    #nidf
+    
+    #give 5x weight to data around mpp
+    #nP = II*VV
+    #maxIndex = np.argmax(nP)
+    #weights = np.ones(len(II))
+    #halfRange = (V_ip_n-VV[vMaxIndex])/2
+    #upperTarget = VV[vMaxIndex] + halfRange
+    #lowerTarget = VV[vMaxIndex] - halfRange
+    #lowerTarget = 0
+    #upperTarget = V_oc_n
+    #lowerI = np.argmin(abs(VV-lowerTarget))
+    #upperI = np.argmin(abs(VV-upperTarget))
+    #weights[range(lowerI,upperI)] = 3
+    #weights[maxnpi] = 10
+    #todo: play with setting up "key points"
+    
+    guess = [float(x) for x in guess]
+    #VV = [np.float(x) for x in VV]
+    #II = [np.float(x) for x in II]
+    
+    #odrMod = odr.Model(odrThing)
+    #myData = odr.Data(VV,II)
+    #myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000,sstol=1e-20,partol=1e-20)#
+    #myoutput = myodr.run()
+    #myoutput.pprint()
+    #see http://docs.scipy.org/doc/external/odrpack_guide.pdf    
+    return guess
+
+def bestEffortFit(VV,II):
+    guess = makeAGuess(VV,II)
+    
+    try:
+        #myoutput = myodr.run()
+        #fitParams = myoutput.beta
+        #print myoutput.stopreason
+        #print myoutput.info
+        #ier = 1
+        myXtol = np.float(1e-15)
+        myFtol = np.float(1e-15)
+        myGtol = np.float(1e-15)
+        myMax_nfev = 12000
+    
+        constrainedFit = False
+        #constrainedFit = False
+        if constrainedFit:
+            #TODO: scipy optimize 1.7 makes setting bounds on fit parameters easy. allow the user to do this.
+            # constrain the fit here:
+            I0_bounds = [0, inf]
+            I_L_bounds = [0, inf]
+            R_s_bounds = [0, inf]
+            R_sh_bounds = [0, inf]
+            n_bounds = [0, 4]                
+            myBounds=([I0_bounds[0], I_L_bounds[0], R_s_bounds[0], R_sh_bounds[0], n_bounds[0]], [I0_bounds[1], I_L_bounds[1], R_s_bounds[1], R_sh_bounds[1], n_bounds[1]])
+            myMethod = 'trf'
+            #myMethod = 'dogbox'
+            redirected_output = sys.stdout = StringIO()
+            redirected_error = sys.stderr = StringIO()
+            fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method=myMethod, jac ='cs', x_scale="jac", xtol=myXtol, ftol=myFtol, gtol=myGtol, max_nfev=myMax_nfev, loss="soft_l1", tr_options={'tr_solver': "lsmr"}, verbose=2)
+            #fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method=myMethod, x_scale="jac", xtol=myXtol, ftol=myFtol, gtol=myGtol, max_nfev=myMax_nfev, verbose=2)
+            out = redirected_output.getvalue()
+            err = redirected_error.getvalue()                
+            sys.stdout = sys.__stdout__
+            sys.stderr = sys.__stderr__                
+            infodict = out
+            errmsg = out.splitlines()[0]
+            ier = 0
+        else:
+            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, full_output = True, xtol=myXtol, ftol=myFtol, gtol=myGtol, maxfev=myMax_nfev)
+            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, full_output = True, xtol=1e-13, ftol=1e-15, maxfev=12000)
+            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
+            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14                                     
+    
+    
+        showFitRecap = False
+        if  showFitRecap:
+            vv=np.linspace(VV[0],VV[-1],1000)
+            sumSqErr = sum([(optimizeThis(x, *fitParams)-y)**2 for x,y in zip(VV,II)])
+            print("Sum of square of errors:")
+            print(sumSqErr)
+            print("fit:")
+            print(fitParams)                
+            print("guess:")
+            print(guess)
+            print("ier:")
+            print(ier)
+            print("errmsg:")
+            print(errmsg)
+            print("infodict:")
+            print(infodict)
+            ii=vectorizedCurrent(vv,guess[0],guess[1],guess[2],guess[3],guess[4])
+            ii2=vectorizedCurrent(vv,fitParams[0],fitParams[1],fitParams[2],fitParams[3],fitParams[4])
+            plt.title('Fit analysis')
+            p1, = plt.plot(vv,ii, label='Guess',ls='--')
+            p2, = plt.plot(vv,ii2, label='Fit')
+            p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+            #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
+            ax = plt.gca()
+            handles, labels = ax.get_legend_handles_labels()
+            ax.legend(handles, labels, loc=3)
+            plt.grid(b=True)
+            plt.draw()
+            plt.show()
+        return(fitParams, fitCovariance, infodict, errmsg, ier)
+    #except RuntimeError as e:
+    #    return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Runtime Error({0}): {1}".format(e.errno, e.strerror), 10])
+    except:
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__             
+        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
+
 class col:
     header = ''
     position = 0
@@ -554,7 +777,7 @@ class MainWindow(QMainWindow):
             self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())        
 
         if not vsTime:
-            fitParams, fitCovariance, infodict, errmsg, ier = self.bestEffortFit(VV,II)
+            fitParams, fitCovariance, infodict, errmsg, ier = bestEffortFit(VV,II)
 
             if ier < 5: # no error
                 self.goodMessage()
@@ -760,234 +983,6 @@ class MainWindow(QMainWindow):
 
         self.ui.tableWidget.resizeColumnsToContents()
         self.rows = self.rows + 1
-
-
-    def bestEffortFit(self,VV,II):
-
-        #splineTestVV=np.linspace(VV[0],VV[-1],1000)
-        #splineTestII=iFitSpline(splineTestVV)
-        #p1, = plt.plot(splineTestVV,splineTestII)
-        #p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-        #plt.draw()
-        #plt.show()            
-
-        #data point selection:
-        #lowest voltage (might be same as Isc)
-        V_start_n = VV[0]
-        I_start_n = II[0]
-
-        #highest voltage
-        V_end_n = VV[-1]
-        I_end_n = II[-1]
-
-        #Isc
-        iFit = interpolate.interp1d(VV,II)
-        V_sc_n = 0
-        try:
-            I_sc_n = float(iFit(V_sc_n))
-        except:
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
-
-        #mpp
-        VVcalc = VV-VV[0]
-        IIcalc = II-min(II)
-        Pvirtual= np.array(VVcalc*IIcalc)
-        vMaxIndex = Pvirtual.argmax()
-        V_vmpp_n = VV[vMaxIndex]
-        I_vmpp_n = II[vMaxIndex]
-
-        #Vp: half way in voltage between vMpp and the start of the dataset:
-        V_vp_n = (V_vmpp_n-V_start_n)/2 +V_start_n
-        try:
-            I_vp_n = float(iFit(V_vp_n))
-        except:
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
-
-        #Ip: half way in current between vMpp and the end of the dataset:
-        I_ip_n = (I_vmpp_n-I_end_n)/2 + I_end_n
-        iFit2 = interpolate.interp1d(VV,II-I_ip_n)
-        try:
-            V_ip_n = optimize.brentq(iFit2, VV[0], VV[-1])
-        except:
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
-
-        diaplayAllGuesses = False
-        def evaluateGuessPlot(dataX, dataY, myguess):
-            myguess = [float(x) for x in myguess]
-            print("myguess:")
-            print(myguess)
-            vv=np.linspace(min(dataX),max(dataX),1000)
-            ii=vectorizedCurrent(vv,myguess[0],myguess[1],myguess[2],myguess[3],myguess[4])
-            plt.title('Guess and raw data')
-            plt.plot(vv,ii)
-            plt.scatter(dataX,dataY)
-            plt.grid(b=True)
-            plt.draw()
-            plt.show()
-
-        # phase 1 guesses:
-        I_L_initial_guess = I_sc_n
-        R_sh_initial_guess = 1e6
-
-        # compute intellegent guesses for Iph, Rsh by forcing the curve through several data points and numerically solving the resulting system of eqns
-        newRhs = rhs - I
-        aLine = Rsh*V+Iph-I
-        eqnSys1 = aLine.subs([(V,V_start_n),(I,I_start_n)])
-        eqnSys2 = aLine.subs([(V,V_vp_n),(I,I_vp_n)])
-
-        eqnSys = (eqnSys1,eqnSys2)
-
-        try:
-            nGuessSln = sympy.nsolve(eqnSys,(Iph,Rsh),(I_L_initial_guess,R_sh_initial_guess),maxsteps=10000)
-        except:
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
-
-        I_L_guess = nGuessSln[0]
-        R_sh_guess = -1*1/nGuessSln[1]
-        R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
-        n_initial_guess = 2 #TODO: maybe a more intelegant guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
-        I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
-
-        initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
-        if diaplayAllGuesses:
-            evaluateGuessPlot(VV, II, initial_guess)
-
-        # let's try the fit now, if it works great, we're done, otherwise we can continue
-        #try:
-            #guess = initial_guess
-            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15)
-            #return(fitParams, fitCovariance, infodict, errmsg, ier)
-        #except:
-            #pass        
-
-        #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
-        eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
-        eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
-        eqnSys = (eqnSys1,eqnSys2)
-
-        try:
-            nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
-        except:
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
-
-        I0_guess = nGuessSln[0]
-        R_s_guess = nGuessSln[1]
-
-        #Rs_initial_guess = RsEqn[0].evalf(subs={I0:I0_initial_guess,Vth:thermalVoltage,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_end_n,V:V_end_n})
-        #I0_guess = I0_initial_guess
-        #R_s_guess = Rs_initial_guess
-
-        guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
-        if diaplayAllGuesses:
-            evaluateGuessPlot(VV, II, guess)
-
-        #nidf
-
-        #give 5x weight to data around mpp
-        #nP = II*VV
-        #maxIndex = np.argmax(nP)
-        #weights = np.ones(len(II))
-        #halfRange = (V_ip_n-VV[vMaxIndex])/2
-        #upperTarget = VV[vMaxIndex] + halfRange
-        #lowerTarget = VV[vMaxIndex] - halfRange
-        #lowerTarget = 0
-        #upperTarget = V_oc_n
-        #lowerI = np.argmin(abs(VV-lowerTarget))
-        #upperI = np.argmin(abs(VV-upperTarget))
-        #weights[range(lowerI,upperI)] = 3
-        #weights[maxnpi] = 10
-        #todo: play with setting up "key points"
-
-        guess = [float(x) for x in guess]
-        #VV = [np.float(x) for x in VV]
-        #II = [np.float(x) for x in II]
-
-        #odrMod = odr.Model(odrThing)
-        #myData = odr.Data(VV,II)
-        #myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000,sstol=1e-20,partol=1e-20)#
-        #myoutput = myodr.run()
-        #myoutput.pprint()
-        #see http://docs.scipy.org/doc/external/odrpack_guide.pdf
-
-
-        try:
-            #myoutput = myodr.run()
-            #fitParams = myoutput.beta
-            #print myoutput.stopreason
-            #print myoutput.info
-            #ier = 1
-            myXtol = np.float(1e-15)
-            myFtol = np.float(1e-15)
-            myGtol = np.float(1e-15)
-            myMax_nfev = 12000
-            
-            constrainedFit = False
-            #constrainedFit = False
-            if constrainedFit:
-                #TODO: scipy optimize 1.7 makes setting bounds on fit parameters easy. allow the user to do this.
-                # constrain the fit here:
-                I0_bounds = [0, inf]
-                I_L_bounds = [0, inf]
-                R_s_bounds = [0, inf]
-                R_sh_bounds = [0, inf]
-                n_bounds = [0, 4]                
-                myBounds=([I0_bounds[0], I_L_bounds[0], R_s_bounds[0], R_sh_bounds[0], n_bounds[0]], [I0_bounds[1], I_L_bounds[1], R_s_bounds[1], R_sh_bounds[1], n_bounds[1]])
-                myMethod = 'trf'
-                #myMethod = 'dogbox'
-                redirected_output = sys.stdout = StringIO()
-                redirected_error = sys.stderr = StringIO()
-                fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method=myMethod, jac ='cs', x_scale="jac", xtol=myXtol, ftol=myFtol, gtol=myGtol, max_nfev=myMax_nfev, loss="soft_l1", tr_options={'tr_solver': "lsmr"}, verbose=2)
-                #fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method=myMethod, x_scale="jac", xtol=myXtol, ftol=myFtol, gtol=myGtol, max_nfev=myMax_nfev, verbose=2)
-                out = redirected_output.getvalue()
-                err = redirected_error.getvalue()                
-                sys.stdout = sys.__stdout__
-                sys.stderr = sys.__stderr__                
-                infodict = out
-                errmsg = out.splitlines()[0]
-                ier = 0
-            else:
-                fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, full_output = True, xtol=myXtol, ftol=myFtol, gtol=myGtol, maxfev=myMax_nfev)
-                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, full_output = True, xtol=1e-13, ftol=1e-15, maxfev=12000)
-                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, np.ones(len(II))),x0=guess,full_output=1,xtol=1e-12,ftol=1e-14)#,xtol=1e-12,ftol=1e-14,maxfev=12000
-                #fitParams, fitCovariance, infodict, errmsg, ier = optimize.leastsq(func=residual, args=(VV, II, weights),x0=fitParams,full_output=1,ftol=1e-15,xtol=0)#,xtol=1e-12,ftol=1e-14                                     
-
-    
-            showFitRecap = False
-            if  showFitRecap:
-                vv=np.linspace(VV[0],VV[-1],1000)
-                sumSqErr = sum([(optimizeThis(x, *fitParams)-y)**2 for x,y in zip(VV,II)])
-                print("Sum of square of errors:")
-                print(sumSqErr)
-                print("fit:")
-                print(fitParams)                
-                print("guess:")
-                print(guess)
-                print("ier:")
-                print(ier)
-                print("errmsg:")
-                print(errmsg)
-                print("infodict:")
-                print(infodict)
-                ii=vectorizedCurrent(vv,guess[0],guess[1],guess[2],guess[3],guess[4])
-                ii2=vectorizedCurrent(vv,fitParams[0],fitParams[1],fitParams[2],fitParams[3],fitParams[4])
-                plt.title('Fit analysis')
-                p1, = plt.plot(vv,ii, label='Guess',ls='--')
-                p2, = plt.plot(vv,ii2, label='Fit')
-                p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-                #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
-                ax = plt.gca()
-                handles, labels = ax.get_legend_handles_labels()
-                ax.legend(handles, labels, loc=3)
-                plt.grid(b=True)
-                plt.draw()
-                plt.show()
-            return(fitParams, fitCovariance, infodict, errmsg, ier)
-        #except RuntimeError as e:
-        #    return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Runtime Error({0}): {1}".format(e.errno, e.strerror), 10])
-        except:
-            sys.stdout = sys.__stdout__
-            sys.stderr = sys.__stderr__             
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
 
     def openCall(self):
         #remember the last path the user opened
