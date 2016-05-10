@@ -91,6 +91,10 @@ current = current[0].subs(Vth,thermalVoltage)
 #get symbolic solution for current ready for fast number crunching
 current_n = sympy.lambdify((V,I0,Iph,Rs,Rsh,n),current)
 
+# might use this to display data
+#def round_to_sigfigs (x,n):
+#    return lambda x, n: round(x, -int(floor(log10(x))) + (n - 1))
+
 def odrThing(B,x):
     I0, Iph, Rs, Rsh, n = B
     return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))    
@@ -105,8 +109,49 @@ def w(x):
     return np.real_if_close(lambertw(x, k=0, tol=1e-15))
 
 # here's the function we want to fit to
-def optimizeThis (x, I0, Iph, Rs, Rsh, n):
+#def optimizeThis (x, I0, Iph, Rs, Rsh, n):
+#    return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
+
+# here's the function we want to fit to
+# returns current [A] from solar cell circuit
+# takes arguments: (x, I0, Iph, Rs, Rsh, n)
+# where x is voltage
+# also takes keyword arguments for everything except voltage
+def optimizeThis (*args, **kwargs):
+    if len(args) == 1:
+        args=list(args[0])
+    else:
+        args=list(args)
+    
+    x = args.pop(0)
+    if 'I0' in kwargs:
+        I0 = kwargs['I0']
+    else:
+        I0 = args.pop(0)
+        
+    if 'Iph' in kwargs:
+        Iph = kwargs['Iph']
+    else:
+        Iph = args.pop(0)
+        
+    if 'Rs' in kwargs:
+        Rs = kwargs['Rs']
+    else:
+        Rs = args.pop(0)
+        
+    if 'Rsh' in kwargs:
+        Rsh = kwargs['Rsh']
+    else:
+        Rsh = args.pop(0)
+        
+    if 'n' in kwargs:
+        n = kwargs['n']
+    else:
+        n = args.pop(0)
+    
     return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
+
+
 
 #allow current solutoin to operate on vectors of voltages (needed for curve fitting)
 def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
@@ -141,7 +186,7 @@ def isNumber(s):
         return False
     return True
 
-def makeAGuess(VV,II):
+def makeAReallySmartGuess(VV,II):
     #data point selection:
     #lowest voltage (might be same as Isc)
     V_start_n = VV[0]
@@ -216,7 +261,7 @@ def makeAGuess(VV,II):
     I_L_guess = nGuessSln[0]
     R_sh_guess = -1*1/nGuessSln[1]
     R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
-    n_initial_guess = 2 #TODO: maybe a more intelegant guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
+    n_initial_guess = 2 #TODO: maybe a more intelligent guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
     I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
     
     initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
@@ -279,38 +324,109 @@ def makeAGuess(VV,II):
     #myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000,sstol=1e-20,partol=1e-20)#
     #myoutput = myodr.run()
     #myoutput.pprint()
-    #see http://docs.scipy.org/doc/external/odrpack_guide.pdf    
+    #see http://docs.scipy.org/doc/external/odrpack_guide.pdf
+    guess = {'I0':guess[0], 'Iph':guess[1], 'Rs':guess[2], 'Rsh':guess[3], 'n':guess[4]}
     return guess
 
-def doTheFit(VV,II,guess):
-    try:
+def doTheFit(VV,II,guess,bounds):
+    
+    # do a constrained fit unless all the bounds are inf (or -inf)
+    if sum(sum([np.isinf(value) for key,value in bounds.items()])) == 10:
+        constrainedFit = False
+    else:
         constrainedFit = True
-        #constrainedFit = False
-        if constrainedFit:
-            # constrain the fit here:
-            I0_bounds = [0, inf] # TODO: allow the user to edit these in the GUI
-            I_L_bounds = [0, inf]
-            R_s_bounds = [0, inf]
-            R_sh_bounds = [0, inf]
-            n_bounds = [1, 4]                
-            myBounds=([I0_bounds[0], I_L_bounds[0], R_s_bounds[0], R_sh_bounds[0], n_bounds[0]], [I0_bounds[1], I_L_bounds[1], R_s_bounds[1], R_sh_bounds[1], n_bounds[1]])
-            redirected_output = sys.stdout = StringIO()
-            redirected_error = sys.stderr = StringIO()
-            fitParams, fitCovariance = optimize.curve_fit(optimizeThis, VV, II, p0=guess, bounds=myBounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
-            out = redirected_output.getvalue()
-            err = redirected_error.getvalue()                
+        
+    if constrainedFit:
+        # handle the case when the user sets lower bound=upper bound
+        # (take that variable out of the optimization)
+        myKwargs = {}
+        finalFitValues = {}
+        finalSigmaValues = {}
+        curve_fit_guess = []
+        curve_fit_bounds=([],[])
+        paramNames = [] # need this to keep track of where each parameter is
+        if bounds['I0'][0] == bounds['I0'][1]:
+            myKwargs['I0'] = bounds['I0'][0]
+            finalFitValues['I0'] = myKwargs['I0']
+            finalSigmaValues['I0'] = 0
+        else:
+            curve_fit_guess.append(guess['I0'])
+            curve_fit_bounds[0].append(bounds['I0'][0])
+            curve_fit_bounds[1].append(bounds['I0'][1])
+            paramNames.append("I0")
+        if bounds['Iph'][0] == bounds['Iph'][1]:
+            myKwargs['Iph'] = bounds['Iph'][0]
+            finalFitValues['Iph'] = myKwargs['Iph']
+            finalSigmaValues['Iph'] = 0
+        else:
+            curve_fit_guess.append(guess['Iph'])
+            curve_fit_bounds[0].append(bounds['Iph'][0])
+            curve_fit_bounds[1].append(bounds['Iph'][1])
+            paramNames.append("Iph")
+        if bounds['Rs'][0] == bounds['Rs'][1]:
+            myKwargs['Rs'] = bounds['Rs'][0]
+            finalFitValues['Rs'] = myKwargs['Rs']
+            finalSigmaValues['Rs'] = 0
+        else:
+            curve_fit_guess.append(guess['Rs'])
+            curve_fit_bounds[0].append(bounds['Rs'][0])
+            curve_fit_bounds[1].append(bounds['Rs'][1])
+            paramNames.append("Rs")
+        if bounds['Rsh'][0] == bounds['Rsh'][1]:
+            myKwargs['Rsh'] = bounds['Rsh'][0]
+            finalFitValues['Rsh'] = myKwargs['Rsh']
+            finalSigmaValues['Rsh'] = 0
+        else:
+            curve_fit_guess.append(guess['Rsh'])
+            curve_fit_bounds[0].append(bounds['Rsh'][0])
+            curve_fit_bounds[1].append(bounds['Rsh'][1])
+            paramNames.append("Rsh")
+        if bounds['n'][0] == bounds['n'][1]:
+            myKwargs['n'] = bounds['n'][0]
+            finalFitValues['n'] = myKwargs['n']
+            finalSigmaValues['n'] = 0
+        else:
+            curve_fit_guess.append(guess['n'])
+            curve_fit_bounds[0].append(bounds['n'][0])
+            curve_fit_bounds[1].append(bounds['n'][1])
+            paramNames.append("n")
+
+        # recondition the arguments of the function we're trying to fit in the case
+        # when the user has stipulated a fit parameter (by setting upper bound=lower bound)
+        optimizeThat = lambda *myArgs:optimizeThis(myArgs,**myKwargs)
+            
+        redirected_output = sys.stdout = StringIO()
+        redirected_error = sys.stderr = StringIO()
+        try:
+            fitParams, fitCovariance = optimize.curve_fit(optimizeThat, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
+        except:
             sys.stdout = sys.__stdout__
-            sys.stderr = sys.__stderr__                
-            infodict = out
-            errmsg = out.splitlines()[0]
-            ier = 0
-        else: # unconstrained "l-m" fit
-            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=guess, method="lm", full_output=True)
-        return(fitParams, fitCovariance, infodict, errmsg, ier)
-    except:
+            sys.stderr = sys.__stderr__                    
+            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
+        out = redirected_output.getvalue()
+        err = redirected_error.getvalue()                
         sys.stdout = sys.__stdout__
-        sys.stderr = sys.__stderr__             
-        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
+        sys.stderr = sys.__stderr__
+        infodict = out
+        errmsg = out.splitlines()[0]
+        ier = 0
+        
+        sigmas = np.sqrt(np.diag(fitCovariance))
+        
+        # need this in case we fit less than 5 parameters
+        for sigma,paramValue,paramName in zip(sigmas,fitParams,paramNames):
+            finalFitValues[paramName] = paramValue
+            finalSigmaValues[paramName] = sigma
+        fitParams = [finalFitValues['I0'],finalFitValues['Iph'],finalFitValues['Rs'],finalFitValues['Rsh'],finalFitValues['n']]
+        sigmas = [finalSigmaValues['I0'],finalSigmaValues['Iph'],finalSigmaValues['Rs'],finalSigmaValues['Rsh'],finalSigmaValues['n']]
+    else: # unconstrained "l-m" fit
+        curve_fit_guess = (guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n'])
+        try:
+            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=curve_fit_guess, method="lm", full_output=True)
+        except:
+            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
+        sigmas = np.sqrt(np.diag(fitCovariance))
+    return(fitParams, sigmas, infodict, errmsg, ier)
 
 def analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict):
     SSE = sse(optimizeThis, fitParams, VV, II)
@@ -374,6 +490,11 @@ class MainWindow(QMainWindow):
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'File'
         self.cols[thisKey].tooltip = 'File name\nHover to see header from data file'
+
+        thisKey = 'SSE'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'SSE\n[mA^2]'
+        self.cols[thisKey].tooltip = 'Sum of the square of the errors between the data points and the fit to the char. eqn. (a measure of fit goodness)'
 
         thisKey = 'pce'
         self.cols[thisKey] = col()
@@ -763,12 +884,54 @@ class MainWindow(QMainWindow):
             self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())        
 
         if not vsTime:
+            
+            # set bounds on the fit variables
+            # if upper=lower bound, then that variable will be taken out of the optimization
+            bounds ={} # TODO: allow the user to edit these in the GUI
+            bounds['I0'] = [0, inf] 
+            bounds['Iph'] = [0, inf]
+            bounds['Rs'] = [0, inf]
+            bounds['Rsh'] = [0, inf]
+            bounds['n'] = [0, inf]
+ 
             # scale the current up so that the curve fit algorithm doesn't run into machine precision
             currentScaleFactor = 1e3 
             II = II*currentScaleFactor
+            bounds['I0'] = [x*currentScaleFactor for x in bounds['I0']]
+            bounds['Iph'] = [x*currentScaleFactor for x in bounds['Iph']]
+            bounds['Rs'] = [x/currentScaleFactor for x in bounds['Rs']]
+            bounds['Rsh'] = [x/currentScaleFactor for x in bounds['Rsh']]
             
-            guess = makeAGuess(VV,II)
-            fitParams, fitCovariance, infodict, errmsg, ier = doTheFit(VV,II,guess)
+            # take a guess at what the fit parameters will be
+            guess = makeAReallySmartGuess(VV,II)
+            
+            # let's make sure we're not guessing outside the bounds
+            if guess['I0'] < bounds['I0'][0]:
+                guess['I0'] = bounds['I0'][0]
+            elif guess['I0'] > bounds['I0'][1]:
+                guess['I0'] = bounds['I0'][1]
+            
+            if guess['Iph'] < bounds['Iph'][0]:
+                guess['Iph'] = bounds['Iph'][0]
+            elif guess['Iph'] > bounds['Iph'][1]:
+                guess['Iph'] = bounds['Iph'][1]
+            
+            if guess['Rs'] < bounds['Rs'][0]:
+                guess['Rs'] = bounds['Rs'][0]
+            elif guess['Rs'] > bounds['Rs'][1]:
+                guess['Rs'] = bounds['Rs'][1]
+            
+            if guess['Rsh'] < bounds['Rsh'][0]:
+                guess['Rsh'] = bounds['Rsh'][0]
+            elif guess['Rsh'] > bounds['Rsh'][1]:
+                guess['Rsh'] = bounds['Rsh'][1]
+            
+            if guess['n'] < bounds['n'][0]:
+                guess['n'] = bounds['n'][0]
+            elif guess['n'] > bounds['n'][1]:
+                guess['n'] = bounds['n'][1]
+
+            fitParams, sigmas, infodict, errmsg, ier = doTheFit(VV,II,guess,bounds)
             
             # now unscale everything
             II = II/currentScaleFactor
@@ -776,19 +939,18 @@ class MainWindow(QMainWindow):
             fitParams[1] = fitParams[1]/currentScaleFactor
             fitParams[2] = fitParams[2]*currentScaleFactor
             fitParams[3] = fitParams[3]*currentScaleFactor
-            guess[0] = guess[0]/currentScaleFactor
-            guess[1] = guess[1]/currentScaleFactor
-            guess[2] = guess[2]*currentScaleFactor
-            guess[3] = guess[3]*currentScaleFactor
-            fitCovariance[0] = fitCovariance[0]/currentScaleFactor
-            fitCovariance[1] = fitCovariance[1]/currentScaleFactor
-            fitCovariance[2] = fitCovariance[2]*currentScaleFactor
-            fitCovariance[3] = fitCovariance[3]*currentScaleFactor
+            guess['I0'] = guess['I0']/currentScaleFactor
+            guess['Iph'] = guess['Iph']/currentScaleFactor
+            guess['Rs'] = guess['Rs']*currentScaleFactor
+            guess['Rsh'] = guess['Rsh']*currentScaleFactor
+            sigmas[0] = sigmas[0]/currentScaleFactor
+            sigmas[1] = sigmas[1]/currentScaleFactor
+            sigmas[2] = sigmas[2]*currentScaleFactor
+            sigmas[3] = sigmas[3]*currentScaleFactor
             
             # this will produce an evaluation of how well the fit worked
             #analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict)
             
-            # TODO: this needs to be a column in the GUI
             SSE = sse(optimizeThis, fitParams, VV, II) # sum of square of differences between data and fit [A^2]
 
             if ier < 5: # no error
@@ -901,7 +1063,7 @@ class MainWindow(QMainWindow):
 
             FF = pMax/(Voc_nn*Isc_nn)
 
-            if (ier != 7) and (ier != 6) and (not dontFindBounds) and (type(fitCovariance) is not float):
+            if (ier != 7) and (ier != 6) and (not dontFindBounds):
                 #error estimation:
                 alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
 
@@ -916,8 +1078,7 @@ class MainWindow(QMainWindow):
                 lowers = []
                 uppers = []
                 #calculate 95% confidence interval
-                for a, p,var in zip(list(range(nn)), fitParams, np.diag(fitCovariance)):
-                    sigma = var**0.5
+                for a, p, sigma in zip(list(range(nn)), fitParams, sigmas):
                     lower = p - sigma*tval
                     upper = p + sigma*tval
                     lowers.append(lower)
@@ -942,7 +1103,8 @@ class MainWindow(QMainWindow):
             exportBtn.setText('Export')
             exportBtn.clicked.connect(self.handleButton)
             self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)
-
+            
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('SSE')).setData(Qt.DisplayRole,float(round(SSE*1e6,5)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setData(Qt.DisplayRole,float(round(pMax/area/suns*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setToolTip(str(round(pMax_charEqn/area/suns*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setData(Qt.DisplayRole,float(round(pMax/area*1e3,3)))

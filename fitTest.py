@@ -216,6 +216,9 @@ def w(x):
 def optimizeThis (x, I0, Iph, Rs, Rsh, n):
     return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
 
+def make_dictionary(max_length=10, **entries):
+    return dict([(key, entries[key]) for i, key in enumerate(entries.keys()) if i < max_length])
+
 # my guess for the fit parameters
 # [I0, I_L, R_s, R_sh, n]
 #guess = [7.974383037191594e-11, 0.00627619846736794, 12.743239329693433, 5694.842341863068, 2.0]
