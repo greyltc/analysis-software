@@ -79,7 +79,7 @@ python batch-iv-analysis.py
 
 #### Arch Linux
 ```
-pacaur --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5 python-scikit-umfpack
+pacaur --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5 python-scikit-umfpack python-matplotlib
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
 ./batch-iv-analysis.py
