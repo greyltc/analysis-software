@@ -5,6 +5,7 @@
 # DOI: 10.3390/photonics2041101
 
 from batch_iv_analysis_UI import Ui_batch_iv_analysis
+from prefs_UI import Ui_prefs
 
 #TODO: make area editable
 #TODO: handle area from custom input file
@@ -162,21 +163,21 @@ def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
     #TODO: this is VERY bad practice to allow global use of current_n in this function 
 
 #residual function for leastsq fit
-def residual(p, vVector, y, weights):
-    I0_n, Iph_n, Rsn_n, Rsh_n, n_n = p
-    weights = np.asarray(weights)
-    return (optimizeThis(vVector, I0_n,Iph_n,Rsn_n,Rsh_n,n_n) -y)*weights
-    #return ([float(sympy.re(current_n(x, I0_n,Iph_n,Rsn_n,Rsh_n,n_n))) for x in vVector] - y)*weights
-    #TODO: this is VERY bad practice to allow global use of current_n in this function
+#def residual(p, vVector, y, weights):
+    #I0_n, Iph_n, Rsn_n, Rsh_n, n_n = p
+    #weights = np.asarray(weights)
+    #return (optimizeThis(vVector, I0_n,Iph_n,Rsn_n,Rsh_n,n_n) -y)*weights
+    ##return ([float(sympy.re(current_n(x, I0_n,Iph_n,Rsn_n,Rsh_n,n_n))) for x in vVector] - y)*weights
+    ##TODO: this is VERY bad practice to allow global use of current_n in this function
 
 #residual function for leastsq fit with negative penalty
-def residual2(p, vVector, y, weights):
-    negativePenalty = 2
-    #negativePenalty = 1e-10
-    if np.any(p<0):
-        return negativePenalty * np.linalg.norm(p[p<0]) * residual(p, vVector, y, weights)
-    else:
-        return residual(p, vVector, y, weights)
+#def residual2(p, vVector, y, weights):
+    #negativePenalty = 2
+    ##negativePenalty = 1e-10
+    #if np.any(p<0):
+        #return negativePenalty * np.linalg.norm(p[p<0]) * residual(p, vVector, y, weights)
+    #else:
+        #return residual(p, vVector, y, weights)
 
 # tests if string is a number
 def isNumber(s):
@@ -463,10 +464,48 @@ class col:
     position = 0
     tooltip = ''
 
+class PrefsWindow(QDialog):
+    def __init__(self,parent,settings,bounds):
+        QDialog.__init__(self,parent)
+        self.ui = Ui_prefs()
+        self.ui.setupUi(self)
+        self.setModal(True)
+        self.setSizeGripEnabled(False)
+        self.settings=settings
+        self.bounds=bounds
+        #self.1(Qt.FramelessWindowHint)
+    
+    def accept(self):
+        self.bounds["I0"]=[float(self.ui.I0_lb.text()),float(self.ui.I0_ub.text())]
+        self.bounds["Iph"]=[float(self.ui.Iph_lb.text()),float(self.ui.Iph_ub.text())]
+        self.bounds["Rs"]=[float(self.ui.Rs_lb.text()),float(self.ui.Rs_ub.text())]
+        self.bounds["Rsh"]=[float(self.ui.Rsh_lb.text()),float(self.ui.Rsh_ub.text())]        
+        self.bounds["n"]=[float(self.ui.n_lb.text()),float(self.ui.n_ub.text())]
+        self.settings.setValue('I0_lb',self.ui.I0_lb.text())
+        self.settings.setValue('I0_ub',self.ui.I0_ub.text())        
+        self.settings.setValue('Iph_lb',self.ui.Iph_lb.text())
+        self.settings.setValue('Iph_ub',self.ui.Iph_ub.text())        
+        self.settings.setValue('Rs_lb',self.ui.Rs_lb.text())
+        self.settings.setValue('Rs_ub',self.ui.Rs_ub.text())        
+        self.settings.setValue('Rsh_lb',self.ui.Rsh_lb.text())
+        self.settings.setValue('Rsh_ub',self.ui.Rsh_ub.text())        
+        self.settings.setValue('n_lb',self.ui.n_lb.text())
+        self.settings.setValue('n_ub',self.ui.n_ub.text())
+        self.done(0)
+    def reject(self):
+        print("rejected")
+        self.done(-1)
+
 class MainWindow(QMainWindow):
     workingDirectory = ''
     fileNames = []
     supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2']
+    bounds ={}
+    bounds['I0'] = [0, inf] 
+    bounds['Iph'] = [0, inf]
+    bounds['Rs'] = [0, inf]
+    bounds['Rsh'] = [0, inf]
+    bounds['n'] = [0, inf]
     def __init__(self):
         QMainWindow.__init__(self)
 
@@ -509,12 +548,12 @@ class MainWindow(QMainWindow):
         thisKey = 'jsc'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
-        self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline fit\nHover for value from characteristic equation fit'
+        self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing\nHover for value from characteristic equation fit V=0 crossing'
 
         thisKey = 'voc'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'V_oc\n[mV]'
-        self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit\nHover for value from characteristic equation fit'
+        self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit I=0 crossing\nHover for value from characteristic equation fit I=0 crossing'
 
         thisKey = 'ff'
         self.cols[thisKey] = col()
@@ -564,7 +603,7 @@ class MainWindow(QMainWindow):
         thisKey = 'isc'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'I_sc\n[mA]'
-        self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing\nHover for value from characteristic equation V=0 crossing'
 
         thisKey = 'iph'
         self.cols[thisKey] = col()
@@ -593,6 +632,46 @@ class MainWindow(QMainWindow):
         # Set up the user interface from Designer.
         self.ui = Ui_batch_iv_analysis()
         self.ui.setupUi(self)
+        
+        # put the prefs window on the central widget
+        self.prefs = PrefsWindow(self.ui.centralwidget,self.settings,self.bounds)
+        
+        # set defaults
+        I0_lb_string = "0" if not self.settings.contains('I0_lb') else self.settings.value('I0_lb')
+        Iph_lb_string = "0" if not self.settings.contains('Iph_lb') else self.settings.value('Iph_lb')
+        Rs_lb_string = "0" if not self.settings.contains('Rs_lb') else self.settings.value('Rs_lb')
+        Rsh_lb_string = "0" if not self.settings.contains('Rsh_lb') else self.settings.value('Rsh_lb')
+        n_lb_string = "0" if not self.settings.contains('n_lb') else self.settings.value('n_lb')
+    
+        I0_ub_string = "inf" if not self.settings.contains('I0_ub') else self.settings.value('I0_ub')
+        Iph_ub_string = "inf" if not self.settings.contains('Iph_ub') else self.settings.value('Iph_ub')
+        Rs_ub_string = "inf" if not self.settings.contains('Rs_ub') else self.settings.value('Rs_ub')
+        Rsh_ub_string = "inf" if not self.settings.contains('Rsh_ub') else self.settings.value('Rsh_ub')
+        n_ub_string = "inf" if not self.settings.contains('n_ub') else self.settings.value('n_ub')        
+        
+        self.bounds['I0'][0] = np.float(I0_lb_string)
+        self.bounds['Iph'][0] = np.float(Iph_lb_string)
+        self.bounds['Rs'][0] = np.float(Rs_lb_string)
+        self.bounds['Rsh'][0] = np.float(Rsh_lb_string)
+        self.bounds['n'][0] = np.float(n_lb_string)
+        
+        self.bounds['I0'][1] = np.float(I0_ub_string)
+        self.bounds['Iph'][1] = np.float(Iph_ub_string)
+        self.bounds['Rs'][1] = np.float(Rs_ub_string)
+        self.bounds['Rsh'][1] = np.float(Rsh_ub_string)
+        self.bounds['n'][1] = np.float(n_ub_string)
+        
+        self.prefs.ui.I0_lb.setText(I0_lb_string)
+        self.prefs.ui.Iph_lb.setText(Iph_lb_string)
+        self.prefs.ui.Rs_lb.setText(Rs_lb_string)
+        self.prefs.ui.Rsh_lb.setText(Rsh_lb_string)
+        self.prefs.ui.n_lb.setText(n_lb_string)
+        
+        self.prefs.ui.I0_ub.setText(I0_ub_string)
+        self.prefs.ui.Iph_ub.setText(Iph_ub_string)
+        self.prefs.ui.Rs_ub.setText(Rs_ub_string)
+        self.prefs.ui.Rsh_ub.setText(Rsh_ub_string)
+        self.prefs.ui.n_ub.setText(n_ub_string)
 
         #insert cols
         for item in self.cols:
@@ -887,51 +966,52 @@ class MainWindow(QMainWindow):
             
             # set bounds on the fit variables
             # if upper=lower bound, then that variable will be taken out of the optimization
-            bounds ={} # TODO: allow the user to edit these in the GUI
-            bounds['I0'] = [0, inf] 
-            bounds['Iph'] = [0, inf]
-            bounds['Rs'] = [0, inf]
-            bounds['Rsh'] = [0, inf]
-            bounds['n'] = [0, inf]
+            #bounds ={}
+            #bounds['I0'] = [0, inf] 
+            #bounds['Iph'] = [0, inf]
+            #bounds['Rs'] = [0, inf]
+            #bounds['Rsh'] = [0, inf]
+            #bounds['n'] = [0, inf]
+            localBounds = self.bounds
  
             # scale the current up so that the curve fit algorithm doesn't run into machine precision
             currentScaleFactor = 1e3 
             II = II*currentScaleFactor
-            bounds['I0'] = [x*currentScaleFactor for x in bounds['I0']]
-            bounds['Iph'] = [x*currentScaleFactor for x in bounds['Iph']]
-            bounds['Rs'] = [x/currentScaleFactor for x in bounds['Rs']]
-            bounds['Rsh'] = [x/currentScaleFactor for x in bounds['Rsh']]
+            localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
+            localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
+            localBounds['Rs'] = [x/currentScaleFactor for x in localBounds['Rs']]
+            localBounds['Rsh'] = [x/currentScaleFactor for x in localBounds['Rsh']]
             
             # take a guess at what the fit parameters will be
             guess = makeAReallySmartGuess(VV,II)
             
             # let's make sure we're not guessing outside the bounds
-            if guess['I0'] < bounds['I0'][0]:
-                guess['I0'] = bounds['I0'][0]
-            elif guess['I0'] > bounds['I0'][1]:
-                guess['I0'] = bounds['I0'][1]
+            if guess['I0'] < localBounds['I0'][0]:
+                guess['I0'] = localBounds['I0'][0]
+            elif guess['I0'] > localBounds['I0'][1]:
+                guess['I0'] = localBounds['I0'][1]
             
-            if guess['Iph'] < bounds['Iph'][0]:
-                guess['Iph'] = bounds['Iph'][0]
-            elif guess['Iph'] > bounds['Iph'][1]:
-                guess['Iph'] = bounds['Iph'][1]
+            if guess['Iph'] < localBounds['Iph'][0]:
+                guess['Iph'] = localBounds['Iph'][0]
+            elif guess['Iph'] > localBounds['Iph'][1]:
+                guess['Iph'] = localBounds['Iph'][1]
             
-            if guess['Rs'] < bounds['Rs'][0]:
-                guess['Rs'] = bounds['Rs'][0]
-            elif guess['Rs'] > bounds['Rs'][1]:
-                guess['Rs'] = bounds['Rs'][1]
+            if guess['Rs'] < localBounds['Rs'][0]:
+                guess['Rs'] = localBounds['Rs'][0]
+            elif guess['Rs'] > localBounds['Rs'][1]:
+                guess['Rs'] = localBounds['Rs'][1]
             
-            if guess['Rsh'] < bounds['Rsh'][0]:
-                guess['Rsh'] = bounds['Rsh'][0]
-            elif guess['Rsh'] > bounds['Rsh'][1]:
-                guess['Rsh'] = bounds['Rsh'][1]
+            if guess['Rsh'] < localBounds['Rsh'][0]:
+                guess['Rsh'] = localBounds['Rsh'][0]
+            elif guess['Rsh'] > localBounds['Rsh'][1]:
+                guess['Rsh'] = localBounds['Rsh'][1]
             
-            if guess['n'] < bounds['n'][0]:
-                guess['n'] = bounds['n'][0]
-            elif guess['n'] > bounds['n'][1]:
-                guess['n'] = bounds['n'][1]
+            if guess['n'] < localBounds['n'][0]:
+                guess['n'] = localBounds['n'][0]
+            elif guess['n'] > localBounds['n'][1]:
+                guess['n'] = localBounds['n'][1]
 
-            fitParams, sigmas, infodict, errmsg, ier = doTheFit(VV,II,guess,bounds)
+            fitParams, sigmas, infodict, errmsg, ier = doTheFit(VV,II,guess,localBounds)
             
             # now unscale everything
             II = II/currentScaleFactor
@@ -964,7 +1044,6 @@ class MainWindow(QMainWindow):
             Rs_fit = fitParams[2]
             Rsh_fit = fitParams[3]
             n_fit = fitParams[4]
-
 
             #0 -> LS-straight line
             #1 -> cubic spline interpolant (thr)
@@ -1226,8 +1305,7 @@ class MainWindow(QMainWindow):
                     self.processFile(os.path.join(self.workingDirectory,aFile))
 
     def openFitConstraintDialog(self):
-        #TODO: draw fit constraint selection dialog here.
-        self.ui.statusbar.showMessage("Coming soon!",2500)
+        self.prefs.show()
 
     def statusChanged(self,args):
         if not args:
