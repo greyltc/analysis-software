@@ -15,7 +15,7 @@ which is described by
 
 ![Equation](http://upload.wikimedia.org/math/4/7/d/47d17d3c2fe8840d0b3181860bd22f0a.png)
 
-`I_L`, `I_0`, `n`, `R_S` and `R_SH` are found by [nonlinear regression](https://en.wikipedia.org/wiki/Nonlinear_regression) via [`scipy.optimize.curve_fit()`](http://docs.scipy.org/doc/scipy-0.17.0/reference/generated/scipy.optimize.curve_fit.html).
+`I_L`, `I_0`, `n`, `R_S` and `R_SH` are found by [nonlinear regression](https://en.wikipedia.org/wiki/Nonlinear_regression) via [`scipy.optimize.curve_fit()`](http://docs.scipy.org/doc/scipy-0.17.0/reference/generated/scipy.optimize.curve_fit.html) and the user can place arbitrary constraints on these fit parameters (such as specifying ranges for them or setting them to a specific value).
 
 ### If you find this code useful...
 ---
