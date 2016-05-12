@@ -65,9 +65,9 @@ Download and extract the latest windows exe release zip [from here](https://gith
 
 __==Alternatively==__
 
-1. Download and extract the latest WinPython release [from here](https://github.com/winpython/winpython/releases/latest). Choose a 32bit flavor with python3 and QT5 (the release package file I used as of this writing was named WinPython-32bit-3.4.4.2Qt5.exe).
+1. Download and extract the latest WinPython release [from here](https://github.com/winpython/winpython/releases/latest). Choose a flavor with QT5 (the release package file I used as of this writing was named WinPython-64bit-3.4.4.2Qt5.exe).
 1. Install [git](https://git-scm.com/downloads)
-1. Download a precompiled Scikit-umfpack and gmpy .whl files for windows (maybe from [this guy's site](http://www.lfd.uci.edu/~gohlke/pythonlibs/)) that matches the python version you got in step one. The files I used were called `scikit_umfpack-0.2.1-cp34-none-win32.whl` and `gmpy2-2.0.7-cp34-none-win32.whl`
+1. Download a precompiled Scikit-umfpack and gmpy .whl files for windows (maybe from [this guy's site](http://www.lfd.uci.edu/~gohlke/pythonlibs/)) that matches the python version you got in step one. The files I used were called `scikit_umfpack-0.2.1-cp34-none-win_amd64.whl` and `gmpy2-2.0.7-cp34-none-win_amd64.whl`
 1. In your winpython folder, run WinPython Control Panel.exe and drag the .whl files from the previous step into that control panel window, then click the install button that appears in the list there.
 1. In your WinPython folder, run WinPython Command Prompt.exe and type  
 
