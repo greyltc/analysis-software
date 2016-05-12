@@ -203,7 +203,7 @@ def makeAReallySmartGuess(VV,II):
     try:
         I_sc_n = float(iFit(V_sc_n))
     except:
-        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
     #mpp
     VVcalc = VV-VV[0]
@@ -218,7 +218,7 @@ def makeAReallySmartGuess(VV,II):
     try:
         I_vp_n = float(iFit(V_vp_n))
     except:
-        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
     #Ip: half way in current between vMpp and the end of the dataset:
     I_ip_n = (I_vmpp_n-I_end_n)/2 + I_end_n
@@ -226,7 +226,7 @@ def makeAReallySmartGuess(VV,II):
     try:
         V_ip_n = optimize.brentq(iFit2, VV[0], VV[-1])
     except:
-        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
     diaplayAllGuesses = False
     def evaluateGuessPlot(dataX, dataY, myguess):
@@ -257,7 +257,7 @@ def makeAReallySmartGuess(VV,II):
     try:
         nGuessSln = sympy.nsolve(eqnSys,(Iph,Rsh),(I_L_initial_guess,R_sh_initial_guess),maxsteps=10000)
     except:
-        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
     I_L_guess = nGuessSln[0]
     R_sh_guess = -1*1/nGuessSln[1]
@@ -285,7 +285,7 @@ def makeAReallySmartGuess(VV,II):
     try:
         nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
     except:
-        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
     I0_guess = nGuessSln[0]
     R_s_guess = nGuessSln[1]
