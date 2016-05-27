@@ -285,7 +285,7 @@ def makeAReallySmartGuess(VV,II):
     try:
         nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
     except:
-         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
+        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
     I0_guess = nGuessSln[0]
     R_s_guess = nGuessSln[1]
@@ -926,38 +926,60 @@ class MainWindow(QMainWindow):
         if vsTime:
             time = data[:,2]
 
-        if isMcFile or isSnaithFile: #convert to amps
+        if isMcFile or isSnaithFile: # convert to amps
             II = II/1000*area
 
         if not vsTime:
-            #sort data by ascending voltage
+            # sort data by ascending voltage
             newOrder = VV.argsort()
             VV=VV[newOrder]
             II=II[newOrder]
-            #remove duplicate voltage entries
+            # remove duplicate voltage entries
             VV, indices = np.unique(VV, return_index =True)
             II = II[indices]
         else:
-            #sort data by ascending time
+            # sort data by ascending time
             newOrder = time.argsort()
             VV=VV[newOrder]
             II=II[newOrder]
             time=time[newOrder]
             time=time-time[0]#start time at t=0
 
-        #catch and fix flipped current sign
-        #The philosoply in use here is that energy producers have positive current defined as flowing out of the positive terminal
+        # catch and fix flipped current sign
+        # The philosoply in use here is that energy producers have positive current defined as flowing out of the positive terminal
         if II[0] < II[-1]:
+            self.ui.statusbar.showMessage("Incorrect current convention detected: I'm fixing that for you.",500)
             II = II * -1
 
         indexInQuad1 = np.logical_and(VV>0,II>0)
-        if any(indexInQuad1): #enters statement if there is at least one datapoint in quadrant 1
+        if any(indexInQuad1): # enters statement if there is at least one datapoint in quadrant 1
             isDarkCurve = False
         else:
-            self.ui.statusbar.showMessage("Dark curve detected",500)
-            isDarkCurve = True
-
-        #put items in table
+            # pick out data points in each quadrant
+            indexInQuad2 = np.logical_and(VV<0,II>0) 
+            indexInQuad3 = np.logical_and(VV<0,II<0)
+            indexInQuad4 = np.logical_and(VV>0,II<0)
+            # find the largest powers in each quad
+            PP2 = np.min(VV[indexInQuad2]*II[indexInQuad2])
+            PP3 = np.max(VV[indexInQuad3]*II[indexInQuad3])
+            PP4 = np.min(VV[indexInQuad4]*II[indexInQuad4])
+            
+            # catch and fix flipped voltage polarity(!)
+            if (PP4<(PP2-PP3)):
+                self.ui.statusbar.showMessage("Dark curve detected",500)
+                isDarkCurve = True
+            else:
+                # TODO: dark curves of this messed up nature will likely not be caught
+                self.ui.statusbar.showMessage("Inverted I-V convention detected: I'm fixing that for you.",500)
+                II = II * -1
+                VV = VV * -1
+                newOrder = VV.argsort()
+                VV=VV[newOrder]
+                II=II[newOrder]                
+                isDarkCurve = False
+        indexInQuad1 = np.logical_and(VV>0,II>0)
+                
+        # put items in table
         self.ui.tableWidget.insertRow(self.rows)
         for ii in range(len(self.cols)):
             self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())        
@@ -975,7 +997,7 @@ class MainWindow(QMainWindow):
             localBounds = self.bounds
  
             # scale the current up so that the curve fit algorithm doesn't run into machine precision
-            currentScaleFactor = 1e3 
+            currentScaleFactor = 1e5
             II = II*currentScaleFactor
             localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
             localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
