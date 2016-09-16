@@ -612,7 +612,7 @@ class SmoothSpline(PPform):
 
         # Make sure it uses symmetric matrix solver
         ddydx = diff(dydx, axis=0)
-        sp.linalg.use_solver(useUmfpack=True)
+        #sp.linalg.use_solver(useUmfpack=True)
         u = 2 * sp.linalg.spsolve((QQ + QQ.T), ddydx)
         return u.reshape(n - 2, -1), p
 
