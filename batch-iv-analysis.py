@@ -149,8 +149,9 @@ def optimizeThis (*args, **kwargs):
         n = kwargs['n']
     else:
         n = args.pop(0)
-    
-    return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
+    total_current = (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
+    return np.real_if_close(total_current)
+    #return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
 
 
 
@@ -228,7 +229,7 @@ def makeAReallySmartGuess(VV,II):
     except:
         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
-    diaplayAllGuesses = False
+    displayAllGuesses = False
     def evaluateGuessPlot(dataX, dataY, myguess):
         myguess = [float(x) for x in myguess]
         print("myguess:")
@@ -266,8 +267,6 @@ def makeAReallySmartGuess(VV,II):
     I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
     
     initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
-    if diaplayAllGuesses:
-        evaluateGuessPlot(VV, II, initial_guess)
     
     # let's try the fit now, if it works great, we're done, otherwise we can continue
     #try:
@@ -296,7 +295,7 @@ def makeAReallySmartGuess(VV,II):
     
     guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
     
-    if diaplayAllGuesses:
+    if displayAllGuesses:
         evaluateGuessPlot(VV, II, guess)
     
     #nidf
@@ -982,7 +981,7 @@ class MainWindow(QMainWindow):
         # put items in table
         self.ui.tableWidget.insertRow(self.rows)
         for ii in range(len(self.cols)):
-            self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())        
+            self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
 
         if not vsTime:
             

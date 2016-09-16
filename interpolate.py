@@ -19,7 +19,7 @@ from numpy.ma.core import ones, zeros, prod, sin
 from numpy import diff, pi, inf  # @UnresolvedImport
 from numpy.lib.shape_base import vstack
 from numpy.lib.function_base import linspace
-from scipy.interpolate import PiecewisePolynomial
+from scipy.interpolate import BPoly
 
 import polynomial as pl
 
@@ -974,15 +974,16 @@ class StinemanInterp(object):
         return yi
 
 
-class StinemanInterp2(PiecewisePolynomial):
+class StinemanInterp2(BPoly):
 
     def __init__(self, x, y, yp=None, method='parabola', monotone=False):
         if yp is None:
             yp = slopes(x, y, method, monotone=monotone)
-        super(StinemanInterp2, self).__init__(x, list(zip(y, yp)))
+        bpoly = BPoly.from_derivatives(x, list(zip(y, yp)))
+        super(StinemanInterp2, self).__init__(bpoly.c, x)
 
 
-class CubicHermiteSpline(PiecewisePolynomial):
+class CubicHermiteSpline(BPoly):
 
     '''
     Piecewise Cubic Hermite Interpolation using Catmull-Rom
@@ -992,10 +993,11 @@ class CubicHermiteSpline(PiecewisePolynomial):
     def __init__(self, x, y, yp=None, method='Catmull-Rom'):
         if yp is None:
             yp = slopes(x, y, method, monotone=False)
-        super(CubicHermiteSpline, self).__init__(x, list(zip(y, yp)), orders=3)
+        bpoly = BPoly.from_derivatives(x, list(zip(y, yp)), orders=3)
+        super(CubicHermiteSpline, self).__init__(bpoly.c, x)
 
 
-class Pchip(PiecewisePolynomial):
+class Pchip(BPoly):
 
     """PCHIP 1-d monotonic cubic interpolation
 
@@ -1068,7 +1070,8 @@ class Pchip(PiecewisePolynomial):
     def __init__(self, x, y, yp=None, method='secant'):
         if yp is None:
             yp = slopes(x, y, method=method, monotone=True)
-        super(Pchip, self).__init__(x, list(zip(y, yp)), orders=3)
+        bpoly = BPoly.from_derivatives(x, list(zip(y, yp)), orders=3)
+        super(Pchip, self).__init__(bpoly.c, x)
 
 
 def test_smoothing_spline():
