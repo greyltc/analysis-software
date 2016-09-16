@@ -66,9 +66,9 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 1. Run the "Anaconda Prompt" program that was installed in step #1 and type the following in:
 
   ```
+conda update --all
 conda install -c qttesting pyqt
-conda install -c elfy gmpy2
-conda install matplotlib
+conda install -c conda-forge gmpy2
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
 python batch-iv-analysis.py
