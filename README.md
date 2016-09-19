@@ -66,7 +66,7 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 
   ```
 conda update --all
-conda install -c qttesting pyqt
+conda install git
 conda install -c conda-forge gmpy2
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
