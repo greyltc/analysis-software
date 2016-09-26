@@ -155,7 +155,7 @@ def optimizeThis (*args, **kwargs):
 
 
 
-#allow current solutoin to operate on vectors of voltages (needed for curve fitting)
+#allow current solution to operate on vectors of voltages (needed for curve fitting)
 def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
     if hasattr(vVector, '__iter__'):
         return [float(sympy.re(current_n(x, I0_n,Iph_n,Rsn_n,Rsh_n,n_n))) for x in vVector]
@@ -202,9 +202,10 @@ def makeAReallySmartGuess(VV,II):
     iFit = interpolate.interp1d(VV,II)
     V_sc_n = 0
     try:
-        I_sc_n = float(iFit(V_sc_n))
-    except:
-        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
+        I_sc_n = float(iFit(V_sc_n)) # do a proper interpolation to find short circuit current
+    except: # if our data range is so poor that we can't interpolate to find Isc...
+        print("Warning. You really should have some negative voltages in your data...")
+        I_sc_n = I_start_n # just pick the current value at the lowest voltage
     
     #mpp
     VVcalc = VV-VV[0]
@@ -229,7 +230,7 @@ def makeAReallySmartGuess(VV,II):
     except:
         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
-    displayAllGuesses = False
+    displayAllGuesses = True
     def evaluateGuessPlot(dataX, dataY, myguess):
         myguess = [float(x) for x in myguess]
         print("myguess:")
