@@ -230,7 +230,7 @@ def makeAReallySmartGuess(VV,II):
     except:
         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
-    displayAllGuesses = True
+    displayAllGuesses = False
     def evaluateGuessPlot(dataX, dataY, myguess):
         myguess = [float(x) for x in myguess]
         print("myguess:")
