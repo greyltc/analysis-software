@@ -8,7 +8,6 @@ from batch_iv_analysis_UI import Ui_batch_iv_analysis
 from prefs_UI import Ui_prefs
 
 #TODO: make area editable
-#TODO: handle area from custom input file
 
 from interpolate import SmoothSpline
 #cite:
@@ -38,6 +37,10 @@ from numpy import exp
 
 from scipy.special import lambertw
 
+# the 0th branch of the LambertW "function"
+def LambertW0th(x):
+    return np.real_if_close(lambertw(x, k=0, tol=1e-15))
+
 from scipy import odr
 from scipy import interpolate
 from scipy import optimize
@@ -46,68 +49,59 @@ import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
 #from uncertainties import ufloat
 
-I0, Iph, Rs, Rsh, n, I, V, Vth, V_I0, I_I0, V_n, I_n = sympy.symbols('I0 Iph Rs Rsh n I V Vth V_I0 I_I0 V_n I_n')
+# let's define some variables we'll use to do some symbolic equaiton manipulation
+modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True)
+I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
+modelConstants = (Vth,)
+modelVariables = tuple(set(modelSymbols)-set(modelConstants))
 
+# calculate values for our model's constants now
 cellTemp = 29 #degC all analysis is done assuming the cell is at 29 degC
 T = 273.15 + cellTemp #cell temp in K
 K = 1.3806488e-23 #boltzman constant
 q = 1.60217657e-19 #electron charge
 thermalVoltage = K*T/q #thermal voltage ~26mv
+valuesForConstants = (thermalVoltage,)
 
-#this stuff is from http://dx.doi.org/10.1016/j.solmat.2003.11.018
-#symbolic representation for solar cell equation:
-lhs = I
-rhs = Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1)
-charEqn = sympy.Eq(lhs,rhs)
+# define cell circuit model here
+electricalModel = sympy.Eq(I,Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1))
+electricalModelVarsOnly = electricalModel.subs(zip(modelConstants,valuesForConstants))
 
-#isolate current term in solar cell equation
-current = sympy.solve(charEqn,I)
+# symbolically isolate each variable in our characteristic equation
+# then make substitutions for constants
+# then make the solutions ready for use numerically
+# NOTE: this is actually pretty computationally intense;
+# some solutions might contain the Lambert W "function"
+symSolutions = {} # with constants substituted in
+symSolutionsNoSubs = {} # all the symbols preserved
+slns = {} # solutions that are ready to use numerically
+functionSubstitutions = {"LambertW" : LambertW0th, "exp" : np.exp} # here we define any function substitutions we'll need for lambdification
+for symbol in modelSymbols:
+    symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
+    #symSolutionsNoSubs[str(symbol)] =sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0]
+    symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
+    remainingVariables = list(set(modelVariables)-set([symbol]))
+    slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions)
 
-#isolate voltage term in solar cell equation
-#voltage = sympy.solve(charEqn,V)
+# analytical solution for Pmax:
+# TODO: this is not working, but it would be cool...
+#P = symSolutionsNoSubs['I']*V
+#P_prime = P.diff(V)
+#zeros = sympy.solveset(P_prime, V, domain=sympy.S.Reals)
+#sympy.pprint(zeros,use_unicode=True,wrap_line=False)
+#sys.exit(0)
 
-#isolate I0  in solar cell equation
-eyeNot = sympy.solve(charEqn,I0)
-#isolate n  in solar cell equation
-#nidf = sympy.solve(charEqn,n)
-#RshEqn = sympy.solve(charEqn,Rsh)
-RsEqn = sympy.solve(charEqn,Rs)
-
-#solve for I0 in terms of n:
-#I0_in_n = eyeNot[0].subs(V,V_I0).subs(I,I_I0)
-
-#use I0 to find a guess value for n:
-#nEqn = sympy.Eq(n,nidf[0].subs(I0,I0_in_n).subs(V,V_n).subs(I,I_n))
-#forNguess = sympy.solve(nEqn,n)
-
-
-#Isc = current[0].subs(V,0)
-#Isc_n = sympy.lambdify((I0,Iph,Rs,Rsh,n,Vth),Isc)
-#Voc = voltage[0].subs(I,0)
-#Voc_n = sympy.lambdify((I0,Iph,Rs,Rsh,n,Vth),Voc)
-
-#numeric substitution for thermalVoltage
-current = current[0].subs(Vth,thermalVoltage)
-
-#get symbolic solution for current ready for fast number crunching
-current_n = sympy.lambdify((V,I0,Iph,Rs,Rsh,n),current)
-
-# might use this to display data
-#def round_to_sigfigs (x,n):
-#    return lambda x, n: round(x, -int(floor(log10(x))) + (n - 1))
 
 def odrThing(B,x):
-    I0, Iph, Rs, Rsh, n = B
-    return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*lambertw(I0*Rs*Rsh*np.exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))    
+    #I0, Iph, Rs, Rsh, n = B
+    #[I0, Iph, Rs, Rsh, n, I, V, Vth]
+    return np.real(slns['I'](B+(x,)))
 
 # find the sum of the square of errors for a fit to some data
-# given the fit function, the fit parameters and the x and y data
+# given the fit function, the fit parameters and the x and y data that was fit
+# aka RSS, aka SSR
 def sse(fun,params,x,y):
     return sum([(fun(X, *params)-Y)**2 for X,Y in zip(x,y)])
-    
-# the 0th branch of the lambertW function
-def w(x):
-    return np.real_if_close(lambertw(x, k=0, tol=1e-15))
 
 # here's the function we want to fit to
 #def optimizeThis (x, I0, Iph, Rs, Rsh, n):
@@ -149,18 +143,18 @@ def optimizeThis (*args, **kwargs):
         n = kwargs['n']
     else:
         n = args.pop(0)
-    total_current = (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
+    total_current = slns['I'](I0,Iph,Rs,Rsh,n,x)
     return np.real_if_close(total_current)
     #return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
 
 
 
 #allow current solution to operate on vectors of voltages (needed for curve fitting)
-def vectorizedCurrent(vVector, I0_n, Iph_n, Rsn_n, Rsh_n, n_n):
+def vectorizedCurrent(vVector, I0_n, Iph_n, Rs_n, Rsh_n, n_n):
     if hasattr(vVector, '__iter__'):
-        return [float(sympy.re(current_n(x, I0_n,Iph_n,Rsn_n,Rsh_n,n_n))) for x in vVector]
+        return [float(slns['I'](I0_n,Iph_n,Rs_n,Rsh_n,n_n,x)) for x in vVector]
     else:
-        return float(sympy.re(current_n(vVector, I0_n,Iph_n,Rsn_n,Rsh_n,n_n)))
+        return float(float(slns['I'](I0_n,Iph_n,Rs_n,Rsh_n,n_n,vVector)))
     #TODO: this is VERY bad practice to allow global use of current_n in this function 
 
 #residual function for leastsq fit
@@ -188,6 +182,9 @@ def isNumber(s):
         return False
     return True
 
+# the point here is to make super intelligent guesses for all our unknowns so that
+# the (relatively dumb and fragile) final optimization/curve fitting routine
+# has the best chance of giving good results
 def makeAReallySmartGuess(VV,II):
     #data point selection:
     #lowest voltage (might be same as Isc)
@@ -230,7 +227,7 @@ def makeAReallySmartGuess(VV,II):
     except:
         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
-    displayAllGuesses = False
+    displayAllGuesses = True
     def evaluateGuessPlot(dataX, dataY, myguess):
         myguess = [float(x) for x in myguess]
         print("myguess:")
@@ -249,7 +246,6 @@ def makeAReallySmartGuess(VV,II):
     R_sh_initial_guess = 1e6
     
     # compute intellegent guesses for Iph, Rsh by forcing the curve through several data points and numerically solving the resulting system of eqns
-    newRhs = rhs - I
     aLine = Rsh*V+Iph-I
     eqnSys1 = aLine.subs([(V,V_start_n),(I,I_start_n)])
     eqnSys2 = aLine.subs([(V,V_vp_n),(I,I_vp_n)])
@@ -261,12 +257,12 @@ def makeAReallySmartGuess(VV,II):
     except:
         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
-    I_L_guess = nGuessSln[0]
-    R_sh_guess = -1*1/nGuessSln[1]
+    I_L_guess = float(nGuessSln[0])
+    R_sh_guess = -1*1/float(nGuessSln[1])
     R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
     n_initial_guess = 2 #TODO: maybe a more intelligent guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
-    I0_initial_guess = eyeNot[0].evalf(subs={Vth:thermalVoltage,Rs:R_s_guess,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_ip_n,V:V_ip_n})                         
-    
+    I0_initial_guess = slns['I0'](I_L_guess,R_s_guess,R_sh_guess,n_initial_guess,I_ip_n,V_ip_n)
+    #                              Iph, Rs,             Rsh, n, I, V, Vth
     initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
     
     # let's try the fit now, if it works great, we're done, otherwise we can continue
@@ -278,8 +274,9 @@ def makeAReallySmartGuess(VV,II):
         #pass        
     
     #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
-    eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
-    eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
+    zero = electricalModelVarsOnly.args[1] - electricalModelVarsOnly.args[0] # subtract the two sides of the equation for our model
+    eqnSys1 = zero.subs([(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
+    eqnSys2 = zero.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
     eqnSys = (eqnSys1,eqnSys2)
     
     try:
@@ -287,8 +284,8 @@ def makeAReallySmartGuess(VV,II):
     except:
         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
-    I0_guess = nGuessSln[0]
-    R_s_guess = nGuessSln[1]
+    I0_guess = float(nGuessSln[0])
+    R_s_guess = float(nGuessSln[1])
     
     #Rs_initial_guess = RsEqn[0].evalf(subs={I0:I0_initial_guess,Vth:thermalVoltage,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_end_n,V:V_end_n})
     #I0_guess = I0_initial_guess
@@ -948,7 +945,7 @@ class MainWindow(QMainWindow):
         # catch and fix flipped current sign
         # The philosoply in use here is that energy producers have positive current defined as flowing out of the positive terminal
         if II[0] < II[-1]:
-            self.ui.statusbar.showMessage("Incorrect current convention detected: I'm fixing that for you.",500)
+            self.ui.statusbar.showMessage("Incorrect current convention detected. I'm fixing that for you.",500)
             II = II * -1
 
         indexInQuad1 = np.logical_and(VV>0,II>0)
@@ -1116,20 +1113,25 @@ class MainWindow(QMainWindow):
                         vMax_charEqn = nan
                     else:
                         vMax_charEqn = powerSearchResults_charEqn.x[0]
-                    #dude
                     try:
-                        Voc_nn_charEqn=optimize.brentq(cellModel, VV[0], VV[-1])
+                        Voc_nn_charEqn = slns['V'](I0_fit,Iph_fit,Rs_fit,Rsh_fit,n_fit,0)
                     except:
                         Voc_nn_charEqn = nan
                 else:
                     Voc_nn_charEqn = nan
                     vMax_charEqn = nan
 
-
+                # find Voc from spline
                 try:
+                    # this works when there's both positive and negative current data
                     Voc_nn = optimize.brentq(iFitSpline, VV[0], VV[-1])
-                except:
-                    Voc_nn = nan
+                except: # handle the spline-based Voc case when there's only positive current values (extrapolate)
+                    order = 1
+                    extrap = interpolate.InterpolatedUnivariateSpline(VV, II, k=order)
+                    try:
+                        Voc_nn = optimize.brentq(extrap, VV[0], VV[-1])
+                    except: # every attempt to find Voc from the spline has failed
+                        Voc_nn = nan
 
             else:
                 Voc_nn = nan
