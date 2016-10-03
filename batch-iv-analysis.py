@@ -35,22 +35,18 @@ from numpy import nan
 from numpy import inf
 from numpy import exp
 
-from scipy.special import lambertw
-
-# the 0th branch of the LambertW "function"
-def LambertW0th(x):
-    return np.real_if_close(lambertw(x, k=0, tol=1e-15))
+import scipy
 
 from scipy import odr
 from scipy import interpolate
 from scipy import optimize
-from scipy.stats.distributions import t #needed for confidence interval calculation
+from scipy.stats.distributions import t #needed for confidence interval calculation #TODO: remove this in favor of uncertainties
 import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
-#from uncertainties import ufloat
+#from uncertainties import ufloat #TODO: switch to using this for the error calcs
 
 # let's define some variables we'll use to do some symbolic equaiton manipulation
-modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True)
+modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth')
 I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
 modelConstants = (Vth,)
 modelVariables = tuple(set(modelSymbols)-set(modelConstants))
@@ -75,14 +71,21 @@ electricalModelVarsOnly = electricalModel.subs(zip(modelConstants,valuesForConst
 symSolutions = {} # with constants substituted in
 symSolutionsNoSubs = {} # all the symbols preserved
 slns = {} # solutions that are ready to use numerically
-functionSubstitutions = {"LambertW" : LambertW0th, "exp" : np.exp} # here we define any function substitutions we'll need for lambdification
+functionSubstitutions = {"LambertW" : lambda x: mpmath.lambertw(x,k=0), "exp" : mpmath.exp} # here we define any function substitutions we'll need for lambdification
 for symbol in modelSymbols:
     symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
     #symSolutionsNoSubs[str(symbol)] =sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0]
     symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
     remainingVariables = list(set(modelVariables)-set([symbol]))
-    slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions)
+    slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions,dummify=False)
 
+# analytical solution for Voc:
+Voc = symSolutions['V'].subs(I,0)
+Voc = sympy.lambdify((I0,Rsh,Iph,n),Voc,functionSubstitutions,dummify=False)
+
+# analytical solution for Isc:
+Isc = symSolutions['I'].subs(V,0)
+Isc = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc,functionSubstitutions,dummify=False)
 # analytical solution for Pmax:
 # TODO: this is not working, but it would be cool...
 #P = symSolutionsNoSubs['I']*V
@@ -93,9 +96,10 @@ for symbol in modelSymbols:
 
 
 def odrThing(B,x):
-    #I0, Iph, Rs, Rsh, n = B
+    #I0_o, Iph_o, Rs_o, Rsh_o, n_o = B
     #[I0, Iph, Rs, Rsh, n, I, V, Vth]
-    return np.real(slns['I'](B+(x,)))
+    #I0=I0_n,Iph=Iph_n,Rs=Rs_n,Rsh=Rsh_n,n=n_n,V=x
+    return slns['I'](I0=B[0],Iph=B[1],Rs=B[2],Rsh=B[3],n=B[4],V=x)
 
 # find the sum of the square of errors for a fit to some data
 # given the fit function, the fit parameters and the x and y data that was fit
@@ -120,59 +124,40 @@ def optimizeThis (*args, **kwargs):
     
     x = args.pop(0)
     if 'I0' in kwargs:
-        I0 = kwargs['I0']
+        I0_ = kwargs['I0']
     else:
-        I0 = args.pop(0)
+        I0_ = args.pop(0)
         
     if 'Iph' in kwargs:
-        Iph = kwargs['Iph']
+        Iph_ = kwargs['Iph']
     else:
-        Iph = args.pop(0)
+        Iph_ = args.pop(0)
         
     if 'Rs' in kwargs:
-        Rs = kwargs['Rs']
+        Rs_ = kwargs['Rs']
     else:
-        Rs = args.pop(0)
+        Rs_ = args.pop(0)
         
     if 'Rsh' in kwargs:
-        Rsh = kwargs['Rsh']
+        Rsh_ = kwargs['Rsh']
     else:
-        Rsh = args.pop(0)
+        Rsh_ = args.pop(0)
         
     if 'n' in kwargs:
-        n = kwargs['n']
+        n_ = kwargs['n']
     else:
-        n = args.pop(0)
-    total_current = slns['I'](I0,Iph,Rs,Rsh,n,x)
-    return np.real_if_close(total_current)
-    #return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
+        n_ = args.pop(0)
 
-
+    if not hasattr(x, '__iter__'): x = [x] # make it iterable
+    total_current = list(map(lambda z: slns['I'](I0=I0_,Iph=Iph_,Rs=Rs_,Rsh=Rsh_,n=n_,V=z),x)) # TODO: investigate a performance regression here probably
+    return np.real_if_close(np.array(total_current).astype(complex))
 
 #allow current solution to operate on vectors of voltages (needed for curve fitting)
 def vectorizedCurrent(vVector, I0_n, Iph_n, Rs_n, Rsh_n, n_n):
     if hasattr(vVector, '__iter__'):
-        return [float(slns['I'](I0_n,Iph_n,Rs_n,Rsh_n,n_n,x)) for x in vVector]
+        return [slns['I'](I0=I0_n,Iph=Iph_n,Rs=Rs_n,Rsh=Rsh_n,n=n_n,V=x) for x in vVector]
     else:
-        return float(float(slns['I'](I0_n,Iph_n,Rs_n,Rsh_n,n_n,vVector)))
-    #TODO: this is VERY bad practice to allow global use of current_n in this function 
-
-#residual function for leastsq fit
-#def residual(p, vVector, y, weights):
-    #I0_n, Iph_n, Rsn_n, Rsh_n, n_n = p
-    #weights = np.asarray(weights)
-    #return (optimizeThis(vVector, I0_n,Iph_n,Rsn_n,Rsh_n,n_n) -y)*weights
-    ##return ([float(sympy.re(current_n(x, I0_n,Iph_n,Rsn_n,Rsh_n,n_n))) for x in vVector] - y)*weights
-    ##TODO: this is VERY bad practice to allow global use of current_n in this function
-
-#residual function for leastsq fit with negative penalty
-#def residual2(p, vVector, y, weights):
-    #negativePenalty = 2
-    ##negativePenalty = 1e-10
-    #if np.any(p<0):
-        #return negativePenalty * np.linalg.norm(p[p<0]) * residual(p, vVector, y, weights)
-    #else:
-        #return residual(p, vVector, y, weights)
+        return slns['I'](I0=I0_n,Iph=Iph_n,Rs=Rs_n,Rsh=Rsh_n,n=n_n,V=vVector)
 
 # tests if string is a number
 def isNumber(s):
@@ -202,7 +187,8 @@ def makeAReallySmartGuess(VV,II):
         I_sc_n = float(iFit(V_sc_n)) # do a proper interpolation to find short circuit current
     except: # if our data range is so poor that we can't interpolate to find Isc...
         print("Warning. You really should have some negative voltages in your data...")
-        I_sc_n = I_start_n # just pick the current value at the lowest voltage
+        I_sc_n = I_start_n # just pick the current value at the lowest voltage. If that's not close enough to Isc,
+        #then you're dumb, why isn't your scan collecting those values?
     
     #mpp
     VVcalc = VV-VV[0]
@@ -227,7 +213,7 @@ def makeAReallySmartGuess(VV,II):
     except:
         return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
     
-    displayAllGuesses = True
+    displayAllGuesses = False
     def evaluateGuessPlot(dataX, dataY, myguess):
         myguess = [float(x) for x in myguess]
         print("myguess:")
@@ -261,8 +247,7 @@ def makeAReallySmartGuess(VV,II):
     R_sh_guess = -1*1/float(nGuessSln[1])
     R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
     n_initial_guess = 2 #TODO: maybe a more intelligent guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
-    I0_initial_guess = slns['I0'](I_L_guess,R_s_guess,R_sh_guess,n_initial_guess,I_ip_n,V_ip_n)
-    #                              Iph, Rs,             Rsh, n, I, V, Vth
+    I0_initial_guess = slns['I0'](Iph=I_L_guess,Rs=R_s_guess,Rsh=R_sh_guess,n=n_initial_guess,I=I_ip_n,V=V_ip_n)
     initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
     
     # let's try the fit now, if it works great, we're done, otherwise we can continue
@@ -295,7 +280,6 @@ def makeAReallySmartGuess(VV,II):
     
     if displayAllGuesses:
         evaluateGuessPlot(VV, II, guess)
-    
     #nidf
     
     #give 5x weight to data around mpp
@@ -392,11 +376,12 @@ def doTheFit(VV,II,guess,bounds):
         # recondition the arguments of the function we're trying to fit in the case
         # when the user has stipulated a fit parameter (by setting upper bound=lower bound)
         optimizeThat = lambda *myArgs:optimizeThis(myArgs,**myKwargs)
-            
+        #fitParams, fitCovariance = optimize.curve_fit(optimizeThat, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000,check_finite=False)
+        
         redirected_output = sys.stdout = StringIO()
         redirected_error = sys.stderr = StringIO()
         try:
-            fitParams, fitCovariance = optimize.curve_fit(optimizeThat, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
+            fitParams, fitCovariance = optimize.curve_fit(optimizeThat, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000, gtol=0.0,check_finite=False)
         except:
             sys.stdout = sys.__stdout__
             sys.stderr = sys.__stderr__                    
@@ -503,6 +488,7 @@ class MainWindow(QMainWindow):
     bounds['Rs'] = [0, inf]
     bounds['Rsh'] = [0, inf]
     bounds['n'] = [0, inf]
+    
     def __init__(self):
         QMainWindow.__init__(self)
 
@@ -692,6 +678,15 @@ class MainWindow(QMainWindow):
         self.ui.statusbar.messageChanged.connect(self.statusChanged)
 
         self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
+    
+        #override showMessage for the statusbar
+        self.oldShowMessage = self.ui.statusbar.showMessage
+        self.ui.statusbar.showMessage = self.myShowMessage
+        
+    # let's make sure to print messages for the statusbar also in the console    
+    def myShowMessage(*args, **kwargs):
+        print('Menubar Message:',args[1])
+        return args[0].oldShowMessage(*args[1:], **kwargs)
 
     def exportInterp(self,row):
         thisGraphData = self.ui.tableWidget.item(row,list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)
@@ -739,7 +734,7 @@ class MainWindow(QMainWindow):
             fitX = thisGraphData["fitX"]
             modelY = thisGraphData["modelY"]
             splineY = thisGraphData["splineY"]
-            if not np.isnan(modelY[0]):
+            if not mpmath.isnan(modelY[0]):
                 plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
             plt.plot(fitX, splineY,c='g', label='Spline Fit')
             plt.autoscale(axis='x', tight=True)
@@ -1050,7 +1045,7 @@ class MainWindow(QMainWindow):
             # this will produce an evaluation of how well the fit worked
             #analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict)
             
-            SSE = sse(optimizeThis, fitParams, VV, II) # sum of square of differences between data and fit [A^2]
+            SSE = sse(optimizeThis, fitParams, VV, II)[0] # sum of square of differences between data and fit [A^2]
 
             if ier < 5: # no error
                 self.goodMessage()
@@ -1114,7 +1109,7 @@ class MainWindow(QMainWindow):
                     else:
                         vMax_charEqn = powerSearchResults_charEqn.x[0]
                     try:
-                        Voc_nn_charEqn = slns['V'](I0_fit,Iph_fit,Rs_fit,Rsh_fit,n_fit,0)
+                        Voc_nn_charEqn = Voc(I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,n=n_fit)
                     except:
                         Voc_nn_charEqn = nan
                 else:
@@ -1149,7 +1144,7 @@ class MainWindow(QMainWindow):
                 dontFindBounds = False
                 iMax_charEqn = cellModel([vMax_charEqn])[0]
                 pMax_charEqn = vMax_charEqn*iMax_charEqn
-                Isc_nn_charEqn = cellModel(0)
+                Isc_nn_charEqn = Isc(I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,Rs=Rs_fit,n=n_fit)
                 FF_charEqn = pMax_charEqn/(Voc_nn_charEqn*Isc_nn_charEqn)
             else:
                 dontFindBounds = True
