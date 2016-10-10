@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# a tool for analysing solar cell i-v curves
+
 # written by Grey Christoforo <first name [at] last name [not] net>
 # please cite our work if you can!
 # DOI: 10.3390/photonics2041101
@@ -7,11 +9,13 @@
 from batch_iv_analysis_UI import Ui_batch_iv_analysis
 from prefs_UI import Ui_prefs
 
+#import cProfile, pstats, io # for performance tuning
+#pr = cProfile.Profile()
+
 #TODO: make area editable
 
 from interpolate import SmoothSpline
-#cite:
-#References
+#this spline is better than numpy's. it's from:
 #----------
 #.. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
     #Data by Simplified Least Squares Procedures. Analytical
@@ -35,18 +39,20 @@ from numpy import nan
 from numpy import inf
 from numpy import exp
 
+import functools # for ODR stuff
 import scipy
 
 from scipy import odr
 from scipy import interpolate
 from scipy import optimize
+from scipy import special
 from scipy.stats.distributions import t #needed for confidence interval calculation #TODO: remove this in favor of uncertainties
 import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
 #from uncertainties import ufloat #TODO: switch to using this for the error calcs
 
 # let's define some variables we'll use to do some symbolic equaiton manipulation
-modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth')
+modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
 I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
 modelConstants = (Vth,)
 modelVariables = tuple(set(modelSymbols)-set(modelConstants))
@@ -60,7 +66,9 @@ thermalVoltage = K*T/q #thermal voltage ~26mv
 valuesForConstants = (thermalVoltage,)
 
 # define cell circuit model here
-electricalModel = sympy.Eq(I,Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1))
+lhs = I
+rhs = Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1)
+electricalModel = sympy.Eq(lhs,rhs)
 electricalModelVarsOnly = electricalModel.subs(zip(modelConstants,valuesForConstants))
 
 # symbolically isolate each variable in our characteristic equation
@@ -71,10 +79,14 @@ electricalModelVarsOnly = electricalModel.subs(zip(modelConstants,valuesForConst
 symSolutions = {} # with constants substituted in
 symSolutionsNoSubs = {} # all the symbols preserved
 slns = {} # solutions that are ready to use numerically
-functionSubstitutions = {"LambertW" : lambda x: mpmath.lambertw(x,k=0), "exp" : mpmath.exp} # here we define any function substitutions we'll need for lambdification
+
+# here we define any function substitutions we'll need for lambdification
+functionSubstitutions = {"LambertW" : mpmath.lambertw, "exp" : mpmath.exp} # this is a massive slowdown (forces a ton of operations into mpmath) but gives _much_ better accuracy and aviods overflow warnings/errors...
+#functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp} # for fast and inaccurate math
+
 for symbol in modelSymbols:
     symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
-    #symSolutionsNoSubs[str(symbol)] =sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0]
+    #symSolutionsNoSubs[str(symbol)] = sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0] #solveset doesn't work here (yet)
     symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
     remainingVariables = list(set(modelVariables)-set([symbol]))
     slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions,dummify=False)
@@ -86,26 +98,34 @@ Voc = sympy.lambdify((I0,Rsh,Iph,n),Voc,functionSubstitutions,dummify=False)
 # analytical solution for Isc:
 Isc = symSolutions['I'].subs(V,0)
 Isc = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc,functionSubstitutions,dummify=False)
-# analytical solution for Pmax:
-# TODO: this is not working, but it would be cool...
-#P = symSolutionsNoSubs['I']*V
-#P_prime = P.diff(V)
-#zeros = sympy.solveset(P_prime, V, domain=sympy.S.Reals)
-#sympy.pprint(zeros,use_unicode=True,wrap_line=False)
+
+# analytical solution for Pmax: 
+P = symSolutions['I']*V
+P_prime = sympy.diff(P,V)
+#V_max = sympy.solve(P_prime,V,check=False,implicit=True)
+#V_max = sympy.solveset(P_prime, V, domain=sympy.S.Reals) #TODO: this is not working, but it would be cool...
+#P_max = P.subs(V,V_max)
+#P_max = sympy.lambdify((I0,Rsh,Rs,Iph,n),P_max,functionSubstitutions,dummify=False)
+# since we can't do this analytically (yet) let's try numerically
+
+#sympy.pprint(V_max,use_unicode=True,wrap_line=False)
 #sys.exit(0)
 
+# this puts the symbolic solution for I from above into a format needed for curve_fit
+I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
 
-def odrThing(B,x):
+
+#def odrThing(B,x):
     #I0_o, Iph_o, Rs_o, Rsh_o, n_o = B
     #[I0, Iph, Rs, Rsh, n, I, V, Vth]
     #I0=I0_n,Iph=Iph_n,Rs=Rs_n,Rsh=Rsh_n,n=n_n,V=x
-    return slns['I'](I0=B[0],Iph=B[1],Rs=B[2],Rsh=B[3],n=B[4],V=x)
+#    return slns['I'](I0=B[0],Iph=B[1],Rs=B[2],Rsh=B[3],n=B[4],V=x)
 
 # find the sum of the square of errors for a fit to some data
-# given the fit function, the fit parameters and the x and y data that was fit
+# given the fit function and the x and y data that was fit
 # aka RSS, aka SSR
-def sse(fun,params,x,y):
-    return sum([(fun(X, *params)-Y)**2 for X,Y in zip(x,y)])
+def sse(fun,x,y):
+    return sum((fun(x)-y)**2)
 
 # here's the function we want to fit to
 #def optimizeThis (x, I0, Iph, Rs, Rsh, n):
@@ -149,8 +169,11 @@ def optimizeThis (*args, **kwargs):
         n_ = args.pop(0)
 
     if not hasattr(x, '__iter__'): x = [x] # make it iterable
-    total_current = list(map(lambda z: slns['I'](I0=I0_,Iph=Iph_,Rs=Rs_,Rsh=Rsh_,n=n_,V=z),x)) # TODO: investigate a performance regression here probably
-    return np.real_if_close(np.array(total_current).astype(complex))
+    ii = functools.partial(slns['I'], I0=I0_, Iph=Iph_, Rs=Rs_, Rsh=Rsh_, n=n_)
+    total_current = np.array([ii(V=xx) for xx in x]).astype(complex)
+    #total_current = list(map(lambda z: slns['I'](I0=I0_,Iph=Iph_,Rs=Rs_,Rsh=Rsh_,n=n_,V=z),x)) # TODO: investigate a performance regression here probably
+    #return np.real_if_close(total_current.astype(complex))
+    return total_current
 
 #allow current solution to operate on vectors of voltages (needed for curve fitting)
 def vectorizedCurrent(vVector, I0_n, Iph_n, Rs_n, Rsh_n, n_n):
@@ -250,13 +273,7 @@ def makeAReallySmartGuess(VV,II):
     I0_initial_guess = slns['I0'](Iph=I_L_guess,Rs=R_s_guess,Rsh=R_sh_guess,n=n_initial_guess,I=I_ip_n,V=V_ip_n)
     initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
     
-    # let's try the fit now, if it works great, we're done, otherwise we can continue
-    #try:
-        #guess = initial_guess
-        #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II,p0=guess,full_output = True,xtol=1e-13,ftol=1e-15)
-        #return(fitParams, fitCovariance, infodict, errmsg, ier)
-    #except:
-        #pass        
+     
     
     #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
     zero = electricalModelVarsOnly.args[1] - electricalModelVarsOnly.args[0] # subtract the two sides of the equation for our model
@@ -301,17 +318,16 @@ def makeAReallySmartGuess(VV,II):
     #VV = [np.float(x) for x in VV]
     #II = [np.float(x) for x in II]
     
-    #odrMod = odr.Model(odrThing)
+    #odrThing = lambda B,x: np.array([slns['I'](Rs=B[2], I0=B[0], n=B[4], Rsh=B[3], Iph=B[1], V=v).real for v in x]).astype(float)
     #myData = odr.Data(VV,II)
-    #myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000,sstol=1e-20,partol=1e-20)#
+    #myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000)
     #myoutput = myodr.run()
     #myoutput.pprint()
     #see http://docs.scipy.org/doc/external/odrpack_guide.pdf
     guess = {'I0':guess[0], 'Iph':guess[1], 'Rs':guess[2], 'Rsh':guess[3], 'n':guess[4]}
     return guess
 
-def doTheFit(VV,II,guess,bounds):
-    
+def doTheFit(VV,II,guess,bounds):    
     # do a constrained fit unless all the bounds are inf (or -inf)
     if sum(sum([np.isinf(value) for key,value in bounds.items()])) == 10:
         constrainedFit = False
@@ -373,15 +389,10 @@ def doTheFit(VV,II,guess,bounds):
             curve_fit_bounds[1].append(bounds['n'][1])
             paramNames.append("n")
 
-        # recondition the arguments of the function we're trying to fit in the case
-        # when the user has stipulated a fit parameter (by setting upper bound=lower bound)
-        optimizeThat = lambda *myArgs:optimizeThis(myArgs,**myKwargs)
-        #fitParams, fitCovariance = optimize.curve_fit(optimizeThat, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000,check_finite=False)
-        
         redirected_output = sys.stdout = StringIO()
         redirected_error = sys.stderr = StringIO()
         try:
-            fitParams, fitCovariance = optimize.curve_fit(optimizeThat, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000, gtol=0.0,check_finite=False)
+            fitParams, fitCovariance = optimize.curve_fit(I_eqn, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
         except:
             sys.stdout = sys.__stdout__
             sys.stderr = sys.__stderr__                    
@@ -405,14 +416,15 @@ def doTheFit(VV,II,guess,bounds):
     else: # unconstrained "l-m" fit
         curve_fit_guess = (guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n'])
         try:
-            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(optimizeThis, VV, II, p0=curve_fit_guess, method="lm", full_output=True)
+            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(lambda *args: I_eqn(args).astype(np.float), VV, II, p0=curve_fit_guess, method="lm", full_output=True)
         except:
             return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
         sigmas = np.sqrt(np.diag(fitCovariance))
     return(fitParams, sigmas, infodict, errmsg, ier)
 
 def analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict):
-    SSE = sse(optimizeThis, fitParams, VV, II)
+    # sum of square of differences between data and fit [A^2]
+    SSE = sse(functools.partial(I_eqn,a=fitParams[0],b=fitParams[1],c=fitParams[2],d=fitParams[3],e=fitParams[4]), VV, II) 
     print("Sum of square of errors:")
     print(SSE)
     print("fit:")
@@ -1025,7 +1037,14 @@ class MainWindow(QMainWindow):
             elif guess['n'] > localBounds['n'][1]:
                 guess['n'] = localBounds['n'][1]
 
+            #pr.enable()
             fitParams, sigmas, infodict, errmsg, ier = doTheFit(VV,II,guess,localBounds)
+            #pr.disable()
+            #s = io.StringIO()
+            #sortby = 'cumulative'
+            #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+            #ps.print_stats()
+            #print(s.getvalue())
             
             # now unscale everything
             II = II/currentScaleFactor
@@ -1045,7 +1064,7 @@ class MainWindow(QMainWindow):
             # this will produce an evaluation of how well the fit worked
             #analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict)
             
-            SSE = sse(optimizeThis, fitParams, VV, II)[0] # sum of square of differences between data and fit [A^2]
+            
 
             if ier < 5: # no error
                 self.goodMessage()
@@ -1058,6 +1077,7 @@ class MainWindow(QMainWindow):
             Rs_fit = fitParams[2]
             Rsh_fit = fitParams[3]
             n_fit = fitParams[4]
+            SSE = sse(functools.partial(I_eqn,a=I0_fit,b=Iph_fit,c=Rs_fit,d=Rsh_fit,e=n_fit), VV, II) # sum of square of differences between data and fit [A^2]
 
             #0 -> LS-straight line
             #1 -> cubic spline interpolant (thr)
@@ -1100,14 +1120,20 @@ class MainWindow(QMainWindow):
 
                 #only do this stuff if the char eqn fit was good
                 if ier < 5:
-                    powerSearchResults_charEqn = optimize.minimize(invCellPowerModel,vMaxGuess)
-                    #catch a failed max power search:
-                    if not powerSearchResults_charEqn.status == 0:
-                        print("power search exit code = " + str(powerSearchResults_charEqn.status))
-                        print(powerSearchResults_charEqn.message)
-                        vMax_charEqn = nan
-                    else:
-                        vMax_charEqn = powerSearchResults_charEqn.x[0]
+                    V_max_guess = 0.75
+                    vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[I0_fit,Iph_fit,Rsh_fit,Rs_fit,n_fit])), V_max_guess, modules='mpmath')
+                    
+                    #powerSearchResults_charEqn = optimize.minimize(invCellPowerModel,vMaxGuess)
+                    ##catch a failed max power search:
+                    #if not powerSearchResults_charEqn.status == 0:
+                    #    print("power search exit code = " + str(powerSearchResults_charEqn.status))
+                    #    print(powerSearchResults_charEqn.message)
+                    #    vMax_charEqn = nan
+                    #else:
+                    #    vMax_charEqn = powerSearchResults_charEqn.x[0]
+                    vMax_charEqn = V_max_guess
+                    
+                    # now for Voc
                     try:
                         Voc_nn_charEqn = Voc(I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,n=n_fit)
                     except:
@@ -1142,9 +1168,10 @@ class MainWindow(QMainWindow):
 
             if ier < 5:
                 dontFindBounds = False
-                iMax_charEqn = cellModel([vMax_charEqn])[0]
+                iMax_charEqn = slns['I'](I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,Rs=Rs_fit,n=n_fit, V=vMax_charEqn)
                 pMax_charEqn = vMax_charEqn*iMax_charEqn
                 Isc_nn_charEqn = Isc(I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,Rs=Rs_fit,n=n_fit)
+                Voc_nn_charEqn = Voc(I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,n=n_fit)
                 FF_charEqn = pMax_charEqn/(Voc_nn_charEqn*Isc_nn_charEqn)
             else:
                 dontFindBounds = True
@@ -1152,6 +1179,7 @@ class MainWindow(QMainWindow):
                 pMax_charEqn = nan
                 Isc_nn_charEqn = nan
                 FF_charEqn = nan
+                Voc_nn_charEqn = nan
 
             #there is a maddening bug in SmoothingSpline: it can't evaluate 0 alone, so I have to do this:
             try:
@@ -1202,7 +1230,7 @@ class MainWindow(QMainWindow):
             exportBtn.clicked.connect(self.handleButton)
             self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)
             
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('SSE')).setData(Qt.DisplayRole,float(round(SSE*1e6,5)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('SSE')).setData(Qt.DisplayRole,float(round(SSE.real*1e6,5)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setData(Qt.DisplayRole,float(round(pMax/area/suns*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setToolTip(str(round(pMax_charEqn/area/suns*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setData(Qt.DisplayRole,float(round(pMax/area*1e3,3)))
