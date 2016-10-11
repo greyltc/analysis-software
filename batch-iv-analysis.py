@@ -51,86 +51,102 @@ import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
 #from uncertainties import ufloat #TODO: switch to using this for the error calcs
 
-#def doSymbolicManipulations(fastAndSloppy=False):
-fastAndSloppy=False
-# let's define some variables we'll use to do some symbolic equaiton manipulation
-modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
-I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
-modelConstants = (Vth,)
-modelVariables = tuple(set(modelSymbols)-set(modelConstants))
+# some global variables because I'm lazy
+Voc = None
+Isc = None
+P_prime = None
+I_eqn = None
+slns = None
+electricalModelVarsOnly = None
+I0, Iph, Rs, Rsh, n, I, V, Vth = (None,)*8
 
-# calculate values for our model's constants now
-cellTemp = 29 #degC all analysis is done assuming the cell is at 29 degC
-T = 273.15 + cellTemp #cell temp in K
-K = 1.3806488e-23 #boltzman constant
-q = 1.60217657e-19 #electron charge
-thermalVoltage = K*T/q #thermal voltage ~26mv
-valuesForConstants = (thermalVoltage,)
+def doSymbolicManipulations(fastAndSloppy=False):
+    global Voc
+    global Isc
+    global P_prime
+    global I_eqn
+    global slns
+    global electricalModelVarsOnly
+    global I0, Iph, Rs, Rsh, n, I, V, Vth    
 
-# define cell circuit model here
-lhs = I
-rhs = Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1)
-electricalModel = sympy.Eq(lhs,rhs)
-electricalModelVarsOnly = electricalModel.subs(zip(modelConstants,valuesForConstants))
-
-# symbolically isolate each variable in our characteristic equation
-# then make substitutions for constants
-# then make the solutions ready for use numerically
-# NOTE: this is actually pretty computationally intense;
-# some solutions might contain the Lambert W "function"
-symSolutions = {} # with constants substituted in
-symSolutionsNoSubs = {} # all the symbols preserved
-slns = {} # solutions that are ready to use numerically
-
-# here we define any function substitutions we'll need for lambdification later
-if fastAndSloppy:
-    # for fast and inaccurate math
-    functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp}
-else:
-    # this is a massive slowdown (forces a ton of operations into mpmath)
-    # but gives _much_ better accuracy and aviods overflow warnings/errors...
-    functionSubstitutions = {"LambertW" : mpmath.lambertw, "exp" : mpmath.exp}
-
-for symbol in modelSymbols:
-    symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
-    #symSolutionsNoSubs[str(symbol)] = sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0] #solveset doesn't work here (yet)
-    symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
-    remainingVariables = list(set(modelVariables)-set([symbol]))
-    slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions,dummify=False)
-
-# analytical solution for Voc:
-Voc = symSolutions['V'].subs(I,0)
-Voc = sympy.lambdify((I0,Rsh,Iph,n),Voc,functionSubstitutions,dummify=False)
-
-# analytical solution for Isc:
-Isc = symSolutions['I'].subs(V,0)
-Isc = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc,functionSubstitutions,dummify=False)
-
-# analytical solution for Pmax: 
-P = symSolutions['I']*V
-P_prime = sympy.diff(P,V)
-#V_max = sympy.solve(P_prime,V,check=False,implicit=True)
-#V_max = sympy.solveset(P_prime, V, domain=sympy.S.Reals) #TODO: this is not working, but it would be cool...
-#P_max = P.subs(V,V_max)
-#P_max = sympy.lambdify((I0,Rsh,Rs,Iph,n),P_max,functionSubstitutions,dummify=False)
-# since we can't do this analytically (yet) let's try numerically
-
-#sympy.pprint(V_max,use_unicode=True,wrap_line=False)
-#sys.exit(0)
-
-# this puts the symbolic solution for I from above into a format needed for curve_fit
-I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
-
-importantThings = {}
-importantThings['Voc'] = Voc
-importantThings['Isc'] = Isc
-importantThings['P_prime'] = P_prime
-importantThings['I_eqn'] = I_eqn
-importantThings['slns'] = slns
-
-#return importantThings
+    # let's define some variables we'll use to do some symbolic equaiton manipulation
+    modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
+    I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
+    modelConstants = (Vth,)
+    modelVariables = tuple(set(modelSymbols)-set(modelConstants))
     
+    # calculate values for our model's constants now
+    cellTemp = 29 #degC all analysis is done assuming the cell is at 29 degC
+    T = 273.15 + cellTemp #cell temp in K
+    K = 1.3806488e-23 #boltzman constant
+    q = 1.60217657e-19 #electron charge
+    thermalVoltage = K*T/q #thermal voltage ~26mv
+    valuesForConstants = (thermalVoltage,)
     
+    # define cell circuit model here
+    lhs = I
+    rhs = Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1)
+    electricalModel = sympy.Eq(lhs,rhs)
+    electricalModelVarsOnly = electricalModel.subs(zip(modelConstants,valuesForConstants))
+    
+    # symbolically isolate each variable in our characteristic equation
+    # then make substitutions for constants
+    # then make the solutions ready for use numerically
+    # NOTE: this is actually pretty computationally intense;
+    # some solutions might contain the Lambert W "function"
+    symSolutions = {} # with constants substituted in
+    symSolutionsNoSubs = {} # all the symbols preserved
+    slns = {} # solutions that are ready to use numerically
+    
+    # here we define any function substitutions we'll need for lambdification later
+    if fastAndSloppy:
+        # for fast and inaccurate math
+        functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp}
+    else:
+        # this is a massive slowdown (forces a ton of operations into mpmath)
+        # but gives _much_ better accuracy and aviods overflow warnings/errors...
+        functionSubstitutions = {"LambertW" : mpmath.lambertw, "exp" : mpmath.exp}
+    
+    for symbol in modelSymbols:
+        symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
+        #symSolutionsNoSubs[str(symbol)] = sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0] #solveset doesn't work here (yet)
+        symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
+        remainingVariables = list(set(modelVariables)-set([symbol]))
+        slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions,dummify=False)
+    
+    # analytical solution for Voc:
+    Voc = symSolutions['V'].subs(I,0)
+    Voc = sympy.lambdify((I0,Rsh,Iph,n),Voc,functionSubstitutions,dummify=False)
+    
+    # analytical solution for Isc:
+    Isc = symSolutions['I'].subs(V,0)
+    Isc = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc,functionSubstitutions,dummify=False)
+    
+    # analytical solution for Pmax: 
+    P = symSolutions['I']*V
+    P_prime = sympy.diff(P,V)
+    #V_max = sympy.solve(P_prime,V,check=False,implicit=True)
+    #V_max = sympy.solveset(P_prime, V, domain=sympy.S.Reals) #TODO: this is not working, but it would be cool...
+    #P_max = P.subs(V,V_max)
+    #P_max = sympy.lambdify((I0,Rsh,Rs,Iph,n),P_max,functionSubstitutions,dummify=False)
+    # since we can't do this analytically (yet) let's try numerically
+    
+    #sympy.pprint(V_max,use_unicode=True,wrap_line=False)
+    #sys.exit(0)
+    
+    # this puts the symbolic solution for I from above into a format needed for curve_fit
+    I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
+    
+    importantThings = {}
+    importantThings['Voc'] = Voc
+    importantThings['Isc'] = Isc
+    importantThings['P_prime'] = P_prime
+    importantThings['I_eqn'] = I_eqn
+    importantThings['slns'] = slns
+    importantThings['electricalModelVarsOnly'] = electricalModelVarsOnly
+    importantThings['modelSymbols'] = modelSymbols
+
+    return importantThings
 
 # find the sum of the square of errors for a fit to some data
 # given the fit function and the x and y data that was fit
@@ -240,42 +256,16 @@ def makeAReallySmartGuess(VV,II):
         print("Warning. Major issue encountered while making guesses for fit parameters.")
     
     # uncomment this stuff if you'd like to see how good/bad our initial guesses are
-    print("My guesses are",guess)
-    vv=np.linspace(min(VV),max(VV),1000)
-    ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
-    plt.title('Guess and raw data')
-    plt.plot(vv,ii)
-    plt.scatter(VV,II)
-    plt.grid(b=True)
-    plt.draw()
-    plt.show()
+    #print("My guesses are",guess)
+    #vv=np.linspace(min(VV),max(VV),1000)
+    #ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
+    #plt.title('Guess and raw data')
+    #plt.plot(vv,ii)
+    #plt.scatter(VV,II)
+    #plt.grid(b=True)
+    #plt.draw()
+    #plt.show()
     
-    #give 5x weight to data around mpp
-    #nP = II*VV
-    #maxIndex = np.argmax(nP)
-    #weights = np.ones(len(II))
-    #halfRange = (V_ip_n-VV[vMaxIndex])/2
-    #upperTarget = VV[vMaxIndex] + halfRange
-    #lowerTarget = VV[vMaxIndex] - halfRange
-    #lowerTarget = 0
-    #upperTarget = V_oc_n
-    #lowerI = np.argmin(abs(VV-lowerTarget))
-    #upperI = np.argmin(abs(VV-upperTarget))
-    #weights[range(lowerI,upperI)] = 3
-    #weights[maxnpi] = 10
-    #todo: play with setting up "key points"
-    
-    #guess = [float(x) for x in guess]
-    #VV = [np.float(x) for x in VV]
-    #II = [np.float(x) for x in II]
-    
-    #odrThing = lambda B,x: np.array([slns['I'](Rs=B[2], I0=B[0], n=B[4], Rsh=B[3], Iph=B[1], V=v).real for v in x]).astype(float)
-    #myData = odr.Data(VV,II)
-    #myodr = odr.ODR(myData, odrMod, beta0=guess,maxit=5000)
-    #myoutput = myodr.run()
-    #myoutput.pprint()
-    #see http://docs.scipy.org/doc/external/odrpack_guide.pdf
-    #guess = {'I0':guess[0], 'Iph':guess[1], 'Rs':guess[2], 'Rsh':guess[3], 'n':guess[4]}
     return guess
 
 def doTheFit(VV,II,guess,bounds):
@@ -456,6 +446,13 @@ class MainWindow(QMainWindow):
         QMainWindow.__init__(self)
 
         self.settings = QSettings("greyltc", "batch-iv-analysis")
+        
+        self.settings.setValue('fastAndSloppy',False)
+        
+        # load setting for fast vs accurate calcualtions
+        useSloppyMath = False if not self.settings.contains('I0_lb') else self.settings.value('fastAndSloppy')
+        
+        importantThings = doSymbolicManipulations(fastAndSloppy=useSloppyMath)
 
         self.rows = 0 #keep track of how many rows there are in the table
 
