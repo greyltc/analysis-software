@@ -39,7 +39,7 @@ from numpy import nan
 from numpy import inf
 from numpy import exp
 
-import functools # for ODR stuff
+import functools
 import scipy
 
 from scipy import odr
@@ -51,6 +51,8 @@ import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
 #from uncertainties import ufloat #TODO: switch to using this for the error calcs
 
+#def doSymbolicManipulations(fastAndSloppy=False):
+fastAndSloppy=False
 # let's define some variables we'll use to do some symbolic equaiton manipulation
 modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
 I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
@@ -80,9 +82,14 @@ symSolutions = {} # with constants substituted in
 symSolutionsNoSubs = {} # all the symbols preserved
 slns = {} # solutions that are ready to use numerically
 
-# here we define any function substitutions we'll need for lambdification
-functionSubstitutions = {"LambertW" : mpmath.lambertw, "exp" : mpmath.exp} # this is a massive slowdown (forces a ton of operations into mpmath) but gives _much_ better accuracy and aviods overflow warnings/errors...
-#functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp} # for fast and inaccurate math
+# here we define any function substitutions we'll need for lambdification later
+if fastAndSloppy:
+    # for fast and inaccurate math
+    functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp}
+else:
+    # this is a massive slowdown (forces a ton of operations into mpmath)
+    # but gives _much_ better accuracy and aviods overflow warnings/errors...
+    functionSubstitutions = {"LambertW" : mpmath.lambertw, "exp" : mpmath.exp}
 
 for symbol in modelSymbols:
     symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
@@ -114,66 +121,22 @@ P_prime = sympy.diff(P,V)
 # this puts the symbolic solution for I from above into a format needed for curve_fit
 I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
 
+importantThings = {}
+importantThings['Voc'] = Voc
+importantThings['Isc'] = Isc
+importantThings['P_prime'] = P_prime
+importantThings['I_eqn'] = I_eqn
+importantThings['slns'] = slns
 
-#def odrThing(B,x):
-    #I0_o, Iph_o, Rs_o, Rsh_o, n_o = B
-    #[I0, Iph, Rs, Rsh, n, I, V, Vth]
-    #I0=I0_n,Iph=Iph_n,Rs=Rs_n,Rsh=Rsh_n,n=n_n,V=x
-#    return slns['I'](I0=B[0],Iph=B[1],Rs=B[2],Rsh=B[3],n=B[4],V=x)
+#return importantThings
+    
+    
 
 # find the sum of the square of errors for a fit to some data
 # given the fit function and the x and y data that was fit
 # aka RSS, aka SSR
 def sse(fun,x,y):
     return sum((fun(x)-y)**2)
-
-# here's the function we want to fit to
-#def optimizeThis (x, I0, Iph, Rs, Rsh, n):
-#    return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
-
-# here's the function we want to fit to
-# returns current [A] from solar cell circuit
-# takes arguments: (x, I0, Iph, Rs, Rsh, n)
-# where x is voltage
-# also takes keyword arguments for everything except voltage
-def optimizeThis (*args, **kwargs):
-    if len(args) == 1:
-        args=list(args[0])
-    else:
-        args=list(args)
-    
-    x = args.pop(0)
-    if 'I0' in kwargs:
-        I0_ = kwargs['I0']
-    else:
-        I0_ = args.pop(0)
-        
-    if 'Iph' in kwargs:
-        Iph_ = kwargs['Iph']
-    else:
-        Iph_ = args.pop(0)
-        
-    if 'Rs' in kwargs:
-        Rs_ = kwargs['Rs']
-    else:
-        Rs_ = args.pop(0)
-        
-    if 'Rsh' in kwargs:
-        Rsh_ = kwargs['Rsh']
-    else:
-        Rsh_ = args.pop(0)
-        
-    if 'n' in kwargs:
-        n_ = kwargs['n']
-    else:
-        n_ = args.pop(0)
-
-    if not hasattr(x, '__iter__'): x = [x] # make it iterable
-    ii = functools.partial(slns['I'], I0=I0_, Iph=Iph_, Rs=Rs_, Rsh=Rsh_, n=n_)
-    total_current = np.array([ii(V=xx) for xx in x]).astype(complex)
-    #total_current = list(map(lambda z: slns['I'](I0=I0_,Iph=Iph_,Rs=Rs_,Rsh=Rsh_,n=n_,V=z),x)) # TODO: investigate a performance regression here probably
-    #return np.real_if_close(total_current.astype(complex))
-    return total_current
 
 #allow current solution to operate on vectors of voltages (needed for curve fitting)
 def vectorizedCurrent(vVector, I0_n, Iph_n, Rs_n, Rsh_n, n_n):
@@ -203,101 +166,89 @@ def makeAReallySmartGuess(VV,II):
     V_end_n = VV[-1]
     I_end_n = II[-1]
     
-    #Isc
+    nPoints = len(VV)
+    
+    # let's start out with really dumb guesses for all our variables
+    guess = {'I0':1e-9, 'Iph':I_start_n, 'Rs':5, 'Rsh':1e6, 'n':2.0}    
+    
+    # try to refine guess for Iph
     iFit = interpolate.interp1d(VV,II)
-    V_sc_n = 0
     try:
-        I_sc_n = float(iFit(V_sc_n)) # do a proper interpolation to find short circuit current
+        # interpolate to find short circuit current estimate
+        guess['Iph'] = iFit(0).item()
     except: # if our data range is so poor that we can't interpolate to find Isc...
         print("Warning. You really should have some negative voltages in your data...")
-        I_sc_n = I_start_n # just pick the current value at the lowest voltage. If that's not close enough to Isc,
-        #then you're dumb, why isn't your scan collecting those values?
     
-    #mpp
-    VVcalc = VV-VV[0]
-    IIcalc = II-min(II)
-    Pvirtual= np.array(VVcalc*IIcalc)
-    vMaxIndex = Pvirtual.argmax()
-    V_vmpp_n = VV[vMaxIndex]
-    I_vmpp_n = II[vMaxIndex]
+    # key point vMPP: where the MPP might be if all the data was forced into quadrant #1
+    VVvirtual = VV-VV[0]
+    IIvirtual = II-min(II)
+    Pvirtual= VVvirtual*IIvirtual
+    PMaxIndex = Pvirtual.argmax()
+    V_vmpp_n = VV[PMaxIndex]
+    I_vmpp_n = II[PMaxIndex]
     
-    #Vp: half way in voltage between vMpp and the start of the dataset:
-    V_vp_n = (V_vmpp_n-V_start_n)/2 +V_start_n
+    #key point Vp: half way in voltage between vMPP and the start of the dataset:
     try:
-        I_vp_n = float(iFit(V_vp_n))
+        V_vp_n = (V_vmpp_n+V_start_n)/2
+        I_vp_n = iFit(V_vp_n).item()
     except:
-        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
+        indexHere = round(PMaxIndex/2)
+        V_vp_n = VV[indexHere]
+        I_vp_n = II[indexHere]
+        print("Warning. Major issue encountered while making guesses for fit parameters.")
     
-    #Ip: half way in current between vMpp and the end of the dataset:
-    I_ip_n = (I_vmpp_n-I_end_n)/2 + I_end_n
-    iFit2 = interpolate.interp1d(VV,II-I_ip_n)
+    #key point Ip: half way in current between vMPP and the end of the dataset:
+    vFit = interpolate.interp1d(II,VV)
     try:
-        V_ip_n = optimize.brentq(iFit2, VV[0], VV[-1])
+        I_ip_n = (I_vmpp_n+I_end_n)/2
+        V_ip_n = vFit(I_ip_n).item()
     except:
-        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
+        indexHere = round((nPoints+PMaxIndex)/2)
+        V_ip_n = VV[indexHere]
+        I_ip_n = II[indexHere]
+        print("Warning. Major issue encountered while making guesses for fit parameters.")
+        
+    guess['Rs'] = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
     
-    displayAllGuesses = False
-    def evaluateGuessPlot(dataX, dataY, myguess):
-        myguess = [float(x) for x in myguess]
-        print("myguess:")
-        print(myguess)
-        vv=np.linspace(min(dataX),max(dataX),1000)
-        ii=vectorizedCurrent(vv,myguess[0],myguess[1],myguess[2],myguess[3],myguess[4])
-        plt.title('Guess and raw data')
-        plt.plot(vv,ii)
-        plt.scatter(dataX,dataY)
-        plt.grid(b=True)
-        plt.draw()
-        plt.show()
-    
-    # phase 1 guesses:
-    I_L_initial_guess = I_sc_n
-    R_sh_initial_guess = 1e6
-    
-    # compute intellegent guesses for Iph, Rsh by forcing the curve through several data points and numerically solving the resulting system of eqns
-    aLine = Rsh*V+Iph-I
+    # compute intelligent guesses for Iph, Rsh by forcing the curve through several data points and numerically solving the resulting system of eqns
+    aLine = -1/Rsh*V+Iph-I
     eqnSys1 = aLine.subs([(V,V_start_n),(I,I_start_n)])
     eqnSys2 = aLine.subs([(V,V_vp_n),(I,I_vp_n)])
     
     eqnSys = (eqnSys1,eqnSys2)
     
     try:
-        nGuessSln = sympy.nsolve(eqnSys,(Iph,Rsh),(I_L_initial_guess,R_sh_initial_guess),maxsteps=10000)
+        nGuessSln = sympy.nsolve(eqnSys,(Iph,Rsh),(guess['Iph'],guess['Rsh']),maxsteps=10000)
+        guess['Iph'] = float(nGuessSln[0])
+        guess['Rsh'] = float(nGuessSln[1])
     except:
-        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
+        print("Warning. Major issue encountered while making guesses for fit parameters.")
     
-    I_L_guess = float(nGuessSln[0])
-    R_sh_guess = -1*1/float(nGuessSln[1])
-    R_s_guess = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
-    n_initial_guess = 2 #TODO: maybe a more intelligent guess for n can be found using http://pvcdrom.pveducation.org/CHARACT/IDEALITY.HTM
-    I0_initial_guess = slns['I0'](Iph=I_L_guess,Rs=R_s_guess,Rsh=R_sh_guess,n=n_initial_guess,I=I_ip_n,V=V_ip_n)
-    initial_guess = [I0_initial_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
+    guess['I0'] = float(slns['I0'](Iph=guess['Iph'],Rs=guess['Rs'],Rsh=guess['Rsh'],n=guess['n'],I=I_ip_n,V=V_ip_n))
     
-     
-    
-    #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
-    zero = electricalModelVarsOnly.args[1] - electricalModelVarsOnly.args[0] # subtract the two sides of the equation for our model
-    eqnSys1 = zero.subs([(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
-    eqnSys2 = zero.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
+    # try to refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
+    newModel = electricalModelVarsOnly.subs([(Iph,guess['Iph']),(n,guess['n']),(Rsh,guess['Rsh'])])
+    zero = newModel.args[1] - newModel.args[0] # subtract the two sides of the equation for our model
+    eqnSys1 = zero.subs([(V,V_ip_n),(I,I_ip_n)])
+    eqnSys2 = zero.subs([(V,V_end_n),(I,I_end_n)])
     eqnSys = (eqnSys1,eqnSys2)
-    
     try:
-        nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
+        nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(guess['I0'],guess['Rs']),maxsteps=10000)
+        guess['I0'] = float(nGuessSln[0])
+        guess['Rs'] = float(nGuessSln[1])
     except:
-        return {'I0':1, 'Iph':1, 'Rs':1, 'Rsh':1, 'n':1}
+        print("Warning. Major issue encountered while making guesses for fit parameters.")
     
-    I0_guess = float(nGuessSln[0])
-    R_s_guess = float(nGuessSln[1])
-    
-    #Rs_initial_guess = RsEqn[0].evalf(subs={I0:I0_initial_guess,Vth:thermalVoltage,Rsh:R_sh_guess,Iph:I_L_guess,n:n_initial_guess,I:I_end_n,V:V_end_n})
-    #I0_guess = I0_initial_guess
-    #R_s_guess = Rs_initial_guess
-    
-    guess = [I0_guess, I_L_guess, R_s_guess, R_sh_guess, n_initial_guess]
-    
-    if displayAllGuesses:
-        evaluateGuessPlot(VV, II, guess)
-    #nidf
+    # uncomment this stuff if you'd like to see how good/bad our initial guesses are
+    print("My guesses are",guess)
+    vv=np.linspace(min(VV),max(VV),1000)
+    ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
+    plt.title('Guess and raw data')
+    plt.plot(vv,ii)
+    plt.scatter(VV,II)
+    plt.grid(b=True)
+    plt.draw()
+    plt.show()
     
     #give 5x weight to data around mpp
     #nP = II*VV
@@ -314,7 +265,7 @@ def makeAReallySmartGuess(VV,II):
     #weights[maxnpi] = 10
     #todo: play with setting up "key points"
     
-    guess = [float(x) for x in guess]
+    #guess = [float(x) for x in guess]
     #VV = [np.float(x) for x in VV]
     #II = [np.float(x) for x in II]
     
@@ -324,10 +275,10 @@ def makeAReallySmartGuess(VV,II):
     #myoutput = myodr.run()
     #myoutput.pprint()
     #see http://docs.scipy.org/doc/external/odrpack_guide.pdf
-    guess = {'I0':guess[0], 'Iph':guess[1], 'Rs':guess[2], 'Rsh':guess[3], 'n':guess[4]}
+    #guess = {'I0':guess[0], 'Iph':guess[1], 'Rs':guess[2], 'Rsh':guess[3], 'n':guess[4]}
     return guess
 
-def doTheFit(VV,II,guess,bounds):    
+def doTheFit(VV,II,guess,bounds):
     # do a constrained fit unless all the bounds are inf (or -inf)
     if sum(sum([np.isinf(value) for key,value in bounds.items()])) == 10:
         constrainedFit = False
