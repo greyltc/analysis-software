@@ -357,42 +357,44 @@ def doTheFit(VV,II,guess,bounds):
     else: # unconstrained "l-m" fit
         curve_fit_guess = (guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n'])
         try:
-            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(lambda *args: I_eqn(args).astype(np.float), VV, II, p0=curve_fit_guess, method="lm", full_output=True)
+            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(lambda *args: I_eqn(*args).astype(float), VV, II, p0=curve_fit_guess, method="lm", full_output=True)
         except:
             return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
         sigmas = np.sqrt(np.diag(fitCovariance))
     return(fitParams, sigmas, infodict, errmsg, ier)
 
-def analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict):
+def analyzeGoodness(VV,II,params,guess,ier,errmsg,infodict,doVerboseAnalysis):
     # sum of square of differences between data and fit [A^2]
-    SSE = sse(functools.partial(I_eqn,a=fitParams[0],b=fitParams[1],c=fitParams[2],d=fitParams[3],e=fitParams[4]), VV, II) 
-    print("Sum of square of errors:")
-    print(SSE)
-    print("fit:")
-    print(fitParams)                
-    print("guess:")
-    print(guess)
-    print("ier:")
-    print(ier)
-    print("errmsg:")
-    print(errmsg)
-    print("infodict:")
-    print(infodict)
-    
-    vv=np.linspace(VV[0],VV[-1],1000)
-    ii=vectorizedCurrent(vv,guess[0],guess[1],guess[2],guess[3],guess[4])
-    ii2=vectorizedCurrent(vv,fitParams[0],fitParams[1],fitParams[2],fitParams[3],fitParams[4])
-    plt.title('Fit analysis')
-    p1, = plt.plot(vv,ii, label='Guess',ls='--')
-    p2, = plt.plot(vv,ii2, label='Fit')
-    p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-    #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
-    ax = plt.gca()
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles, labels, loc=3)
-    plt.grid(b=True)
-    plt.draw()
-    plt.show()    
+    SSE = sse(functools.partial(I_eqn,a=params['I0'],b=params['Iph'],c=params['Rs'],d=params['Rsh'],e=params['n']), VV, II)
+    if doVerboseAnalysis:
+        print("Sum of square of errors:")
+        print(SSE)
+        print("fit:")
+        print(params)                
+        print("guess:")
+        print(guess)
+        print("ier:")
+        print(ier)
+        print("errmsg:")
+        print(errmsg)
+        print("infodict:")
+        print(infodict)
+        
+        vv=np.linspace(VV[0],VV[-1],1000)
+        ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
+        ii2=np.array([slns['I'](I0=params['I0'], Iph=params['Iph'], Rs=params['Rs'], Rsh=params['Rsh'], n=params['n'], V=v).real for v in vv])
+        plt.title('Fit analysis')
+        p1, = plt.plot(vv,ii, label='Guess',ls='--')
+        p2, = plt.plot(vv,ii2, label='Fit')
+        p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+        #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
+        ax = plt.gca()
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles, labels, loc=3)
+        plt.grid(b=True)
+        plt.draw()
+        plt.show()
+    return SSE
 
 class col:
     header = ''
@@ -451,6 +453,7 @@ class MainWindow(QMainWindow):
         
         # load setting for fast vs accurate calcualtions
         useSloppyMath = False if not self.settings.contains('I0_lb') else self.settings.value('fastAndSloppy')
+        #useSloppyMath = True
         
         importantThings = doSymbolicManipulations(fastAndSloppy=useSloppyMath)
 
@@ -654,7 +657,7 @@ class MainWindow(QMainWindow):
         modelY = thisGraphData["modelY"]
         splineY = thisGraphData["splineY"]
         a = np.asarray([fitX, modelY, splineY])
-        a = np.transpose(a)
+        a = np.transpose(a).astype(float)
         destinationFolder = os.path.join(self.workingDirectory,'exports')
         QDestinationFolder = QDir(destinationFolder)
         if not QDestinationFolder.exists():
@@ -695,7 +698,7 @@ class MainWindow(QMainWindow):
             modelY = thisGraphData["modelY"]
             splineY = thisGraphData["splineY"]
             if not mpmath.isnan(modelY[0]):
-                plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
+                plt.plot(fitX, modelY.astype(complex),c='k', label='CharEqn Best Fit')
             plt.plot(fitX, splineY,c='g', label='Spline Fit')
             plt.autoscale(axis='x', tight=True)
             plt.grid(b=True)
@@ -950,6 +953,7 @@ class MainWindow(QMainWindow):
  
             # scale the current up so that the curve fit algorithm doesn't run into machine precision
             currentScaleFactor = 1e5
+            #currentScaleFactor = 1
             II = II*currentScaleFactor
             localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
             localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
@@ -994,12 +998,19 @@ class MainWindow(QMainWindow):
             #ps.print_stats()
             #print(s.getvalue())
             
+            params = {}
+            params['I0'] = fitParams[0]
+            params['Iph'] = fitParams[1]
+            params['Rs'] = fitParams[2]
+            params['Rsh'] = fitParams[3]
+            params['n'] = fitParams[4]
+            
             # now unscale everything
             II = II/currentScaleFactor
-            fitParams[0] = fitParams[0]/currentScaleFactor
-            fitParams[1] = fitParams[1]/currentScaleFactor
-            fitParams[2] = fitParams[2]*currentScaleFactor
-            fitParams[3] = fitParams[3]*currentScaleFactor
+            params['I0'] = params['I0']/currentScaleFactor
+            params['Iph'] = params['Iph']/currentScaleFactor
+            params['Rs'] = params['Rs']*currentScaleFactor
+            params['Rsh'] = params['Rsh']*currentScaleFactor
             guess['I0'] = guess['I0']/currentScaleFactor
             guess['Iph'] = guess['Iph']/currentScaleFactor
             guess['Rs'] = guess['Rs']*currentScaleFactor
@@ -1010,23 +1021,18 @@ class MainWindow(QMainWindow):
             sigmas[3] = sigmas[3]*currentScaleFactor
             
             # this will produce an evaluation of how well the fit worked
-            #analyzeGoodness(VV,II,fitParams,guess,ier,errmsg,infodict)
+            doVerboseAnalysis = False
+            SSE = analyzeGoodness(VV,II,params,guess,ier,errmsg,infodict,doVerboseAnalysis)            
             
-            
+            # force parameter
+            #params['Rs'] = 3.9
 
             if ier < 5: # no error
                 self.goodMessage()
                 self.ui.statusbar.showMessage("Good fit because: " + errmsg,2500) #print the fit message
             else:
                 self.badMessage()
-
-            I0_fit = fitParams[0]
-            Iph_fit = fitParams[1]
-            Rs_fit = fitParams[2]
-            Rsh_fit = fitParams[3]
-            n_fit = fitParams[4]
-            SSE = sse(functools.partial(I_eqn,a=I0_fit,b=Iph_fit,c=Rs_fit,d=Rsh_fit,e=n_fit), VV, II) # sum of square of differences between data and fit [A^2]
-
+            
             #0 -> LS-straight line
             #1 -> cubic spline interpolant (thr)
             smoothingParameter = 1-2e-6
@@ -1035,25 +1041,13 @@ class MainWindow(QMainWindow):
 
             def cellModel(voltageIn):
                 #voltageIn = np.array(voltageIn)
-                return vectorizedCurrent(voltageIn, I0_fit, Iph_fit, Rs_fit, Rsh_fit, n_fit)
-
-            def invCellPowerSpline(voltageIn):
-                if voltageIn < 0:
-                    return 0
-                else:
-                    return -1*voltageIn*iFitSpline(voltageIn)
-
-            def invCellPowerModel(voltageIn):
-                if voltageIn < 0:
-                    return 0
-                else:
-                    return -1*voltageIn*cellModel(voltageIn)
+                return vectorizedCurrent(voltageIn, params['I0'], params['Iph'], params['Rs'], params['Rsh'], params['n'])
 
             if not isDarkCurve:
                 VVq1 = VV[indexInQuad1]
                 IIq1 = II[indexInQuad1]
                 vMaxGuess = VVq1[np.array(VVq1*IIq1).argmax()]
-                powerSearchResults = optimize.minimize(invCellPowerSpline,vMaxGuess)
+                powerSearchResults = optimize.minimize(lambda v: -1*v*iFitSpline(v),vMaxGuess)
                 #catch a failed max power search:
                 if not powerSearchResults.status == 0:
                     print("power search exit code = " + str(powerSearchResults.status))
@@ -1069,21 +1063,11 @@ class MainWindow(QMainWindow):
                 #only do this stuff if the char eqn fit was good
                 if ier < 5:
                     V_max_guess = 0.75
-                    vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[I0_fit,Iph_fit,Rsh_fit,Rs_fit,n_fit])), V_max_guess, modules='mpmath')
-                    
-                    #powerSearchResults_charEqn = optimize.minimize(invCellPowerModel,vMaxGuess)
-                    ##catch a failed max power search:
-                    #if not powerSearchResults_charEqn.status == 0:
-                    #    print("power search exit code = " + str(powerSearchResults_charEqn.status))
-                    #    print(powerSearchResults_charEqn.message)
-                    #    vMax_charEqn = nan
-                    #else:
-                    #    vMax_charEqn = powerSearchResults_charEqn.x[0]
-                    vMax_charEqn = V_max_guess
+                    vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), V_max_guess)
                     
                     # now for Voc
                     try:
-                        Voc_nn_charEqn = Voc(I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,n=n_fit)
+                        Voc_nn_charEqn = Voc(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
                     except:
                         Voc_nn_charEqn = nan
                 else:
@@ -1112,14 +1096,12 @@ class MainWindow(QMainWindow):
                 iMax_charEqn = nan
                 pMax_charEqn = nan
 
-
-
             if ier < 5:
                 dontFindBounds = False
-                iMax_charEqn = slns['I'](I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,Rs=Rs_fit,n=n_fit, V=vMax_charEqn)
+                iMax_charEqn = slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'], V=float(vMax_charEqn.real))
                 pMax_charEqn = vMax_charEqn*iMax_charEqn
-                Isc_nn_charEqn = Isc(I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,Rs=Rs_fit,n=n_fit)
-                Voc_nn_charEqn = Voc(I0=I0_fit,Iph=Iph_fit,Rsh=Rsh_fit,n=n_fit)
+                Isc_nn_charEqn = Isc(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'])
+                Voc_nn_charEqn = Voc(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
                 FF_charEqn = pMax_charEqn/(Voc_nn_charEqn*Isc_nn_charEqn)
             else:
                 dontFindBounds = True
@@ -1180,39 +1162,39 @@ class MainWindow(QMainWindow):
             
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('SSE')).setData(Qt.DisplayRole,float(round(SSE.real*1e6,5)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setData(Qt.DisplayRole,float(round(pMax/area/suns*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setToolTip(str(round(pMax_charEqn/area/suns*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setToolTip(str(round(pMax_charEqn.real/area/suns*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setData(Qt.DisplayRole,float(round(pMax/area*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setToolTip(str(round(pMax_charEqn/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setToolTip(str(round(pMax_charEqn.real/area*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setData(Qt.DisplayRole,float(round(Isc_nn/area*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setToolTip(str(round(Isc_nn_charEqn/area*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setData(Qt.DisplayRole,round(Voc_nn*1e3,3))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setToolTip(str(round(Voc_nn_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setToolTip(str(round(Voc_nn_charEqn.real*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setData(Qt.DisplayRole,float(round(FF,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setToolTip(str(round(FF_charEqn,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setData(Qt.DisplayRole,float(round(Rs_fit*area,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setToolTip(str(round(FF_charEqn.real,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setData(Qt.DisplayRole,float(round(params['Rs']*area,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setData(Qt.DisplayRole,float(round(Rsh_fit*area,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setData(Qt.DisplayRole,float(round(params['Rsh']*area,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setData(Qt.DisplayRole,float(round(Iph_fit/area*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setData(Qt.DisplayRole,float(round(params['Iph']/area*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setData(Qt.DisplayRole,float(round(I0_fit/area*1e9,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setData(Qt.DisplayRole,float(round(params['I0']/area*1e9,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setData(Qt.DisplayRole,float(round(n_fit,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setData(Qt.DisplayRole,float(round(params['n'],3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setData(Qt.DisplayRole,float(round(vMax*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setToolTip(str(round(vMax_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setToolTip(str(round(vMax_charEqn.real*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('area')).setData(Qt.DisplayRole,round(area,3))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setData(Qt.DisplayRole,float(round(pMax*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setToolTip(str(round(pMax_charEqn*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setToolTip(str(round(pMax_charEqn.real*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setData(Qt.DisplayRole,float(round(Isc_nn*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setToolTip(str(round(Isc_nn_charEqn*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setData(Qt.DisplayRole,float(round(Iph_fit*1e3,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setData(Qt.DisplayRole,float(round(params['Iph']*1e3,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setData(Qt.DisplayRole,float(round(I0_fit*1e9,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setData(Qt.DisplayRole,float(round(params['I0']*1e9,3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setData(Qt.DisplayRole,float(round(Rs_fit,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setData(Qt.DisplayRole,float(round(params['Rs'],3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setData(Qt.DisplayRole,float(round(Rsh_fit,3)))
+            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setData(Qt.DisplayRole,float(round(params['Rsh'],3)))
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
 
         else:#vs time
