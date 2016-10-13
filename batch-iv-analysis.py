@@ -1015,6 +1015,7 @@ class MainWindow(QMainWindow):
             guess['Iph'] = guess['Iph']/currentScaleFactor
             guess['Rs'] = guess['Rs']*currentScaleFactor
             guess['Rsh'] = guess['Rsh']*currentScaleFactor
+            #TODO: the sigmas are messed up (by scaling?) when doing a l-m fit
             sigmas[0] = sigmas[0]/currentScaleFactor
             sigmas[1] = sigmas[1]/currentScaleFactor
             sigmas[2] = sigmas[2]*currentScaleFactor
