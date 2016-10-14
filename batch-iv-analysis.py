@@ -192,13 +192,13 @@ def makeAReallySmartGuess(VV,II):
     try:
         # interpolate to find short circuit current estimate
         guess['Iph'] = iFit(0).item()
-    except: # if our data range is so poor that we can't interpolate to find Isc...
+    except:
         print("Warning. You really should have some negative voltages in your data...")
     
     # key point vMPP: where the MPP might be if all the data was forced into quadrant #1
-    VVvirtual = VV-VV[0]
-    IIvirtual = II-min(II)
-    Pvirtual= VVvirtual*IIvirtual
+    #VVvirtual = VV-VV[0]
+    #IIvirtual = II-min(II)
+    Pvirtual= VV*II
     PMaxIndex = Pvirtual.argmax()
     V_vmpp_n = VV[PMaxIndex]
     I_vmpp_n = II[PMaxIndex]
@@ -223,22 +223,13 @@ def makeAReallySmartGuess(VV,II):
         V_ip_n = VV[indexHere]
         I_ip_n = II[indexHere]
         print("Warning. Major issue encountered while making guesses for fit parameters.")
-        
+    
+    # using half-way points and end points:
     guess['Rs'] = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
-    
-    # compute intelligent guesses for Iph, Rsh by forcing the curve through several data points and numerically solving the resulting system of eqns
-    aLine = -1/Rsh*V+Iph-I
-    eqnSys1 = aLine.subs([(V,V_start_n),(I,I_start_n)])
-    eqnSys2 = aLine.subs([(V,V_vp_n),(I,I_vp_n)])
-    
-    eqnSys = (eqnSys1,eqnSys2)
-    
-    try:
-        nGuessSln = sympy.nsolve(eqnSys,(Iph,Rsh),(guess['Iph'],guess['Rsh']),maxsteps=10000)
-        guess['Iph'] = float(nGuessSln[0])
-        guess['Rsh'] = float(nGuessSln[1])
-    except:
-        print("Warning. Major issue encountered while making guesses for fit parameters.")
+    guess['Rsh'] = -1*(V_start_n-V_vp_n)/(I_start_n-I_vp_n)
+    # using mpp and end points:
+    #guess['Rs'] = -1*(V_end_n-V_vmpp_n)/(I_end_n-I_vmpp_n)
+    #guess['Rsh'] = -1*(V_start_n-V_vmpp_n)/(I_start_n-I_vmpp_n)    
     
     guess['I0'] = float(slns['I0'](Iph=guess['Iph'],Rs=guess['Rs'],Rsh=guess['Rsh'],n=guess['n'],I=I_ip_n,V=V_ip_n))
     
@@ -281,7 +272,7 @@ def doTheFit(VV,II,guess,bounds):
         myKwargs = {}
         finalFitValues = {}
         finalSigmaValues = {}
-        curve_fit_guess = []
+        curve_fit_guess = np.array([])
         curve_fit_bounds=([],[])
         paramNames = [] # need this to keep track of where each parameter is
         if bounds['I0'][0] == bounds['I0'][1]:
@@ -289,7 +280,7 @@ def doTheFit(VV,II,guess,bounds):
             finalFitValues['I0'] = myKwargs['I0']
             finalSigmaValues['I0'] = 0
         else:
-            curve_fit_guess.append(guess['I0'])
+            curve_fit_guess = np.append(curve_fit_guess,guess['I0'])
             curve_fit_bounds[0].append(bounds['I0'][0])
             curve_fit_bounds[1].append(bounds['I0'][1])
             paramNames.append("I0")
@@ -298,7 +289,7 @@ def doTheFit(VV,II,guess,bounds):
             finalFitValues['Iph'] = myKwargs['Iph']
             finalSigmaValues['Iph'] = 0
         else:
-            curve_fit_guess.append(guess['Iph'])
+            curve_fit_guess = np.append(curve_fit_guess,guess['Iph'])
             curve_fit_bounds[0].append(bounds['Iph'][0])
             curve_fit_bounds[1].append(bounds['Iph'][1])
             paramNames.append("Iph")
@@ -307,7 +298,7 @@ def doTheFit(VV,II,guess,bounds):
             finalFitValues['Rs'] = myKwargs['Rs']
             finalSigmaValues['Rs'] = 0
         else:
-            curve_fit_guess.append(guess['Rs'])
+            curve_fit_guess = np.append(curve_fit_guess,guess['Rs'])
             curve_fit_bounds[0].append(bounds['Rs'][0])
             curve_fit_bounds[1].append(bounds['Rs'][1])
             paramNames.append("Rs")
@@ -316,7 +307,7 @@ def doTheFit(VV,II,guess,bounds):
             finalFitValues['Rsh'] = myKwargs['Rsh']
             finalSigmaValues['Rsh'] = 0
         else:
-            curve_fit_guess.append(guess['Rsh'])
+            curve_fit_guess = np.append(curve_fit_guess,guess['Rsh'])
             curve_fit_bounds[0].append(bounds['Rsh'][0])
             curve_fit_bounds[1].append(bounds['Rsh'][1])
             paramNames.append("Rsh")
@@ -325,15 +316,16 @@ def doTheFit(VV,II,guess,bounds):
             finalFitValues['n'] = myKwargs['n']
             finalSigmaValues['n'] = 0
         else:
-            curve_fit_guess.append(guess['n'])
+            curve_fit_guess = np.append(curve_fit_guess,guess['n'])
             curve_fit_bounds[0].append(bounds['n'][0])
             curve_fit_bounds[1].append(bounds['n'][1])
             paramNames.append("n")
 
         redirected_output = sys.stdout = StringIO()
         redirected_error = sys.stderr = StringIO()
+
         try:
-            fitParams, fitCovariance = optimize.curve_fit(I_eqn, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
+            fitParams, fitCovariance = optimize.curve_fit(I_eqn, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", verbose=1, max_nfev=1200000)
         except:
             sys.stdout = sys.__stdout__
             sys.stderr = sys.__stderr__                    
@@ -355,7 +347,7 @@ def doTheFit(VV,II,guess,bounds):
         fitParams = [finalFitValues['I0'],finalFitValues['Iph'],finalFitValues['Rs'],finalFitValues['Rsh'],finalFitValues['n']]
         sigmas = [finalSigmaValues['I0'],finalSigmaValues['Iph'],finalSigmaValues['Rs'],finalSigmaValues['Rsh'],finalSigmaValues['n']]
     else: # unconstrained "l-m" fit
-        curve_fit_guess = (guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n'])
+        curve_fit_guess = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]    
         try:
             fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(lambda *args: I_eqn(*args).astype(float), VV, II, p0=curve_fit_guess, method="lm", full_output=True)
         except:
@@ -952,7 +944,7 @@ class MainWindow(QMainWindow):
             localBounds = self.bounds
  
             # scale the current up so that the curve fit algorithm doesn't run into machine precision
-            currentScaleFactor = 1e5
+            currentScaleFactor = 1/II.mean()
             #currentScaleFactor = 1
             II = II*currentScaleFactor
             localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
