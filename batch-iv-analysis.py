@@ -9,8 +9,12 @@
 from batch_iv_analysis_UI import Ui_batch_iv_analysis
 from prefs_UI import Ui_prefs
 
-#import cProfile, pstats, io # for performance tuning
+# for performance tuning
+#import cProfile, pstats, io 
 #pr = cProfile.Profile()
+
+# needed for file watching
+import time
 
 #TODO: make area editable
 
@@ -172,88 +176,136 @@ def isNumber(s):
 # the point here is to make super intelligent guesses for all our unknowns so that
 # the (relatively dumb and fragile) final optimization/curve fitting routine
 # has the best chance of giving good results
-def makeAReallySmartGuess(VV,II):
+def makeAReallySmartGuess(VV,II,isDarkCurve):
     #data point selection:
     #lowest voltage (might be same as Isc)
-    V_start_n = VV[0]
-    I_start_n = II[0]
+    nPoints = len(VV)
+    start_i = 0
+    V_start_n = VV[start_i]
+    I_start_n = II[start_i]
     
     #highest voltage
-    V_end_n = VV[-1]
-    I_end_n = II[-1]
-    
-    nPoints = len(VV)
+    end_i = nPoints-1
+    V_end_n = VV[end_i]
+    I_end_n = II[end_i]
     
     # let's start out with really dumb guesses for all our variables
-    guess = {'I0':1e-9, 'Iph':I_start_n, 'Rs':5, 'Rsh':1e6, 'n':2.0}    
+    guess = {'I0':1e-9, 'Iph':I_start_n, 'Rs':5, 'Rsh':1e6, 'n':1.0}    
     
     # try to refine guess for Iph
-    iFit = interpolate.interp1d(VV,II)
     try:
         # interpolate to find short circuit current estimate
+        iFit = interpolate.interp1d(VV,II)
         guess['Iph'] = iFit(0).item()
     except:
         print("Warning. You really should have some negative voltages in your data...")
     
-    # key point vMPP: where the MPP might be if all the data was forced into quadrant #1
-    #VVvirtual = VV-VV[0]
-    #IIvirtual = II-min(II)
-    Pvirtual= VV*II
-    PMaxIndex = Pvirtual.argmax()
-    V_vmpp_n = VV[PMaxIndex]
-    I_vmpp_n = II[PMaxIndex]
+    # find the curve "knee"
+    if isDarkCurve:
+        absDeltaCurrent = abs(np.ediff1d(II))
+        nums, bins = np.histogram(absDeltaCurrent,bins=30)
+        iBinMax = nums.argmax() + 2
+        largestBin = bins[iBinMax]
+        knee_i = np.argmax(absDeltaCurrent>largestBin)
+    else:
+        Pvirtual = VV*II
+        knee_i = Pvirtual.argmax()
+    V_vmpp_n = VV[knee_i]
+    I_vmpp_n = II[knee_i]        
+        
     
     #key point Vp: half way in voltage between vMPP and the start of the dataset:
     try:
-        V_vp_n = (V_vmpp_n+V_start_n)/2
-        I_vp_n = iFit(V_vp_n).item()
+        V_vp_n = (V_vmpp_n+V_start_n)*3/4
+        vp_i = np.searchsorted(VV, V_vp_n)+1
     except:
-        indexHere = round(PMaxIndex/2)
-        V_vp_n = VV[indexHere]
-        I_vp_n = II[indexHere]
+        vp_i = round(knee_i*3/4)
         print("Warning. Major issue encountered while making guesses for fit parameters.")
+    V_vp_n = VV[vp_i]
+    I_vp_n = II[vp_i]
+        
     
     #key point Ip: half way in current between vMPP and the end of the dataset:
-    vFit = interpolate.interp1d(II,VV)
     try:
-        I_ip_n = (I_vmpp_n+I_end_n)/2
-        V_ip_n = vFit(I_ip_n).item()
+        I_ip_n = (I_vmpp_n+I_end_n)/4
+        ip_i = np.argmax(II<I_ip_n)
     except:
-        indexHere = round((nPoints+PMaxIndex)/2)
-        V_ip_n = VV[indexHere]
-        I_ip_n = II[indexHere]
+        ip_i = round((nPoints+knee_i)/4)
         print("Warning. Major issue encountered while making guesses for fit parameters.")
+    V_ip_n = VV[ip_i]
+    I_ip_n = II[ip_i]
     
+    # make some guess for slopes (parasitic resistances)
     # using half-way points and end points:
     guess['Rs'] = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
     guess['Rsh'] = -1*(V_start_n-V_vp_n)/(I_start_n-I_vp_n)
     # using mpp and end points:
     #guess['Rs'] = -1*(V_end_n-V_vmpp_n)/(I_end_n-I_vmpp_n)
-    #guess['Rsh'] = -1*(V_start_n-V_vmpp_n)/(I_start_n-I_vmpp_n)    
+    #guess['Rsh'] = -1*(V_start_n-V_vmpp_n)/(I_start_n-I_vmpp_n)      
+    
+    # try to further refine guesses for Iph and Rsh
+    aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
+    x0 = np.array([guess['Rsh'],guess['Iph']]) # initial guess vector
+    optimizeResult = scipy.optimize.least_squares(aLine, x0, jac='2-point', bounds=(u'-inf', u'inf'), 
+                            method='trf', 
+                            ftol=1e-08, 
+                            xtol=1e-08, 
+                            gtol=1e-08, 
+                            x_scale=1.0, 
+                            loss='linear', 
+                            f_scale=1.0, 
+                            diff_step=None, 
+                            tr_solver=None, 
+                            tr_options={}, 
+                            jac_sparsity=None, 
+                            max_nfev=None, 
+                            verbose=0, args=(VV[start_i:vp_i],II[start_i:vp_i]), 
+                            kwargs={})
+    if optimizeResult.success:
+        guess['Rsh'] = optimizeResult.x[0]
+        guess['Iph'] = optimizeResult.x[1]
+    
+    # try to further refine guesses for I0 and Rs
+    aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
+    x0 = np.array([guess['Rs'],V_end_n/guess['Rs']]) # initial guess vector
+    optimizeResult = scipy.optimize.least_squares(aLine, x0, jac='2-point', bounds=(u'-inf', u'inf'), 
+                            method='trf', 
+                            ftol=1e-08, 
+                            xtol=1e-08, 
+                            gtol=1e-08, 
+                            x_scale=1.0, 
+                            loss='linear', 
+                            f_scale=1.0, 
+                            diff_step=None, 
+                            tr_solver=None, 
+                            tr_options={}, 
+                            jac_sparsity=None, 
+                            max_nfev=None, 
+                            verbose=0, args=(VV[ip_i:end_i],II[ip_i:end_i]), 
+                            kwargs={})
+    if optimizeResult.success:
+        guess['Rs'] = optimizeResult.x[0]
+        slope = optimizeResult.x[1]
     
     guess['I0'] = float(slns['I0'](Iph=guess['Iph'],Rs=guess['Rs'],Rsh=guess['Rsh'],n=guess['n'],I=I_ip_n,V=V_ip_n))
-    
-    # try to refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
-    newModel = electricalModelVarsOnly.subs([(Iph,guess['Iph']),(n,guess['n']),(Rsh,guess['Rsh'])])
-    zero = newModel.args[1] - newModel.args[0] # subtract the two sides of the equation for our model
-    eqnSys1 = zero.subs([(V,V_ip_n),(I,I_ip_n)])
-    eqnSys2 = zero.subs([(V,V_end_n),(I,I_end_n)])
-    eqnSys = (eqnSys1,eqnSys2)
-    try:
-        nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(guess['I0'],guess['Rs']),maxsteps=10000)
-        guess['I0'] = float(nGuessSln[0])
-        guess['Rs'] = float(nGuessSln[1])
-    except:
-        print("Warning. Major issue encountered while making guesses for fit parameters.")
     
     # uncomment this stuff if you'd like to see how good/bad our initial guesses are
     #print("My guesses are",guess)
     #vv=np.linspace(min(VV),max(VV),1000)
     #ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
+    #ii2=np.array(aLine([guess['Rs'],slope],vv,np.zeros(len(vv)))) # Rs fit line
+    #ii3=np.array(aLine([guess['Rsh'],guess['Iph']],vv,np.zeros(len(vv)))) # Rsh fit line
     #plt.title('Guess and raw data')
-    #plt.plot(vv,ii)
+    #plt.plot(vv,ii) # char eqn
+    #plt.plot(vv,ii2) # Rs fit line
+    #plt.plot(vv,ii3) # Rsh fit line
+    #plt.plot(V_ip_n,I_ip_n,'+r',markersize=10)
+    #plt.plot(V_vp_n,I_vp_n,'+r',markersize=10)
+    #plt.plot(V_vmpp_n,I_vmpp_n,'+r',markersize=10)
     #plt.scatter(VV,II)
     #plt.grid(b=True)
+    #yRange = max(II) - min(II)
+    #plt.ylim(min(II)-yRange*.1,max(II)+yRange*.1)
     #plt.draw()
     #plt.show()
     
@@ -722,10 +774,10 @@ class MainWindow(QMainWindow):
             plt.ylabel('Current [mA/cm^2]')
             plt.xlabel('Voltage [V]')
         else: #vs time
-            time = thisGraphData["time"]
+            tData = thisGraphData["time"]
 
             fig, ax1 = plt.subplots()
-            ax1.plot(time, v, 'b-',label='Voltage [V]')
+            ax1.plot(tData, v, 'b-',label='Voltage [V]')
             ax1.set_xlabel('Time [s]')
             # Make the y-axis label and tick labels match the line color.
             ax1.set_ylabel('Voltage [V]', color='b')
@@ -733,7 +785,7 @@ class MainWindow(QMainWindow):
                 tl.set_color('b')
             #fdsf
             ax2 = ax1.twinx()
-            ax2.plot(time, i, 'r-')
+            ax2.plot(tData, i, 'r-')
             ax2.set_ylabel('Current [mA/cm^2]', color='r')
             for tl in ax2.get_yticklabels():
                 tl.set_color('r')            
@@ -871,7 +923,7 @@ class MainWindow(QMainWindow):
         VV = data[:,0]
         II = data[:,1]
         if vsTime:
-            time = data[:,2]
+            tData = data[:,2]
 
         if isMcFile or isSnaithFile: # convert to amps
             II = II/1000*area
@@ -886,11 +938,11 @@ class MainWindow(QMainWindow):
             II = II[indices]
         else:
             # sort data by ascending time
-            newOrder = time.argsort()
+            newOrder = tData.argsort()
             VV=VV[newOrder]
             II=II[newOrder]
-            time=time[newOrder]
-            time=time-time[0]#start time at t=0
+            tData=tData[newOrder]
+            tData=tData-tData[0]#start time at t=0
 
         # catch and fix flipped current sign
         # The philosoply in use here is that energy producers have positive current defined as flowing out of the positive terminal
@@ -907,8 +959,14 @@ class MainWindow(QMainWindow):
             indexInQuad3 = np.logical_and(VV<0,II<0)
             indexInQuad4 = np.logical_and(VV>0,II<0)
             # find the largest powers in each quad
-            PP2 = np.min(VV[indexInQuad2]*II[indexInQuad2])
-            PP3 = np.max(VV[indexInQuad3]*II[indexInQuad3])
+            if any(indexInQuad2):
+                PP2 = np.min(VV[indexInQuad2]*II[indexInQuad2])
+            else:
+                PP2 = 0
+            if any(indexInQuad3):
+                PP3 = np.max(VV[indexInQuad3]*II[indexInQuad3])
+            else:
+                PP3 = 0
             PP4 = np.min(VV[indexInQuad4]*II[indexInQuad4])
             
             # catch and fix flipped voltage polarity(!)
@@ -924,7 +982,6 @@ class MainWindow(QMainWindow):
                 VV=VV[newOrder]
                 II=II[newOrder]                
                 isDarkCurve = False
-        indexInQuad1 = np.logical_and(VV>0,II>0)
                 
         # put items in table
         self.ui.tableWidget.insertRow(self.rows)
@@ -942,18 +999,27 @@ class MainWindow(QMainWindow):
             #bounds['Rsh'] = [0, inf]
             #bounds['n'] = [0, inf]
             localBounds = self.bounds
- 
-            # scale the current up so that the curve fit algorithm doesn't run into machine precision
-            currentScaleFactor = 1/II.mean()
-            #currentScaleFactor = 1
-            II = II*currentScaleFactor
-            localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
-            localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
-            localBounds['Rs'] = [x/currentScaleFactor for x in localBounds['Rs']]
-            localBounds['Rsh'] = [x/currentScaleFactor for x in localBounds['Rsh']]
             
             # take a guess at what the fit parameters will be
-            guess = makeAReallySmartGuess(VV,II)
+            #pr.enable()
+            #tnot = time.time()
+            guess = makeAReallySmartGuess(VV,II,isDarkCurve)
+            #print (time.time()-tnot)
+            #print(len(VV),len(II),VV.mean(),II.mean())
+            #pr.disable()
+            #s = io.StringIO()
+            #sortby = 'cumulative'
+            #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+            #ps.print_stats()
+            #lines = s.getvalue()
+            #print(lines.splitlines()[0])
+            #print(lines)            
+                       
+            
+            #localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
+            #localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
+            #localBounds['Rs'] = [x/currentScaleFactor for x in localBounds['Rs']]
+            #localBounds['Rsh'] = [x/currentScaleFactor for x in localBounds['Rsh']]
             
             # let's make sure we're not guessing outside the bounds
             if guess['I0'] < localBounds['I0'][0]:
@@ -980,7 +1046,16 @@ class MainWindow(QMainWindow):
                 guess['n'] = localBounds['n'][0]
             elif guess['n'] > localBounds['n'][1]:
                 guess['n'] = localBounds['n'][1]
-
+            
+            # scale the current up so that the curve fit algorithm doesn't run into machine precision issues
+            currentScaleFactor = 1/abs(II.mean())
+            guess['I0'] = guess['I0']*currentScaleFactor
+            guess['Iph'] = guess['Iph']*currentScaleFactor
+            guess['Rs'] = guess['Rs']/currentScaleFactor
+            guess['Rsh'] = guess['Rsh']/currentScaleFactor            
+            #currentScaleFactor = 1            
+            II = II*currentScaleFactor
+            
             #pr.enable()
             fitParams, sigmas, infodict, errmsg, ier = doTheFit(VV,II,guess,localBounds)
             #pr.disable()
@@ -988,7 +1063,9 @@ class MainWindow(QMainWindow):
             #sortby = 'cumulative'
             #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
             #ps.print_stats()
-            #print(s.getvalue())
+            #lines = s.getvalue()
+            #print(lines.splitlines()[0])
+            #print(lines)  
             
             params = {}
             params['I0'] = fitParams[0]
@@ -1003,10 +1080,10 @@ class MainWindow(QMainWindow):
             params['Iph'] = params['Iph']/currentScaleFactor
             params['Rs'] = params['Rs']*currentScaleFactor
             params['Rsh'] = params['Rsh']*currentScaleFactor
-            guess['I0'] = guess['I0']/currentScaleFactor
-            guess['Iph'] = guess['Iph']/currentScaleFactor
-            guess['Rs'] = guess['Rs']*currentScaleFactor
-            guess['Rsh'] = guess['Rsh']*currentScaleFactor
+            #guess['I0'] = guess['I0']/currentScaleFactor
+            #guess['Iph'] = guess['Iph']/currentScaleFactor
+            #guess['Rs'] = guess['Rs']*currentScaleFactor
+            #guess['Rsh'] = guess['Rsh']*currentScaleFactor
             #TODO: the sigmas are messed up (by scaling?) when doing a l-m fit
             sigmas[0] = sigmas[0]/currentScaleFactor
             sigmas[1] = sigmas[1]/currentScaleFactor
@@ -1056,8 +1133,15 @@ class MainWindow(QMainWindow):
                 #only do this stuff if the char eqn fit was good
                 if ier < 5:
                     V_max_guess = 0.75
-                    vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), V_max_guess)
-                    
+                    try:
+                        vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), V_max_guess)
+                    except:
+                        try: # try again with a differnt starting point
+                            V_max_guess = 0.6#
+                            vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), V_max_guess)
+                        except:
+                            vMax_charEqn = nan
+
                     # now for Voc
                     try:
                         Voc_nn_charEqn = Voc(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
@@ -1191,7 +1275,7 @@ class MainWindow(QMainWindow):
             self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
 
         else:#vs time
-            graphData = {'vsTime':vsTime,'origRow':self.rows,'time':time,'i':II*outputScaleFactor,'v':VV}
+            graphData = {'vsTime':vsTime,'origRow':self.rows,'time':tData,'i':II*outputScaleFactor,'v':VV}
 
         #file name
         self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setText(fileName)

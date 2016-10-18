@@ -4,4 +4,6 @@ __pycache__/
 *.bak
 *.spec
 *.csv
+*.liv1
+*.liv2
 !exampleData/*.csv
