@@ -312,102 +312,153 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
     return guess
 
 def doTheFit(VV,II,guess,bounds):
+    x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
+    residuals = lambda x,T,Y: [-y + float(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t).real) for t,y in zip(T,Y)]
+    #residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
+    fitArgs = (residuals,x0)
+    fitKwargs = {}
+    fitKwargs['jac'] = '2-point'
+    fitKwargs['method'] = 'lm'
+    fitKwargs['ftol'] = np.finfo(float).eps
+    fitKwargs['xtol'] = np.finfo(float).eps
+    fitKwargs['gtol'] = np.finfo(float).eps
+    fitKwargs['x_scale'] = 'jac'
+    fitKwargs['loss'] = 'linear'
+    fitKwargs['f_scale'] = 1.0
+    fitKwargs['diff_step'] = None
+    fitKwargs['tr_solver'] = None
+    fitKwargs['tr_options'] = {}
+    fitKwargs['jac_sparsity'] = None
+    fitKwargs['max_nfev'] = None
+    fitKwargs['verbose'] = 0
+    fitKwargs['args'] = (VV,II)
+    fitKwargs['kwargs'] = {}
+    
     # do a constrained fit unless all the bounds are inf (or -inf)
     if sum(sum([np.isinf(value) for key,value in bounds.items()])) == 10:
-        constrainedFit = False
+        fitKwargs['method'] = 'lm'
     else:
-        constrainedFit = True
+        residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
+        fitKwargs['jac'] = 'cs'
+        fitKwargs['method'] = 'trf'
+        fitKwargs['bounds'] = [(u'-inf',u'-inf',u'-inf',u'-inf',0),(u'inf',u'inf',u'inf',u'inf',u'inf')]
+        fitKwargs['max_nfev'] = 1200
+    optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
+    if optimizeResult.success:
+        print('The SSE is',optimizeResult.cost*2)
+        print(optimizeResult)
+        # calculate covariance matrix
+        # Do Moore-Penrose inverse discarding zero singular values.
+        _, s, VT = scipy.linalg.svd(optimizeResult.jac, full_matrices=False)
+        threshold = np.finfo(float).eps * max(optimizeResult.jac.shape) * s[0]
+        s = s[s > threshold]
+        VT = VT[:s.size]
+        pcov = np.dot(VT.T / s**2, VT)
+        # now find sigmas from covariance matrix
+        error = [] 
+        for i in range(len(optimizeResult.x)):
+            try:
+                error.append(np.absolute(pcov[i][i])**0.5)
+            except:
+                error.append( 0.00 )
+        sigmas = np.array(error)         
         
-    if constrainedFit:
-        # handle the case when the user sets lower bound=upper bound
-        # (take that variable out of the optimization)
-        myKwargs = {}
-        finalFitValues = {}
-        finalSigmaValues = {}
-        curve_fit_guess = np.array([])
-        curve_fit_bounds=([],[])
-        paramNames = [] # need this to keep track of where each parameter is
-        if bounds['I0'][0] == bounds['I0'][1]:
-            myKwargs['I0'] = bounds['I0'][0]
-            finalFitValues['I0'] = myKwargs['I0']
-            finalSigmaValues['I0'] = 0
-        else:
-            curve_fit_guess = np.append(curve_fit_guess,guess['I0'])
-            curve_fit_bounds[0].append(bounds['I0'][0])
-            curve_fit_bounds[1].append(bounds['I0'][1])
-            paramNames.append("I0")
-        if bounds['Iph'][0] == bounds['Iph'][1]:
-            myKwargs['Iph'] = bounds['Iph'][0]
-            finalFitValues['Iph'] = myKwargs['Iph']
-            finalSigmaValues['Iph'] = 0
-        else:
-            curve_fit_guess = np.append(curve_fit_guess,guess['Iph'])
-            curve_fit_bounds[0].append(bounds['Iph'][0])
-            curve_fit_bounds[1].append(bounds['Iph'][1])
-            paramNames.append("Iph")
-        if bounds['Rs'][0] == bounds['Rs'][1]:
-            myKwargs['Rs'] = bounds['Rs'][0]
-            finalFitValues['Rs'] = myKwargs['Rs']
-            finalSigmaValues['Rs'] = 0
-        else:
-            curve_fit_guess = np.append(curve_fit_guess,guess['Rs'])
-            curve_fit_bounds[0].append(bounds['Rs'][0])
-            curve_fit_bounds[1].append(bounds['Rs'][1])
-            paramNames.append("Rs")
-        if bounds['Rsh'][0] == bounds['Rsh'][1]:
-            myKwargs['Rsh'] = bounds['Rsh'][0]
-            finalFitValues['Rsh'] = myKwargs['Rsh']
-            finalSigmaValues['Rsh'] = 0
-        else:
-            curve_fit_guess = np.append(curve_fit_guess,guess['Rsh'])
-            curve_fit_bounds[0].append(bounds['Rsh'][0])
-            curve_fit_bounds[1].append(bounds['Rsh'][1])
-            paramNames.append("Rsh")
-        if bounds['n'][0] == bounds['n'][1]:
-            myKwargs['n'] = bounds['n'][0]
-            finalFitValues['n'] = myKwargs['n']
-            finalSigmaValues['n'] = 0
-        else:
-            curve_fit_guess = np.append(curve_fit_guess,guess['n'])
-            curve_fit_bounds[0].append(bounds['n'][0])
-            curve_fit_bounds[1].append(bounds['n'][1])
-            paramNames.append("n")
-
-        redirected_output = sys.stdout = StringIO()
-        redirected_error = sys.stderr = StringIO()
-
-        try:
-            fitParams, fitCovariance = optimize.curve_fit(I_eqn, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", verbose=1, max_nfev=1200000)
-        except:
-            sys.stdout = sys.__stdout__
-            sys.stderr = sys.__stderr__                    
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
-        out = redirected_output.getvalue()
-        err = redirected_error.getvalue()                
-        sys.stdout = sys.__stdout__
-        sys.stderr = sys.__stderr__
-        infodict = out
-        errmsg = out.splitlines()[0]
-        ier = 0
+        return([optimizeResult.x, sigmas, optimizeResult.message, optimizeResult.status])
+        #return(fitParams, sigmas, infodict, errmsg, ier)
+    else:
+        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], optimizeResult.message, optimizeResult.status])
+    
         
-        sigmas = np.sqrt(np.diag(fitCovariance))
-        
-        # need this in case we fit less than 5 parameters
-        for sigma,paramValue,paramName in zip(sigmas,fitParams,paramNames):
-            finalFitValues[paramName] = paramValue
-            finalSigmaValues[paramName] = sigma
-        fitParams = [finalFitValues['I0'],finalFitValues['Iph'],finalFitValues['Rs'],finalFitValues['Rsh'],finalFitValues['n']]
-        sigmas = [finalSigmaValues['I0'],finalSigmaValues['Iph'],finalSigmaValues['Rs'],finalSigmaValues['Rsh'],finalSigmaValues['n']]
-    else: # unconstrained "l-m" fit
-        curve_fit_guess = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]    
-        try:
-            fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(lambda *args: I_eqn(*args).astype(float), VV, II, p0=curve_fit_guess, method="lm", full_output=True)
-        except:
-            return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
-        sigmas = np.sqrt(np.diag(fitCovariance))
-    return(fitParams, sigmas, infodict, errmsg, ier)
+    #if constrainedFit:
+        ## handle the case when the user sets lower bound=upper bound
+        ## (take that variable out of the optimization)
+        #myKwargs = {}
+        #finalFitValues = {}
+        #finalSigmaValues = {}
+        #curve_fit_guess = np.array([])
+        #curve_fit_bounds=([],[])
+        #paramNames = [] # need this to keep track of where each parameter is
+        #if bounds['I0'][0] == bounds['I0'][1]:
+            #myKwargs['I0'] = bounds['I0'][0]
+            #finalFitValues['I0'] = myKwargs['I0']
+            #finalSigmaValues['I0'] = 0
+        #else:
+            #curve_fit_guess = np.append(curve_fit_guess,guess['I0'])
+            #curve_fit_bounds[0].append(bounds['I0'][0])
+            #curve_fit_bounds[1].append(bounds['I0'][1])
+            #paramNames.append("I0")
+        #if bounds['Iph'][0] == bounds['Iph'][1]:
+            #myKwargs['Iph'] = bounds['Iph'][0]
+            #finalFitValues['Iph'] = myKwargs['Iph']
+            #finalSigmaValues['Iph'] = 0
+        #else:
+            #curve_fit_guess = np.append(curve_fit_guess,guess['Iph'])
+            #curve_fit_bounds[0].append(bounds['Iph'][0])
+            #curve_fit_bounds[1].append(bounds['Iph'][1])
+            #paramNames.append("Iph")
+        #if bounds['Rs'][0] == bounds['Rs'][1]:
+            #myKwargs['Rs'] = bounds['Rs'][0]
+            #finalFitValues['Rs'] = myKwargs['Rs']
+            #finalSigmaValues['Rs'] = 0
+        #else:
+            #curve_fit_guess = np.append(curve_fit_guess,guess['Rs'])
+            #curve_fit_bounds[0].append(bounds['Rs'][0])
+            #curve_fit_bounds[1].append(bounds['Rs'][1])
+            #paramNames.append("Rs")
+        #if bounds['Rsh'][0] == bounds['Rsh'][1]:
+            #myKwargs['Rsh'] = bounds['Rsh'][0]
+            #finalFitValues['Rsh'] = myKwargs['Rsh']
+            #finalSigmaValues['Rsh'] = 0
+        #else:
+            #curve_fit_guess = np.append(curve_fit_guess,guess['Rsh'])
+            #curve_fit_bounds[0].append(bounds['Rsh'][0])
+            #curve_fit_bounds[1].append(bounds['Rsh'][1])
+            #paramNames.append("Rsh")
+        #if bounds['n'][0] == bounds['n'][1]:
+            #myKwargs['n'] = bounds['n'][0]
+            #finalFitValues['n'] = myKwargs['n']
+            #finalSigmaValues['n'] = 0
+        #else:
+            #curve_fit_guess = np.append(curve_fit_guess,guess['n'])
+            #curve_fit_bounds[0].append(bounds['n'][0])
+            #curve_fit_bounds[1].append(bounds['n'][1])
+            #paramNames.append("n")
 
-def analyzeGoodness(VV,II,params,guess,ier,errmsg,infodict,doVerboseAnalysis):
+        #redirected_output = sys.stdout = StringIO()
+        #redirected_error = sys.stderr = StringIO()
+
+        #try:
+            #fitParams, fitCovariance = optimize.curve_fit(I_eqn, VV, II, p0=curve_fit_guess, bounds=curve_fit_bounds, method="trf", x_scale="jac", verbose=1, max_nfev=1200000)
+        #except:
+            #sys.stdout = sys.__stdout__
+            #sys.stderr = sys.__stderr__                    
+            #return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
+        #out = redirected_output.getvalue()
+        #err = redirected_error.getvalue()                
+        #sys.stdout = sys.__stdout__
+        #sys.stderr = sys.__stderr__
+        #infodict = out
+        #errmsg = out.splitlines()[0]
+        #ier = 0
+        
+        #sigmas = np.sqrt(np.diag(fitCovariance))
+        
+        ## need this in case we fit less than 5 parameters
+        #for sigma,paramValue,paramName in zip(sigmas,fitParams,paramNames):
+            #finalFitValues[paramName] = paramValue
+            #finalSigmaValues[paramName] = sigma
+        #fitParams = [finalFitValues['I0'],finalFitValues['Iph'],finalFitValues['Rs'],finalFitValues['Rsh'],finalFitValues['n']]
+        #sigmas = [finalSigmaValues['I0'],finalSigmaValues['Iph'],finalSigmaValues['Rs'],finalSigmaValues['Rsh'],finalSigmaValues['n']]
+    #else: # unconstrained "l-m" fit
+        #curve_fit_guess = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]    
+        #try:
+            #fitParams, fitCovariance, infodict, errmsg, ier = optimize.curve_fit(lambda *args: I_eqn(*args).astype(float), VV, II, p0=curve_fit_guess, method="lm", full_output=True)
+        #except:
+            #return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "Unexpected Error: " + str(sys.exc_info()[1]) , 10])
+        #sigmas = np.sqrt(np.diag(fitCovariance))
+    #return(fitParams, sigmas, infodict, errmsg, ier)
+
+def analyzeGoodness(VV,II,params,guess,ier,errmsg,doVerboseAnalysis):
     # sum of square of differences between data and fit [A^2]
     SSE = sse(functools.partial(I_eqn,a=params['I0'],b=params['Iph'],c=params['Rs'],d=params['Rsh'],e=params['n']), VV, II)
     if doVerboseAnalysis:
@@ -421,8 +472,7 @@ def analyzeGoodness(VV,II,params,guess,ier,errmsg,infodict,doVerboseAnalysis):
         print(ier)
         print("errmsg:")
         print(errmsg)
-        print("infodict:")
-        print(infodict)
+
         
         vv=np.linspace(VV[0],VV[-1],1000)
         ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
@@ -1049,15 +1099,15 @@ class MainWindow(QMainWindow):
             
             # scale the current up so that the curve fit algorithm doesn't run into machine precision issues
             currentScaleFactor = 1/abs(II.mean())
+            #currentScaleFactor = 1
             guess['I0'] = guess['I0']*currentScaleFactor
             guess['Iph'] = guess['Iph']*currentScaleFactor
             guess['Rs'] = guess['Rs']/currentScaleFactor
             guess['Rsh'] = guess['Rsh']/currentScaleFactor            
-            #currentScaleFactor = 1            
             II = II*currentScaleFactor
             
             #pr.enable()
-            fitParams, sigmas, infodict, errmsg, ier = doTheFit(VV,II,guess,localBounds)
+            fitParams, sigmas, errmsg, status = doTheFit(VV,II,guess,localBounds)
             #pr.disable()
             #s = io.StringIO()
             #sortby = 'cumulative'
@@ -1092,12 +1142,12 @@ class MainWindow(QMainWindow):
             
             # this will produce an evaluation of how well the fit worked
             doVerboseAnalysis = False
-            SSE = analyzeGoodness(VV,II,params,guess,ier,errmsg,infodict,doVerboseAnalysis)            
+            SSE = analyzeGoodness(VV,II,params,guess,status,errmsg,doVerboseAnalysis)            
             
             # force parameter
             #params['Rs'] = 3.9
 
-            if ier < 5: # no error
+            if status < 5: # no error
                 self.goodMessage()
                 self.ui.statusbar.showMessage("Good fit because: " + errmsg,2500) #print the fit message
             else:
@@ -1131,7 +1181,7 @@ class MainWindow(QMainWindow):
                     pMax = vMax*iMax                
 
                 #only do this stuff if the char eqn fit was good
-                if ier < 5:
+                if status < 5:
                     V_max_guess = 0.75
                     try:
                         vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), V_max_guess)
@@ -1173,7 +1223,7 @@ class MainWindow(QMainWindow):
                 iMax_charEqn = nan
                 pMax_charEqn = nan
 
-            if ier < 5:
+            if status < 5:
                 dontFindBounds = False
                 iMax_charEqn = slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'], V=float(vMax_charEqn.real))
                 pMax_charEqn = vMax_charEqn*iMax_charEqn
@@ -1196,7 +1246,7 @@ class MainWindow(QMainWindow):
 
             FF = pMax/(Voc_nn*Isc_nn)
 
-            if (ier != 7) and (ier != 6) and (not dontFindBounds):
+            if (status != 7) and (status != 6) and (not dontFindBounds):
                 #error estimation:
                 alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
 
@@ -1224,7 +1274,7 @@ class MainWindow(QMainWindow):
             plotPoints = 1000
             fitX = np.linspace(VV[0],VV[-1],plotPoints)
 
-            if ier < 5:
+            if status < 5:
                 modelY = cellModel(fitX)*outputScaleFactor
             else:
                 modelY = np.empty(plotPoints)*nan
