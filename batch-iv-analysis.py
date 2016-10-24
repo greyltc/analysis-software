@@ -313,6 +313,7 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
 
 def doTheFit(VV,II,guess,bounds):
     x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
+    #x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
     residuals = lambda x,T,Y: [-y + float(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t).real) for t,y in zip(T,Y)]
     #residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
     fitArgs = (residuals,x0)
@@ -334,16 +335,22 @@ def doTheFit(VV,II,guess,bounds):
     fitKwargs['args'] = (VV,II)
     fitKwargs['kwargs'] = {}
     
-    # do a constrained fit unless all the bounds are inf (or -inf)
-    if sum(sum([np.isinf(value) for key,value in bounds.items()])) == 10:
-        fitKwargs['method'] = 'lm'
-    else:
-        residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
-        fitKwargs['jac'] = 'cs'
-        fitKwargs['method'] = 'trf'
-        fitKwargs['bounds'] = [(u'-inf',u'-inf',u'-inf',u'-inf',0),(u'inf',u'inf',u'inf',u'inf',u'inf')]
-        fitKwargs['max_nfev'] = 1200
+    # do a constrained fit when one of the bounds is not inf or -inf
+    # TODO: fix me! this is not working right now!
+    #if sum(sum([np.isinf(value) for key,value in bounds.items()])) != 10:
+    #    residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
+    #    fitKwargs['jac'] = 'cs'
+    #    fitKwargs['method'] = 'trf'
+    #    fitKwargs['bounds'] = [(u'-inf',u'-inf',u'-inf',u'-inf',0),(u'inf',u'inf',u'inf',u'inf',u'inf')]
+    #    sqrtEPS = np.finfo(float).eps**(1/2)
+    #    fitKwargs['diff_step'] = [x0[0]/10, sqrtEPS, sqrtEPS, sqrtEPS, sqrtEPS]
+    #    fitKwargs['max_nfev'] = 1200
+    
+    # do the fit
     optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
+    #optimizeResult.success = False
+    #optimize.curve_fit(I_eqn, VV, II, p0=x0, bounds=fitKwargs['bounds'], diff_step=fitKwargs['diff_step'], method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
+    #scipy.optimize.least_squares(residuals, np.array([  1.20347834e-13,   6.28639109e+02,   1.83005279e-04, 6.49757268e-02,   1.00000000e+00]), jac='cs', bounds=[('-inf', '-inf', '-inf', '-inf', 0), ('inf', 'inf', 'inf', 'inf', 'inf')], method='trf', max_nfev=12000, x_scale='jac', verbose=1,diff_step=[1.203478342631369e-14, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08])
     if optimizeResult.success:
         print('The SSE is',optimizeResult.cost*2)
         print(optimizeResult)
@@ -1000,6 +1007,7 @@ class MainWindow(QMainWindow):
             self.ui.statusbar.showMessage("Incorrect current convention detected. I'm fixing that for you.",500)
             II = II * -1
 
+        #VV = VV * -1# TODO: remove this hack and properly detect inverted devices!
         indexInQuad1 = np.logical_and(VV>0,II>0)
         if any(indexInQuad1): # enters statement if there is at least one datapoint in quadrant 1
             isDarkCurve = False
@@ -1017,7 +1025,10 @@ class MainWindow(QMainWindow):
                 PP3 = np.max(VV[indexInQuad3]*II[indexInQuad3])
             else:
                 PP3 = 0
-            PP4 = np.min(VV[indexInQuad4]*II[indexInQuad4])
+            if any(indexInQuad4):
+                PP4 = np.max(VV[indexInQuad4]*II[indexInQuad4])
+            else:
+                PP4 = 0
             
             # catch and fix flipped voltage polarity(!)
             if (PP4<(PP2-PP3)):
@@ -1099,6 +1110,7 @@ class MainWindow(QMainWindow):
             
             # scale the current up so that the curve fit algorithm doesn't run into machine precision issues
             currentScaleFactor = 1/abs(II.mean())
+            #currentScaleFactor = 1e5
             #currentScaleFactor = 1
             guess['I0'] = guess['I0']*currentScaleFactor
             guess['Iph'] = guess['Iph']*currentScaleFactor
@@ -1145,7 +1157,7 @@ class MainWindow(QMainWindow):
             SSE = analyzeGoodness(VV,II,params,guess,status,errmsg,doVerboseAnalysis)            
             
             # force parameter
-            #params['Rs'] = 3.9
+            #params['Iph'] = 0.00192071
 
             if status < 5: # no error
                 self.goodMessage()
