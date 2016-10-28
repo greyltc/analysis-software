@@ -68,7 +68,6 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 conda update --all
 conda install git
 conda install -c conda-forge gmpy2
-conda install -c anaconda pyqt
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
 python batch-iv-analysis.py
