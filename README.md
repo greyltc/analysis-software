@@ -61,7 +61,7 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 ### Install
 ---
 #### Windows and MacOS
-1. Install Anaconda [from here](https://www.continuum.io/downloads)
+1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the "Anaconda Prompt" program that was installed in step #1 and type the following in:
 
   ```
