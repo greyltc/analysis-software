@@ -18,16 +18,6 @@ import time
 
 #TODO: make area editable
 
-from interpolate import SmoothSpline
-#this spline is better than numpy's. it's from:
-#----------
-#.. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
-    #Data by Simplified Least Squares Procedures. Analytical
-    #Chemistry, 1964, 36 (8), pp 1627-1639.
-#.. [2] Numerical Recipes 3rd Edition: The Art of Scientific Computing
-    #W.H. Press, S.A. Teukolsky, W.T. Vetterling, B.P. Flannery
-    #Cambridge University Press ISBN-13: 9780521880688
-
 from collections import OrderedDict
 from io import StringIO
 import os, sys, inspect, csv
@@ -45,6 +35,8 @@ from numpy import exp
 
 import functools
 import scipy
+
+import scipy.io as sio
 
 from scipy import odr
 from scipy import interpolate
@@ -65,8 +57,8 @@ electricalModelVarsOnly = None
 I0, Iph, Rs, Rsh, n, I, V, Vth = (None,)*8
 
 def doSymbolicManipulations(fastAndSloppy=False):
-    global Voc
-    global Isc
+    global Voc_eqn
+    global Isc_eqn
     global P_prime
     global I_eqn
     global slns
@@ -119,12 +111,12 @@ def doSymbolicManipulations(fastAndSloppy=False):
         slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions,dummify=False)
     
     # analytical solution for Voc:
-    Voc = symSolutions['V'].subs(I,0)
-    Voc = sympy.lambdify((I0,Rsh,Iph,n),Voc,functionSubstitutions,dummify=False)
+    Voc_eqn = symSolutions['V'].subs(I,0)
+    Voc_eqn = sympy.lambdify((I0,Rsh,Iph,n),Voc_eqn,functionSubstitutions,dummify=False)
     
     # analytical solution for Isc:
-    Isc = symSolutions['I'].subs(V,0)
-    Isc = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc,functionSubstitutions,dummify=False)
+    Isc_eqn = symSolutions['I'].subs(V,0)
+    Isc_eqn = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc_eqn,functionSubstitutions,dummify=False)
     
     # analytical solution for Pmax: 
     P = symSolutions['I']*V
@@ -142,8 +134,8 @@ def doSymbolicManipulations(fastAndSloppy=False):
     I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
     
     importantThings = {}
-    importantThings['Voc'] = Voc
-    importantThings['Isc'] = Isc
+    importantThings['Voc'] = Voc_eqn
+    importantThings['Isc'] = Isc_eqn
     importantThings['P_prime'] = P_prime
     importantThings['I_eqn'] = I_eqn
     importantThings['slns'] = slns
@@ -151,19 +143,6 @@ def doSymbolicManipulations(fastAndSloppy=False):
     importantThings['modelSymbols'] = modelSymbols
 
     return importantThings
-
-# find the sum of the square of errors for a fit to some data
-# given the fit function and the x and y data that was fit
-# aka RSS, aka SSR
-def sse(fun,x,y):
-    return sum((fun(x)-y)**2)
-
-#allow current solution to operate on vectors of voltages (needed for curve fitting)
-def vectorizedCurrent(vVector, I0_n, Iph_n, Rs_n, Rsh_n, n_n):
-    if hasattr(vVector, '__iter__'):
-        return [slns['I'](I0=I0_n,Iph=Iph_n,Rs=Rs_n,Rsh=Rsh_n,n=n_n,V=x) for x in vVector]
-    else:
-        return slns['I'](I0=I0_n,Iph=Iph_n,Rs=Rs_n,Rsh=Rsh_n,n=n_n,V=vVector)
 
 # tests if string is a number
 def isNumber(s):
@@ -173,7 +152,107 @@ def isNumber(s):
         return False
     return True
 
-# the point here is to make super intelligent guesses for all our unknowns so that
+# needed for findKnotsAndCoefs below
+def _compute_u(p, D, dydx, dx, dx1, n):
+    if p is None or p != 0:
+        data = [dx[1:n - 1], 2 * (dx[:n - 2] + dx[1:n - 1]), dx[:n - 2]]
+        R = scipy.sparse.spdiags(data, [-1, 0, 1], n - 2, n - 2)
+
+    if p is None or p < 1:
+        Q = scipy.sparse.spdiags(
+            [dx1[:n - 2], -(dx1[:n - 2] + dx1[1:n - 1]), dx1[1:n - 1]],
+            [0, -1, -2], n, n - 2)
+        QDQ = (Q.T * D * Q)
+        if p is None or p < 0:
+            # Estimate p
+            p = 1. / \
+                (1. + QDQ.diagonal().sum() /
+                 (100. * R.diagonal().sum() ** 2))
+
+        if p == 0:
+            QQ = 6 * QDQ
+        else:
+            QQ = (6 * (1 - p)) * (QDQ) + p * R
+    else:
+        QQ = R
+
+    # Make sure it uses symmetric matrix solver
+    ddydx = np.diff(dydx, axis=0)
+    #sp.linalg.use_solver(useUmfpack=True)
+    u = 2 * scipy.sparse.linalg.spsolve((QQ + QQ.T), ddydx)
+    return u.reshape(n - 2, -1), p        
+
+# calculates breakpoints and coefficents for a smoothed piecewise polynomial interpolant for 1d data
+def findBreaksAndCoefs(xx, yy, p=None):
+    var=1
+    x, y = np.atleast_1d(xx, yy)
+    x = x.ravel()
+    dx = np.diff(x)
+    must_sort = (dx < 0).any()
+    if must_sort:
+        ind = x.argsort()
+        x = x[ind]
+        y = y[..., ind]
+        dx = np.diff(x)
+
+    n = len(x)
+
+    #ndy = y.ndim
+    szy = y.shape
+
+    nd =  np.prod(szy[:-1]).astype(np.int)
+    ny = szy[-1]
+
+    if n < 2:
+        raise ValueError('There must be >=2 data points.')
+    elif (dx <= 0).any():
+        raise ValueError('Two consecutive values in x can not be equal.')
+    elif n != ny:
+        raise ValueError('x and y must have the same length.')
+
+    dydx = np.diff(y) / dx
+
+    if (n == 2):  # % straight line
+        coefs = np.vstack([dydx.ravel(), y[0, :]])
+    else:
+
+        dx1 = 1. / dx
+        D = scipy.sparse.spdiags(var * np.ones(n), 0, n, n)  # The variance
+
+        u, p = _compute_u(p, D, dydx, dx, dx1, n)
+        dx1.shape = (n - 1, -1)
+        dx.shape = (n - 1, -1)
+        zrs = np.zeros(nd)
+        if p < 1:
+            # faster than yi-6*(1-p)*Q*u
+            ai = (y - (6 * (1 - p) * D *
+                       np.diff(np.vstack([zrs,
+                                          np.diff(np.vstack([zrs, u, zrs]), axis=0) * dx1,
+                                          zrs]), axis=0)).T).T
+        else:
+            ai = y.reshape(n, -1)
+
+        ci = np.vstack([zrs, 3 * p * u])
+        di = (np.diff(np.vstack([ci, zrs]), axis=0) * dx1 / 3)
+        bi = (np.diff(ai, axis=0) * dx1 - (ci + di * dx) * dx)
+        ai = ai[:n - 1, ...]
+        if nd > 1:
+            di = di.T
+            ci = ci.T
+            ai = ai.T
+        if not any(di):
+            if not any(ci):
+                coefs = np.vstack([bi.ravel(), ai.ravel()])
+            else:
+                coefs = np.vstack([ci.ravel(), bi.ravel(), ai.ravel()])
+        else:
+            coefs = np.vstack(
+                [di.ravel(), ci.ravel(), bi.ravel(), ai.ravel()])
+
+    return coefs, x
+
+# this function makes ultra-super-intelligent guesses for all the parameters
+# of the equation that w're about to attempt to fit so that
 # the (relatively dumb and fragile) final optimization/curve fitting routine
 # has the best chance of giving good results
 def makeAReallySmartGuess(VV,II,isDarkCurve):
@@ -218,6 +297,7 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
     try:
         V_vp_n = (V_vmpp_n+V_start_n)*3/4
         vp_i = np.searchsorted(VV, V_vp_n)+1
+        dummy = VV[vp_i]# this is to check if we have a valid index
     except:
         vp_i = round(knee_i*3/4)
         print("Warning. Major issue encountered while making guesses for fit parameters.")
@@ -289,28 +369,32 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
     
     guess['I0'] = float(slns['I0'](Iph=guess['Iph'],Rs=guess['Rs'],Rsh=guess['Rsh'],n=guess['n'],I=I_ip_n,V=V_ip_n))
     
-    # uncomment this stuff if you'd like to see how good/bad our initial guesses are
-    #print("My guesses are",guess)
-    #vv=np.linspace(min(VV),max(VV),1000)
-    #ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
-    #ii2=np.array(aLine([guess['Rs'],slope],vv,np.zeros(len(vv)))) # Rs fit line
-    #ii3=np.array(aLine([guess['Rsh'],guess['Iph']],vv,np.zeros(len(vv)))) # Rsh fit line
-    #plt.title('Guess and raw data')
-    #plt.plot(vv,ii) # char eqn
-    #plt.plot(vv,ii2) # Rs fit line
-    #plt.plot(vv,ii3) # Rsh fit line
-    #plt.plot(V_ip_n,I_ip_n,'+r',markersize=10)
-    #plt.plot(V_vp_n,I_vp_n,'+r',markersize=10)
-    #plt.plot(V_vmpp_n,I_vmpp_n,'+r',markersize=10)
-    #plt.scatter(VV,II)
-    #plt.grid(b=True)
-    #yRange = max(II) - min(II)
-    #plt.ylim(min(II)-yRange*.1,max(II)+yRange*.1)
-    #plt.draw()
-    #plt.show()
+    # if you'd like to see how good/bad our initial guesses are
+    visualizeGuess = False
+    if visualizeGuess:
+        print("My guesses are",guess)
+        vv=np.linspace(min(VV),max(VV),1000)
+        ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
+        ii2=np.array(aLine([guess['Rs'],slope],vv,np.zeros(len(vv)))) # Rs fit line
+        ii3=np.array(aLine([guess['Rsh'],guess['Iph']],vv,np.zeros(len(vv)))) # Rsh fit line
+        plt.title('Guess and raw data')
+        plt.plot(vv,ii) # char eqn
+        plt.plot(vv,ii2) # Rs fit line
+        plt.plot(vv,ii3) # Rsh fit line
+        plt.plot(V_ip_n,I_ip_n,'+r',markersize=10)
+        plt.plot(V_vp_n,I_vp_n,'+r',markersize=10)
+        plt.plot(V_vmpp_n,I_vmpp_n,'+r',markersize=10)
+        plt.scatter(VV,II)
+        plt.grid(b=True)
+        yRange = max(II) - min(II)
+        plt.ylim(min(II)-yRange*.1,max(II)+yRange*.1)
+        plt.draw()
+        plt.show()
+        plt.pause(1)
     
     return guess
 
+# here we attempt to fit the input data to the characteristic equation
 def doTheFit(VV,II,guess,bounds):
     x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
     #x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
@@ -352,28 +436,30 @@ def doTheFit(VV,II,guess,bounds):
     #optimize.curve_fit(I_eqn, VV, II, p0=x0, bounds=fitKwargs['bounds'], diff_step=fitKwargs['diff_step'], method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
     #scipy.optimize.least_squares(residuals, np.array([  1.20347834e-13,   6.28639109e+02,   1.83005279e-04, 6.49757268e-02,   1.00000000e+00]), jac='cs', bounds=[('-inf', '-inf', '-inf', '-inf', 0), ('inf', 'inf', 'inf', 'inf', 'inf')], method='trf', max_nfev=12000, x_scale='jac', verbose=1,diff_step=[1.203478342631369e-14, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08])
     if optimizeResult.success:
-        print('The SSE is',optimizeResult.cost*2)
-        print(optimizeResult)
-        # calculate covariance matrix
-        # Do Moore-Penrose inverse discarding zero singular values.
-        _, s, VT = scipy.linalg.svd(optimizeResult.jac, full_matrices=False)
-        threshold = np.finfo(float).eps * max(optimizeResult.jac.shape) * s[0]
-        s = s[s > threshold]
-        VT = VT[:s.size]
-        pcov = np.dot(VT.T / s**2, VT)
-        # now find sigmas from covariance matrix
-        error = [] 
-        for i in range(len(optimizeResult.x)):
-            try:
-                error.append(np.absolute(pcov[i][i])**0.5)
-            except:
-                error.append( 0.00 )
-        sigmas = np.array(error)         
+        #print(optimizeResult)
+        if np.any(np.isnan(optimizeResult.jac)):
+            sigmas = np.empty(len(optimizeResult.x))
+            sigmas[:] = nan
+        else:
+            # calculate covariance matrix
+            # Do Moore-Penrose inverse discarding zero singular values.
+            _, s, VT = scipy.linalg.svd(optimizeResult.jac, full_matrices=False)
+            threshold = np.finfo(float).eps * max(optimizeResult.jac.shape) * s[0]
+            s = s[s > threshold]
+            VT = VT[:s.size]
+            pcov = np.dot(VT.T / s**2, VT)
+            # now find sigmas from covariance matrix
+            error = [] 
+            for i in range(len(optimizeResult.x)):
+                try:
+                    error.append(np.absolute(pcov[i][i])**0.5)
+                except:
+                    error.append( 0.00 )
+            sigmas = np.array(error)
         
-        return([optimizeResult.x, sigmas, optimizeResult.message, optimizeResult.status])
-        #return(fitParams, sigmas, infodict, errmsg, ier)
+        return {'success':True,'optParams':optimizeResult.x,'sigmas':sigmas,'message':optimizeResult.message,'SSE':optimizeResult.cost*2}
     else:
-        return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], optimizeResult.message, optimizeResult.status])
+        return {'success':False,'message':optimizeResult.message}
     
         
     #if constrainedFit:
@@ -465,37 +551,30 @@ def doTheFit(VV,II,guess,bounds):
         #sigmas = np.sqrt(np.diag(fitCovariance))
     #return(fitParams, sigmas, infodict, errmsg, ier)
 
-def analyzeGoodness(VV,II,params,guess,ier,errmsg,doVerboseAnalysis):
+# this routine analyzes/quantifies the goodness of our fit
+def analyzeGoodness(VV,II,params,guess,msg):
     # sum of square of differences between data and fit [A^2]
-    SSE = sse(functools.partial(I_eqn,a=params['I0'],b=params['Iph'],c=params['Rs'],d=params['Rsh'],e=params['n']), VV, II)
-    if doVerboseAnalysis:
-        print("Sum of square of errors:")
-        print(SSE)
-        print("fit:")
-        print(params)                
-        print("guess:")
-        print(guess)
-        print("ier:")
-        print(ier)
-        print("errmsg:")
-        print(errmsg)
-
-        
-        vv=np.linspace(VV[0],VV[-1],1000)
-        ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
-        ii2=np.array([slns['I'](I0=params['I0'], Iph=params['Iph'], Rs=params['Rs'], Rsh=params['Rsh'], n=params['n'], V=v).real for v in vv])
-        plt.title('Fit analysis')
-        p1, = plt.plot(vv,ii, label='Guess',ls='--')
-        p2, = plt.plot(vv,ii2, label='Fit')
-        p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-        #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
-        ax = plt.gca()
-        handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles, labels, loc=3)
-        plt.grid(b=True)
-        plt.draw()
-        plt.show()
-    return SSE
+    print("fit:")
+    print(params)                
+    print("guess:")
+    print(guess)
+    print("message:")
+    print(msg)
+    
+    vv=np.linspace(VV[0],VV[-1],1000)
+    ii=np.array([slns['I'](I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'], n=guess['n'], V=v).real for v in vv])
+    ii2=np.array([slns['I'](I0=params['I0'], Iph=params['Iph'], Rs=params['Rs'], Rsh=params['Rsh'], n=params['n'], V=v).real for v in vv])
+    plt.title('Fit analysis')
+    p1, = plt.plot(vv,ii, label='Guess',ls='--')
+    p2, = plt.plot(vv,ii2, label='Fit')
+    p3, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+    #p4, = plt.plot(VV[range(lowerI,upperI)],II[range(lowerI,upperI)],ls="None",marker='o', label='5x Weight Data')
+    ax = plt.gca()
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, loc=3)
+    plt.grid(b=True)
+    plt.draw()
+    plt.show()
 
 class col:
     header = ''
@@ -544,24 +623,18 @@ class MainWindow(QMainWindow):
     bounds['Rs'] = [0, inf]
     bounds['Rsh'] = [0, inf]
     bounds['n'] = [0, inf]
+    symbolCalcsNotDone = True
+    
+    # for table
+    rows = 0 #this variable keepss track of how many rows there are in the results table
+    cols = OrderedDict()    
     
     def __init__(self):
         QMainWindow.__init__(self)
 
         self.settings = QSettings("greyltc", "batch-iv-analysis")
         
-        self.settings.setValue('fastAndSloppy',False)
-        
-        # load setting for fast vs accurate calcualtions
-        useSloppyMath = False if not self.settings.contains('I0_lb') else self.settings.value('fastAndSloppy')
-        #useSloppyMath = True
-        
-        importantThings = doSymbolicManipulations(fastAndSloppy=useSloppyMath)
-
-        self.rows = 0 #keep track of how many rows there are in the table
-
-        self.cols = OrderedDict()
-
+        # populate column headers
         thisKey = 'plotBtn'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'Draw Plot'
@@ -680,6 +753,22 @@ class MainWindow(QMainWindow):
         self.ui = Ui_batch_iv_analysis()
         self.ui.setupUi(self)
         
+        # load setting for fast vs accurate calcualtions
+        if not self.settings.contains('fastAndSloppy'):
+            self.ui.doFastAndSloppyMathCheckBox.setChecked(False)
+            self.settings.setValue('fastAndSloppy',False)
+        else:
+            self.ui.doFastAndSloppyMathCheckBox.setChecked(self.settings.value('fastAndSloppy') == 'true')
+        self.ui.doFastAndSloppyMathCheckBox.stateChanged.connect(self.handleMathChange)
+        
+        # load setting for fitting eqn or not
+        if not self.settings.contains('fitToEqn'):
+            self.ui.attemptCharEqnFitCheckBox.setChecked(False)
+            self.settings.setValue('fitToEqn',False)
+        else:
+            self.ui.attemptCharEqnFitCheckBox.setChecked(self.settings.value('fitToEqn') == 'true')
+        self.ui.attemptCharEqnFitCheckBox.stateChanged.connect(self.handleEqnFitChange)
+        
         # put the prefs window on the central widget
         self.prefs = PrefsWindow(self.ui.centralwidget,self.settings,self.bounds)
         
@@ -772,7 +861,16 @@ class MainWindow(QMainWindow):
         except:
             self.badMessage()
             self.ui.statusbar.showMessage("Could not export " + saveFile,self.messageDuration)
-
+    
+    def handleMathChange(self):
+        checkBox = self.sender()
+        self.settings.setValue('fastAndSloppy',checkBox.isChecked())
+        self.symbolCalcsNotDone = True
+        
+    def handleEqnFitChange(self):
+        checkBox = self.sender()
+        self.settings.setValue('fitToEqn',checkBox.isChecked()) 
+    
     def handleButton(self):
         btn = self.sender()
         #kinda hacky:
@@ -849,16 +947,22 @@ class MainWindow(QMainWindow):
 
         plt.title(filename)
         plt.draw()
-        plt.show()
+        plt.show()       
 
+    # this is how we save the table data to a .csv or .mat file
     def handleSave(self):
         if self.settings.contains('lastFolder'):
             saveDir = self.settings.value('lastFolder')
         else:
             saveDir = '.'
-        path = QFileDialog.getSaveFileName(self, caption='Set Export File', directory=saveDir)
-        if not str(path[0]) == '':
-            with open(path[0], 'w') as stream:
+        path = QFileDialog.getSaveFileName(self, caption='Set Export File',filter="Comma separated values (*.csv);;MATLAB formatted data (*.mat)", directory=saveDir)
+        if str(path[0]) == '':
+            return
+        elif '.csv' in str(path[1]): # let's write a .csv
+            fullPath = str(path[0])
+            if not fullPath.endswith('.csv'):
+                fullPath = fullPath + '.csv'            
+            with open(fullPath, 'w') as stream:
                 writer = csv.writer(stream)
                 rowdata = []
                 for column in range(self.ui.tableWidget.columnCount()):
@@ -878,6 +982,28 @@ class MainWindow(QMainWindow):
                             rowdata.append('')
                     writer.writerow(rowdata[2:])
                 stream.close()
+                print('Table data successfully written to', fullPath)
+        elif '.mat' in str(path[1]):# let's write a .mat file
+            fullPath = str(path[0])
+            if not fullPath.endswith('.mat'):
+                fullPath = fullPath + '.mat'
+            #let's make a dict out of the table:
+            tableDict = {}
+            
+            fieldsToInclude= ('pce','voc','jsc','ff','Vmax','SSE','rs','rsh','jph','j0','n','area','file')
+            
+            #how many padding zeros should we use for the MATLAB variable names?
+            ndigits = str(len(str(self.ui.tableWidget.rowCount()))) 
+            
+            for row in range(self.ui.tableWidget.rowCount()):
+                rowDict = {}
+                for field in fieldsToInclude:
+                    rowDict[field] = self.ui.tableWidget.item(row, list(self.cols.keys()).index(field)).data(0)
+                tableDict['thing'+format(row, '0'+ndigits)] = rowDict
+            
+            # save our dict as a .mat file
+            sio.savemat(fullPath, tableDict)
+            print('Table data successfully written to', fullPath)
 
     def clearTableCall(self):
         for ii in range(self.rows):
@@ -887,6 +1013,13 @@ class MainWindow(QMainWindow):
         self.fileNames = []
 
     def processFile(self,fullPath):
+        
+        # do symbolic calcs now if needed
+        if self.symbolCalcsNotDone and self.ui.attemptCharEqnFitCheckBox.isChecked():
+            print("Hang tight, we're doing the one-time symbolic manipulations now.")
+            doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+            self.symbolCalcsNotDone = False
+        
         fileName, fileExtension = os.path.splitext(fullPath)
         fileName = os.path.basename(fullPath)
         self.fileNames.append(fileName)
@@ -964,9 +1097,9 @@ class MainWindow(QMainWindow):
                     numbersHere = [float(s) for s in line.split() if isNumber(s)]
                     if len(numbersHere) is 1:
                         suns = numbersHere[0]
-                        noIntensity = False                
+                        noIntensity = False
 
-        outputScaleFactor = np.array(1000/area) #for converstion to [mA/cm^2]
+        jScaleFactor = 1000/area #for converstion to current density[mA/cm^2]
 
         c = StringIO(fileBuffer) # makes string look like a file 
 
@@ -979,365 +1112,466 @@ class MainWindow(QMainWindow):
             return
         VV = data[:,0]
         II = data[:,1]
+        if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
+            II = II/jScaleFactor
+
         if vsTime:
             tData = data[:,2]
-
-        if isMcFile or isSnaithFile: # convert to amps
-            II = II/1000*area
-
-        if not vsTime:
-            # sort data by ascending voltage
-            newOrder = VV.argsort()
-            VV=VV[newOrder]
-            II=II[newOrder]
-            # remove duplicate voltage entries
-            VV, indices = np.unique(VV, return_index =True)
-            II = II[indices]
-        else:
-            # sort data by ascending time
+            # store off the time data in special vectors
+            VVt = VV
+            IIt = II
             newOrder = tData.argsort()
-            VV=VV[newOrder]
-            II=II[newOrder]
+            VVt=VVt[newOrder]
+            IIt=IIt[newOrder]
             tData=tData[newOrder]
-            tData=tData-tData[0]#start time at t=0
+            tData=tData-tData[0]#start time at t=0            
+            
+        # prune data points that share the same voltage
+        u, indices = np.unique(VV, return_index=True)
+        VV = VV[indices]
+        II = II[indices]
+
+        # sort data by ascending voltage
+        newOrder = VV.argsort()
+        VV=VV[newOrder]
+        II=II[newOrder]
+            
+        # the task now is to figure out how this data was collected so that we can fix it
+        # this is important because the guess and fit algorithms below expect the data to be
+        # in a certian way
+        # essentially, we want to know if current or voltage has the wrong sign
+        # the goal here is that the curve "knee" ends up in quadrant 1
+        # (for a light curve, and quadrant 4 for a dark curve)
+        smoothingParameter = 1-1e-3
+        coefs, brks = findBreaksAndCoefs(VV, II, smoothingParameter)        
+        superSmoothSpline = scipy.interpolate.PPoly(coefs,brks)
+        superSmoothSplineD1 = superSmoothSpline.derivative(1) # first deravive
+        superSmoothSplineD2 = superSmoothSpline.derivative(2) # second deravive
+        
+        vv=np.linspace(min(VV),max(VV),1000)
+        if vv[np.abs(superSmoothSplineD2(vv)).argmax()] < 0: # fix flipped voltage sign
+            VV = VV * -1
+            newOrder = VV.argsort()
+            II=II[newOrder]
+            VV=VV[newOrder]
+            vv=np.linspace(min(VV),max(VV),1000)
+            self.ui.statusbar.showMessage("Flipping voltage sign.",500)
+        if II[0] < II[-1]:
+            II = II * -1
+            self.ui.statusbar.showMessage("Flipping current sign.",500)
+            
+        # now let's do a spline fit for our data
+        # this prevents measurment noise from impacting our results
+        # and allows us to interpolate between data points
+    
+        smoothingParameter = 1-2e-6
+        #0 -> LS-straight line
+        #1 -> cubic spline interpolant
+    
+        coefs, brks = findBreaksAndCoefs(VV, II, smoothingParameter)
+        smoothSpline = scipy.interpolate.PPoly(coefs,brks)        
+
+        pCoefs, pBrks = findBreaksAndCoefs(VV, II*VV, smoothingParameter)
+        powerSpline = scipy.interpolate.PPoly(pCoefs,pBrks)
+        powerSplineD1 = powerSpline.derivative(1)
+        
+        
+        
+        ##newCoefs = np.vstack((coefs,np.zeros(coefs.shape[1])))
+        ##k=4
+        ##for i in range(coefs.shape[1]-1):
+        ##    newCoefs[4,i+1] = sum(newCoefs[m, i] * (brks[i+1] - brks[i])**(k-m) for m in range(k+1))
+            
+        ##newCoefs = np.vstack((coefs,np.zeros(coefs.shape[1]),np.zeros(coefs.shape[1])))
+        ##newCoefs = np.vstack((coefs,S))
+        ##newCoefs = np.vstack((newCoefs,np.zeros(coefs.shape[1])))
+        ##powerSpline = scipy.interpolate.PPoly(newCoefs,brks) # multiply smoothSpline by x        
+        
+        ##splineB = scipy.interpolate.UnivariateSpline(VV, II, s=1e-7)
+        ##splineC = scipy.interpolate.Rbf(VV, II, smooth=0.05)
+        ##coeffsA = scipy.signal.cspline1d(II, lamb=0.5)
+        ##coeffsB = scipy.signal.cspline1d(II, smooth=0.1)
+        ##splineE = scipy.interpolate.Rbf(VV, II,function="inverse",smooth=2e-5)
+        ##II2 = scipy.signal.medfilt(II, kernel_size=5)
+        ##splineF = scipy.interpolate.Rbf(VV, II2,function='cubic', smooth=2e-8)
+        ##splineG = scipy.interpolate.UnivariateSpline(VV, II2, s=1e-7)
+        
+        ##coefs, brks = _compute_coefs(VV, II, smoothingParameter, 1)
+        ##pthing = scipy.interpolate.PPoly(coefs,brks)        
+        
+
+        #iiA = smoothSpline(vv)
+        #iiB = powerSpline(vv)
+        #iiC = smoothSpline(vv)*vv
+        #iiD = powerSplineD1(vv)
+        ##iiB = tehPPoly2(vv)
+        ##iiC = ppder1(vv)
+        ##iiD = ppder2(vv)
+        ###iiC = scipy.interpolate.splev(vv, tck)
+        ###iiC = splineC(vv)
+        ###iiD = scipy.signal.cspline1d_eval(coeffsA, vv,dx=dx)
+        ###iiE = splineE(vv)
+        ###iiF = splineF(vv)
+        ###iiG = splineG(vv)
+        ###iiH = pthing(vv)
+        
+        #plt.title('Spline analysis')
+        #p1, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+        #p2, = plt.plot(vv,iiA, label='smoothSpline')
+        #p3, = plt.plot(vv,iiB, label='powerSpline')
+        #p4, = plt.plot(vv,iiC, label='cheating')
+        #p5, = plt.plot(vv,iiD, label='powerSplineD1')
+        ##p6, = plt.plot(vv,iiD, label='der2')
+        ###p7, = plt.plot(vv,iiE, label='Rbf cubic')
+        ###p8, = plt.plot(vv,iiF, label='Rbf with medfilt')
+        ###p8, = plt.plot(vv,iiG, label='univariat with medfilt')
+        ###p8, = plt.plot(vv,iiH, label='rippedOut')
+        #ax = plt.gca()
+        #handles, labels = ax.get_legend_handles_labels()
+        #ax.legend(handles, labels, loc=3)
+        #plt.grid(b=True)
+        #plt.draw()
+        #plt.show()   
+        #plt.pause(500)
+        
+        #print("done")
+        
+        #if any(II>
 
         # catch and fix flipped current sign
         # The philosoply in use here is that energy producers have positive current defined as flowing out of the positive terminal
-        if II[0] < II[-1]:
-            self.ui.statusbar.showMessage("Incorrect current convention detected. I'm fixing that for you.",500)
-            II = II * -1
+        #if II[0] < II[-1]:
+        #    self.ui.statusbar.showMessage("Incorrect current convention detected. I'm fixing that for you.",500)
+        #    II = II * -1
 
         #VV = VV * -1# TODO: remove this hack and properly detect inverted devices!
-        indexInQuad1 = np.logical_and(VV>0,II>0)
-        if any(indexInQuad1): # enters statement if there is at least one datapoint in quadrant 1
-            isDarkCurve = False
-        else:
-            # pick out data points in each quadrant
-            indexInQuad2 = np.logical_and(VV<0,II>0) 
-            indexInQuad3 = np.logical_and(VV<0,II<0)
-            indexInQuad4 = np.logical_and(VV>0,II<0)
-            # find the largest powers in each quad
-            if any(indexInQuad2):
-                PP2 = np.min(VV[indexInQuad2]*II[indexInQuad2])
-            else:
-                PP2 = 0
-            if any(indexInQuad3):
-                PP3 = np.max(VV[indexInQuad3]*II[indexInQuad3])
-            else:
-                PP3 = 0
-            if any(indexInQuad4):
-                PP4 = np.max(VV[indexInQuad4]*II[indexInQuad4])
-            else:
-                PP4 = 0
+        #II = II * -1
+        #indexInQuad1 = np.logical_and(VV>0,II>0)
+        #if any(indexInQuad1): # enters statement if there is at least one datapoint in quadrant 1
+            #isDarkCurve = False
+        #else:
+            ## pick out data points in each quadrant
+            #indexInQuad2 = np.logical_and(VV<0,II>0) 
+            #indexInQuad3 = np.logical_and(VV<0,II<0)
+            #indexInQuad4 = np.logical_and(VV>0,II<0)
+            ## find the largest powers in each quad
+            #if any(indexInQuad2):
+                #PP2 = np.min(VV[indexInQuad2]*II[indexInQuad2])
+            #else:
+                #PP2 = 0
+            #if any(indexInQuad3):
+                #PP3 = np.max(VV[indexInQuad3]*II[indexInQuad3])
+            #else:
+                #PP3 = 0
+            #if any(indexInQuad4):
+                #PP4 = np.max(VV[indexInQuad4]*II[indexInQuad4])
+            #else:
+                #PP4 = 0
             
-            # catch and fix flipped voltage polarity(!)
-            if (PP4<(PP2-PP3)):
-                self.ui.statusbar.showMessage("Dark curve detected",500)
-                isDarkCurve = True
+            ## catch and fix flipped voltage polarity(!)
+            #if (PP4<(PP2-PP3)):
+                #self.ui.statusbar.showMessage("Dark curve detected",500)
+                #isDarkCurve = True
+            #else:
+                ## TODO: dark curves of this messed up nature will likely not be caught
+                #self.ui.statusbar.showMessage("Inverted I-V convention detected: I'm fixing that for you.",500)
+                #II = II * -1
+                #VV = VV * -1
+                #newOrder = VV.argsort()
+                #VV=VV[newOrder]
+                #II=II[newOrder]                
+                #isDarkCurve = False
+                
+        isDarkCurve = False
+        Vmpp = powerSplineD1.roots(extrapolate=False,discontinuity=False)
+        VmppSize = Vmpp.size
+        if VmppSize is 0:
+            Pmpp = nan
+            Impp = nan
+            Vmpp = nan
+            isDarkCurve = True
+        elif VmppSize is 1:
+            Vmpp = float(Vmpp)
+            Impp = float(smoothSpline(Vmpp))
+            Pmpp = Impp*Vmpp
+        else: # there are more than one local power maxima
+            Impp = smoothSpline(Vmpp)
+            Pmpp = Impp*Vmpp
+            arg = Pmpp.argmax()
+            Pmpp = float(Pmpp[arg])
+            Vmpp = float(Vmpp[arg])
+            Impp = float(Impp[arg])
+            
+        Voc = smoothSpline.roots(extrapolate=True,discontinuity=False)
+        VocSize = Voc.size
+        isDarkCurve = False
+        if VocSize is 0:
+            Voc = nan
+            isDarkCurve = True
+        elif VocSize is 1:
+            Voc = float(Voc)
+        else: # got too many answers
+            valid = np.logical_and(Voc > 0, Voc < max(VV)+0.05)
+            nVocs = sum(valid)
+            if nVocs !=1:
+                print('Warning: we found',nVocs,"values for Voc.")
+                Voc = nan
             else:
-                # TODO: dark curves of this messed up nature will likely not be caught
-                self.ui.statusbar.showMessage("Inverted I-V convention detected: I'm fixing that for you.",500)
-                II = II * -1
-                VV = VV * -1
-                newOrder = VV.argsort()
-                VV=VV[newOrder]
-                II=II[newOrder]                
-                isDarkCurve = False
+                Voc = float(Voc[valid][0])
+                
+        if isDarkCurve:
+            print("Dark curve detected.")
+
+        Isc = float(smoothSpline(0))
+        FF = Pmpp/(Voc*Isc)
+        
+        # here's how we'll discretize our fits
+        plotPoints = 1000
+        if min(VV) > 0: # check for only positive voltages
+            vvMin = -0.05 # plot at least 50 mV below zero
+        else:
+            vvMin = min(VV)
+        
+        if max(VV) < Voc: # check for data beyond Voc
+            vvMax = Voc + 0.05 # plot at least 50 mV above Voc
+        else:
+            vvMax = max(VV)
+
+        vv = np.linspace(vvMin,vvMax,plotPoints)
+        
+        splineY = smoothSpline(vv)*jScaleFactor
+        modelY = [nan]
+        graphData = {'vsTime':vsTime,'origRow':self.rows,'fitX':vv,'modelY':modelY,'splineY':splineY,'i':II*jScaleFactor,'v':VV,'Voc':Voc,'Isc':Isc*jScaleFactor,'Vmax':Vmpp,'Imax':Impp*jScaleFactor}
                 
         # put items in table
         self.ui.tableWidget.insertRow(self.rows)
         for ii in range(len(self.cols)):
             self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
+            
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setData(Qt.DisplayRole,float(round(Pmpp/area/suns*1e3,3)))
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setData(Qt.DisplayRole,float(round(Pmpp/area*1e3,3)))
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setData(Qt.DisplayRole,float(round(Isc/area*1e3,3)))
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setData(Qt.DisplayRole,float(round(Voc*1e3,1)))
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setData(Qt.DisplayRole,float(round(FF,3)))
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setData(Qt.DisplayRole,float(round(Vmpp*1e3,3)))
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('area')).setData(Qt.DisplayRole,round(area,3))
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setData(Qt.DisplayRole,float(round(Pmpp*1e3,3)))
+        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setData(Qt.DisplayRole,float(round(Isc*1e3,3)))
 
         if not vsTime:
-            
-            # set bounds on the fit variables
-            # if upper=lower bound, then that variable will be taken out of the optimization
-            #bounds ={}
-            #bounds['I0'] = [0, inf] 
-            #bounds['Iph'] = [0, inf]
-            #bounds['Rs'] = [0, inf]
-            #bounds['Rsh'] = [0, inf]
-            #bounds['n'] = [0, inf]
-            localBounds = self.bounds
-            
-            # take a guess at what the fit parameters will be
-            #pr.enable()
-            #tnot = time.time()
-            guess = makeAReallySmartGuess(VV,II,isDarkCurve)
-            #print (time.time()-tnot)
-            #print(len(VV),len(II),VV.mean(),II.mean())
-            #pr.disable()
-            #s = io.StringIO()
-            #sortby = 'cumulative'
-            #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-            #ps.print_stats()
-            #lines = s.getvalue()
-            #print(lines.splitlines()[0])
-            #print(lines)            
-                       
-            
-            #localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
-            #localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
-            #localBounds['Rs'] = [x/currentScaleFactor for x in localBounds['Rs']]
-            #localBounds['Rsh'] = [x/currentScaleFactor for x in localBounds['Rsh']]
-            
-            # let's make sure we're not guessing outside the bounds
-            if guess['I0'] < localBounds['I0'][0]:
-                guess['I0'] = localBounds['I0'][0]
-            elif guess['I0'] > localBounds['I0'][1]:
-                guess['I0'] = localBounds['I0'][1]
-            
-            if guess['Iph'] < localBounds['Iph'][0]:
-                guess['Iph'] = localBounds['Iph'][0]
-            elif guess['Iph'] > localBounds['Iph'][1]:
-                guess['Iph'] = localBounds['Iph'][1]
-            
-            if guess['Rs'] < localBounds['Rs'][0]:
-                guess['Rs'] = localBounds['Rs'][0]
-            elif guess['Rs'] > localBounds['Rs'][1]:
-                guess['Rs'] = localBounds['Rs'][1]
-            
-            if guess['Rsh'] < localBounds['Rsh'][0]:
-                guess['Rsh'] = localBounds['Rsh'][0]
-            elif guess['Rsh'] > localBounds['Rsh'][1]:
-                guess['Rsh'] = localBounds['Rsh'][1]
-            
-            if guess['n'] < localBounds['n'][0]:
-                guess['n'] = localBounds['n'][0]
-            elif guess['n'] > localBounds['n'][1]:
-                guess['n'] = localBounds['n'][1]
-            
-            # scale the current up so that the curve fit algorithm doesn't run into machine precision issues
-            currentScaleFactor = 1/abs(II.mean())
-            #currentScaleFactor = 1e5
-            #currentScaleFactor = 1
-            guess['I0'] = guess['I0']*currentScaleFactor
-            guess['Iph'] = guess['Iph']*currentScaleFactor
-            guess['Rs'] = guess['Rs']/currentScaleFactor
-            guess['Rsh'] = guess['Rsh']/currentScaleFactor            
-            II = II*currentScaleFactor
-            
-            #pr.enable()
-            fitParams, sigmas, errmsg, status = doTheFit(VV,II,guess,localBounds)
-            #pr.disable()
-            #s = io.StringIO()
-            #sortby = 'cumulative'
-            #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-            #ps.print_stats()
-            #lines = s.getvalue()
-            #print(lines.splitlines()[0])
-            #print(lines)  
-            
-            params = {}
-            params['I0'] = fitParams[0]
-            params['Iph'] = fitParams[1]
-            params['Rs'] = fitParams[2]
-            params['Rsh'] = fitParams[3]
-            params['n'] = fitParams[4]
-            
-            # now unscale everything
-            II = II/currentScaleFactor
-            params['I0'] = params['I0']/currentScaleFactor
-            params['Iph'] = params['Iph']/currentScaleFactor
-            params['Rs'] = params['Rs']*currentScaleFactor
-            params['Rsh'] = params['Rsh']*currentScaleFactor
-            #guess['I0'] = guess['I0']/currentScaleFactor
-            #guess['Iph'] = guess['Iph']/currentScaleFactor
-            #guess['Rs'] = guess['Rs']*currentScaleFactor
-            #guess['Rsh'] = guess['Rsh']*currentScaleFactor
-            #TODO: the sigmas are messed up (by scaling?) when doing a l-m fit
-            sigmas[0] = sigmas[0]/currentScaleFactor
-            sigmas[1] = sigmas[1]/currentScaleFactor
-            sigmas[2] = sigmas[2]*currentScaleFactor
-            sigmas[3] = sigmas[3]*currentScaleFactor
-            
-            # this will produce an evaluation of how well the fit worked
-            doVerboseAnalysis = False
-            SSE = analyzeGoodness(VV,II,params,guess,status,errmsg,doVerboseAnalysis)            
-            
-            # force parameter
-            #params['Iph'] = 0.00192071
-
-            if status < 5: # no error
-                self.goodMessage()
-                self.ui.statusbar.showMessage("Good fit because: " + errmsg,2500) #print the fit message
+            if not self.ui.attemptCharEqnFitCheckBox.isChecked():
+                print("Not attempting fit to characteristic equation.")
             else:
-                self.badMessage()
-            
-            #0 -> LS-straight line
-            #1 -> cubic spline interpolant (thr)
-            smoothingParameter = 1-2e-6
-            #iFitSpline = interpolate.UnivariateSpline(VV, II, s=99)
-            iFitSpline = SmoothSpline(VV, II, p=smoothingParameter)
-
-            def cellModel(voltageIn):
-                #voltageIn = np.array(voltageIn)
-                return vectorizedCurrent(voltageIn, params['I0'], params['Iph'], params['Rs'], params['Rsh'], params['n'])
-
-            if not isDarkCurve:
-                VVq1 = VV[indexInQuad1]
-                IIq1 = II[indexInQuad1]
-                vMaxGuess = VVq1[np.array(VVq1*IIq1).argmax()]
-                powerSearchResults = optimize.minimize(lambda v: -1*v*iFitSpline(v),vMaxGuess)
-                #catch a failed max power search:
-                if not powerSearchResults.status == 0:
-                    print("power search exit code = " + str(powerSearchResults.status))
-                    print(powerSearchResults.message)
-                    vMax = nan
-                    iMax = nan
-                    pMax = nan
-                else:
-                    vMax = powerSearchResults.x[0]
-                    iMax = iFitSpline([vMax])[0]
-                    pMax = vMax*iMax                
-
-                #only do this stuff if the char eqn fit was good
-                if status < 5:
-                    V_max_guess = 0.75
+                # set bounds on the fit variables
+                # if upper=lower bound, then that variable will be taken out of the optimization
+                #bounds ={}
+                #bounds['I0'] = [0, inf] 
+                #bounds['Iph'] = [0, inf]
+                #bounds['Rs'] = [0, inf]
+                #bounds['Rsh'] = [0, inf]
+                #bounds['n'] = [0, inf]
+                localBounds = self.bounds
+                
+                # take a guess at what the fit parameters will be
+                #pr.enable()
+                #tnot = time.time()
+                guess = makeAReallySmartGuess(VV,II,isDarkCurve)
+                #print (time.time()-tnot)
+                #print(len(VV),len(II),VV.mean(),II.mean())
+                #pr.disable()
+                #s = io.StringIO()
+                #sortby = 'cumulative'
+                #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+                #ps.print_stats()
+                #lines = s.getvalue()
+                #print(lines.splitlines()[0])
+                #print(lines)            
+                           
+                
+                #localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
+                #localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
+                #localBounds['Rs'] = [x/currentScaleFactor for x in localBounds['Rs']]
+                #localBounds['Rsh'] = [x/currentScaleFactor for x in localBounds['Rsh']]
+                
+                # let's make sure we're not guessing outside the bounds
+                if guess['I0'] < localBounds['I0'][0]:
+                    guess['I0'] = localBounds['I0'][0]
+                elif guess['I0'] > localBounds['I0'][1]:
+                    guess['I0'] = localBounds['I0'][1]
+                
+                if guess['Iph'] < localBounds['Iph'][0]:
+                    guess['Iph'] = localBounds['Iph'][0]
+                elif guess['Iph'] > localBounds['Iph'][1]:
+                    guess['Iph'] = localBounds['Iph'][1]
+                
+                if guess['Rs'] < localBounds['Rs'][0]:
+                    guess['Rs'] = localBounds['Rs'][0]
+                elif guess['Rs'] > localBounds['Rs'][1]:
+                    guess['Rs'] = localBounds['Rs'][1]
+                
+                if guess['Rsh'] < localBounds['Rsh'][0]:
+                    guess['Rsh'] = localBounds['Rsh'][0]
+                elif guess['Rsh'] > localBounds['Rsh'][1]:
+                    guess['Rsh'] = localBounds['Rsh'][1]
+                
+                if guess['n'] < localBounds['n'][0]:
+                    guess['n'] = localBounds['n'][0]
+                elif guess['n'] > localBounds['n'][1]:
+                    guess['n'] = localBounds['n'][1]
+                
+                # scale the current up so that the curve fit algorithm doesn't run into machine precision issues
+                currentScaleFactor = 1/abs(II.mean())
+                #currentScaleFactor = 1e5
+                #currentScaleFactor = 1
+                guess['I0'] = guess['I0']*currentScaleFactor
+                guess['Iph'] = guess['Iph']*currentScaleFactor
+                guess['Rs'] = guess['Rs']/currentScaleFactor
+                guess['Rsh'] = guess['Rsh']/currentScaleFactor            
+                II = II*currentScaleFactor
+                
+                #pr.enable()
+                fitResult = doTheFit(VV,II,guess,localBounds)
+                #fitParams, sigmas, errmsg, status = doTheFit(VV,II,guess,localBounds)
+                #{'success':True,'optParams':optimizeResult.x,'sigmas':sigmas,'message':optimizeResult.message}
+                #pr.disable()
+                #s = io.StringIO()
+                #sortby = 'cumulative'
+                #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+                #ps.print_stats()
+                #lines = s.getvalue()
+                #print(lines.splitlines()[0])
+                #print(lines)
+                
+                # unscale the things
+                guess['I0'] = guess['I0']/currentScaleFactor
+                guess['Iph'] = guess['Iph']/currentScaleFactor
+                guess['Rs'] = guess['Rs']*currentScaleFactor
+                guess['Rsh'] = guess['Rsh']*currentScaleFactor
+                II = II/currentScaleFactor
+                
+                if (fitResult['success']):
+                    self.goodMessage()
+                    self.ui.statusbar.showMessage("Good fit because: " + fitResult['message'],2500)
+    
+                    params = {}
+                    params['I0'] = fitResult['optParams'][0]/currentScaleFactor
+                    params['Iph'] = fitResult['optParams'][1]/currentScaleFactor
+                    params['Rs'] = fitResult['optParams'][2]*currentScaleFactor
+                    params['Rsh'] = fitResult['optParams'][3]*currentScaleFactor
+                    params['n'] = fitResult['optParams'][4]
+                    SSE = fitResult['SSE']/currentScaleFactor**2
+                    
+                    
+                    # TODO: the sigmas are messed up (by scaling?) when doing a l-m fit
+                    # TODO: re-do uncertanties
+                    #sigmas = fitResult['sigmas']
+                    #sigmas[0] = sigmas[0]/currentScaleFactor
+                    #sigmas[1] = sigmas[1]/currentScaleFactor
+                    #sigmas[2] = sigmas[2]*currentScaleFactor
+                    #sigmas[3] = sigmas[3]*currentScaleFactor
+                    #fitParams[0] = params['I0']
+    
+                    # this will produce an evaluation of how well the fit worked
+                    doVerboseAnalysis = False
+                    if doVerboseAnalysis:
+                        analyzeGoodness(VV,II,params,guess,fitResult['message'])
+                    
+                    #do error estimation:
+                    #alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
+    
+                    #nn = len(VV)    # number of data points
+                    #p = len(sigmas) # number of parameters
+    
+                    #dof = max(0, nn - p) # number of degrees of freedom
+    
+                    # student-t value for the dof and confidence level
+                    #tval = t.ppf(1.0-alpha/2., dof) 
+    
+                    #lowers = []
+                    #uppers = []
+                    #calculate 95% confidence interval
+                    #for a, p, sigma in zip(list(range(nn)), fitParams, sigmas):
+                    #    lower = p - sigma*tval
+                    #    upper = p + sigma*tval
+                    #    lowers.append(lower)
+                    #    uppers.append(upper)
+                    uppers = [nan,nan,nan,nan,nan]
+                    lowers = [nan,nan,nan,nan,nan]                
+                    
+                    # force parameter
+                    #params['Iph'] = 0.00192071
+                    
+                    # find mpp
+                    VmppGuess = VV[np.array(VV*II).argmax()]
+                    mppFound = False
                     try:
-                        vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), V_max_guess)
+                        Vmpp_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess)
+                        mppFound = True
                     except:
                         try: # try again with a differnt starting point
-                            V_max_guess = 0.6#
-                            vMax_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), V_max_guess)
-                        except:
-                            vMax_charEqn = nan
-
-                    # now for Voc
+                            Vmpp_guess = Vmpp_guess-0.1
+                            Vmpp_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess)
+                            mppFound = True
+                        except: # two failures means we're done
+                            Vmpp_charEqn = nan
+                    if mppFound:
+                        Impp_charEqn = slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=np.complex(Vmpp_charEqn))
+                        Pmpp_charEqn = Impp_charEqn*Vmpp_charEqn
+                    else:
+                        Impp_charEqn = nan
+                        Pmpp_charEqn = nan
+                    
+                    # find Voc
                     try:
-                        Voc_nn_charEqn = Voc(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
+                        Voc_charEqn = Voc_eqn(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
                     except:
-                        Voc_nn_charEqn = nan
-                else:
-                    Voc_nn_charEqn = nan
-                    vMax_charEqn = nan
-
-                # find Voc from spline
-                try:
-                    # this works when there's both positive and negative current data
-                    Voc_nn = optimize.brentq(iFitSpline, VV[0], VV[-1])
-                except: # handle the spline-based Voc case when there's only positive current values (extrapolate)
-                    order = 1
-                    extrap = interpolate.InterpolatedUnivariateSpline(VV, II, k=order)
-                    try:
-                        Voc_nn = optimize.brentq(extrap, VV[0], VV[-1])
-                    except: # every attempt to find Voc from the spline has failed
-                        Voc_nn = nan
-
-            else:
-                Voc_nn = nan
-                vMax = nan
-                iMax = nan
-                pMax = nan
-                Voc_nn_charEqn = nan
-                vMax_charEqn = nan
-                iMax_charEqn = nan
-                pMax_charEqn = nan
-
-            if status < 5:
-                dontFindBounds = False
-                iMax_charEqn = slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'], V=float(vMax_charEqn.real))
-                pMax_charEqn = vMax_charEqn*iMax_charEqn
-                Isc_nn_charEqn = Isc(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'])
-                Voc_nn_charEqn = Voc(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
-                FF_charEqn = pMax_charEqn/(Voc_nn_charEqn*Isc_nn_charEqn)
-            else:
-                dontFindBounds = True
-                iMax_charEqn = nan
-                pMax_charEqn = nan
-                Isc_nn_charEqn = nan
-                FF_charEqn = nan
-                Voc_nn_charEqn = nan
-
-            #there is a maddening bug in SmoothingSpline: it can't evaluate 0 alone, so I have to do this:
-            try:
-                Isc_nn = iFitSpline([0,1e-55])[0]
-            except:
-                Isc_nn = nan
-
-            FF = pMax/(Voc_nn*Isc_nn)
-
-            if (status != 7) and (status != 6) and (not dontFindBounds):
-                #error estimation:
-                alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
-
-                nn = len(VV)    # number of data points
-                p = len(fitParams) # number of parameters
-
-                dof = max(0, nn - p) # number of degrees of freedom
-
-                # student-t value for the dof and confidence level
-                tval = t.ppf(1.0-alpha/2., dof) 
-
-                lowers = []
-                uppers = []
-                #calculate 95% confidence interval
-                for a, p, sigma in zip(list(range(nn)), fitParams, sigmas):
-                    lower = p - sigma*tval
-                    upper = p + sigma*tval
-                    lowers.append(lower)
-                    uppers.append(upper)
-
-            else:
-                uppers = [nan,nan,nan,nan,nan]
-                lowers = [nan,nan,nan,nan,nan]
-
-            plotPoints = 1000
-            fitX = np.linspace(VV[0],VV[-1],plotPoints)
-
-            if status < 5:
-                modelY = cellModel(fitX)*outputScaleFactor
-            else:
-                modelY = np.empty(plotPoints)*nan
-            splineY = iFitSpline(fitX)*outputScaleFactor
-            graphData = {'vsTime':vsTime,'origRow':self.rows,'fitX':fitX,'modelY':modelY,'splineY':splineY,'i':II*outputScaleFactor,'v':VV,'Voc':Voc_nn,'Isc':Isc_nn*outputScaleFactor,'Vmax':vMax,'Imax':iMax*outputScaleFactor}		
-
-            #export button
-            exportBtn = QPushButton(self.ui.tableWidget)
-            exportBtn.setText('Export')
-            exportBtn.clicked.connect(self.handleButton)
-            self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)
-            
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('SSE')).setData(Qt.DisplayRole,float(round(SSE.real*1e6,5)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setData(Qt.DisplayRole,float(round(pMax/area/suns*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setToolTip(str(round(pMax_charEqn.real/area/suns*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setData(Qt.DisplayRole,float(round(pMax/area*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setToolTip(str(round(pMax_charEqn.real/area*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setData(Qt.DisplayRole,float(round(Isc_nn/area*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setToolTip(str(round(Isc_nn_charEqn/area*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setData(Qt.DisplayRole,round(Voc_nn*1e3,3))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setToolTip(str(round(Voc_nn_charEqn.real*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setData(Qt.DisplayRole,float(round(FF,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setToolTip(str(round(FF_charEqn.real,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setData(Qt.DisplayRole,float(round(params['Rs']*area,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setData(Qt.DisplayRole,float(round(params['Rsh']*area,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setData(Qt.DisplayRole,float(round(params['Iph']/area*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setData(Qt.DisplayRole,float(round(params['I0']/area*1e9,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setData(Qt.DisplayRole,float(round(params['n'],3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setData(Qt.DisplayRole,float(round(vMax*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setToolTip(str(round(vMax_charEqn.real*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('area')).setData(Qt.DisplayRole,round(area,3))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setData(Qt.DisplayRole,float(round(pMax*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setToolTip(str(round(pMax_charEqn.real*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setData(Qt.DisplayRole,float(round(Isc_nn*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setToolTip(str(round(Isc_nn_charEqn*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setData(Qt.DisplayRole,float(round(params['Iph']*1e3,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setData(Qt.DisplayRole,float(round(params['I0']*1e9,3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setData(Qt.DisplayRole,float(round(params['Rs'],3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setData(Qt.DisplayRole,float(round(params['Rsh'],3)))
-            self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))
+                        Voc_charEqn = nan
+                    
+                    Isc_charEqn = Isc_eqn(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'])
+                    FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
+                    graphData['modelY'] = np.array([slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=x) for x in vv])*jScaleFactor
+                    
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setToolTip(str(round(Pmpp_charEqn.real/area*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('SSE')).setData(Qt.DisplayRole,float(round(SSE.real*1e6,5)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setToolTip(str(round(Pmpp_charEqn.real/area/suns*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setToolTip(str(round(Isc_charEqn.real/area*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setToolTip(str(round(Voc_charEqn.real*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setToolTip(str(round(FF_charEqn.real,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setData(Qt.DisplayRole,float(round(params['Rs']*area,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setData(Qt.DisplayRole,float(round(params['Rsh']*area,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setData(Qt.DisplayRole,float(round(params['Iph']/area*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setData(Qt.DisplayRole,float(round(params['I0']/area*1e9,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setData(Qt.DisplayRole,float(round(params['n'],3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setToolTip(str(round(Vmpp_charEqn.real*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setToolTip(str(round(Pmpp_charEqn.real*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setToolTip(str(round(Isc_charEqn.real*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setData(Qt.DisplayRole,float(round(params['Iph']*1e3,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setData(Qt.DisplayRole,float(round(params['I0']*1e9,3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setData(Qt.DisplayRole,float(round(params['Rs'],3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setData(Qt.DisplayRole,float(round(params['Rsh'],3)))
+                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))                    
+                else: # fit failure
+                    self.badMessage()
+                    self.ui.statusbar.showMessage("Bad fit because: " + fitResult['message'],2500)
+                    modelY = np.empty(plotPoints)*nan
 
         else:#vs time
-            graphData = {'vsTime':vsTime,'origRow':self.rows,'time':tData,'i':II*outputScaleFactor,'v':VV}
+            print('This file contains time data.')
+            graphData = {'vsTime':vsTime,'origRow':self.rows,'time':tData,'i':IIt*jScaleFactor,'v':VVt}
+            
+        #export button
+        exportBtn = QPushButton(self.ui.tableWidget)
+        exportBtn.setText('Export')
+        exportBtn.clicked.connect(self.handleButton)
+        self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)        
 
         #file name
         self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setText(fileName)
