@@ -61,14 +61,13 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 ### Install
 ---
 #### Windows and MacOS
-1. Install Anaconda [from here](https://www.continuum.io/downloads)
+1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the "Anaconda Prompt" program that was installed in step #1 and type the following in:
 
   ```
 conda update --all
 conda install git
 conda install -c conda-forge gmpy2
-conda install -c anaconda pyqt
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
 python batch-iv-analysis.py
