@@ -56,6 +56,10 @@ slns = None
 electricalModelVarsOnly = None
 I0, Iph, Rs, Rsh, n, I, V, Vth = (None,)*8
 
+sqcmpersqm = 10000 #cm^2 per m^2
+stdIrridance = 1000 #[W/m^2] standard reporting irridance
+mWperW = 1000 # mW per W
+
 def doSymbolicManipulations(fastAndSloppy=False):
     global Voc_eqn
     global Isc_eqn
@@ -132,17 +136,6 @@ def doSymbolicManipulations(fastAndSloppy=False):
     
     # this puts the symbolic solution for I from above into a format needed for curve_fit
     I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
-    
-    importantThings = {}
-    importantThings['Voc'] = Voc_eqn
-    importantThings['Isc'] = Isc_eqn
-    importantThings['P_prime'] = P_prime
-    importantThings['I_eqn'] = I_eqn
-    importantThings['slns'] = slns
-    importantThings['electricalModelVarsOnly'] = electricalModelVarsOnly
-    importantThings['modelSymbols'] = modelSymbols
-
-    return importantThings
 
 # tests if string is a number
 def isNumber(s):
@@ -151,6 +144,71 @@ def isNumber(s):
     except ValueError:
         return False
     return True
+
+# yanked from https://github.com/randlet/to-precision
+def to_precision(x,p):
+    """
+    returns a string representation of x formatted with a precision of p
+
+    Based on the webkit javascript implementation taken from here:
+    https://code.google.com/p/webkit-mirror/source/browse/JavaScriptCore/kjs/number_object.cpp
+    """
+
+
+    import math
+    x = float(x)
+
+    if x == 0.:
+        return "0." + "0"*(p-1)
+
+    out = []
+
+    if x < 0:
+        out.append("-")
+        x = -x
+
+    e = int(math.log10(x))
+    tens = math.pow(10, e - p + 1)
+    n = math.floor(x/tens)
+
+    if n < math.pow(10, p - 1):
+        e = e -1
+        tens = math.pow(10, e - p+1)
+        n = math.floor(x / tens)
+
+    if abs((n + 1.) * tens - x) <= abs(n * tens -x):
+        n = n + 1
+
+    if n >= math.pow(10,p):
+        n = n / 10.
+        e = e + 1
+
+
+    m = "%.*g" % (p, n)
+
+    if e < -2 or e >= p:
+        out.append(m[0])
+        if p > 1:
+            out.append(".")
+            out.extend(m[1:p])
+        out.append('e')
+        if e > 0:
+            out.append("+")
+        out.append(str(e))
+    elif e == (p -1):
+        out.append(m)
+    elif e >= 0:
+        out.append(m[:e+1])
+        if e+1 < len(m):
+            out.append(".")
+            out.extend(m[e+1:])
+    else:
+        out.append("0.")
+        out.extend(["0"]*-(e+1))
+        out.append(m)
+
+    return "".join(out)
+
 
 # needed for findKnotsAndCoefs below
 def _compute_u(p, D, dydx, dx, dx1, n):
@@ -655,96 +713,150 @@ class MainWindow(QMainWindow):
         self.cols[thisKey].header = 'SSE\n[mA^2]'
         self.cols[thisKey].tooltip = 'Sum of the square of the errors between the data points and the fit to the char. eqn. (a measure of fit goodness)'
 
-        thisKey = 'pce'
+        thisKey = 'pce_spline'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'PCE\n[%]'
-        self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit\nHover for value from characteristic equation fit'
+        self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit'
 
-        thisKey = 'pmax'
+        thisKey = 'pmax_a_spline'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'P_max\n[mW/cm^2]'
-        self.cols[thisKey].tooltip = 'Maximum power density as found from spline fit\nHover for value from characteristic equation fit'
+        self.cols[thisKey].tooltip = 'Maximum power density as found from spline fit'
 
-        thisKey = 'jsc'
+        thisKey = 'jsc_spline'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
-        self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing\nHover for value from characteristic equation fit V=0 crossing'
+        self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing'
 
-        thisKey = 'voc'
+        thisKey = 'voc_spline'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'V_oc\n[mV]'
-        self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit I=0 crossing\nHover for value from characteristic equation fit I=0 crossing'
+        self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit I=0 crossing'
 
-        thisKey = 'ff'
+        thisKey = 'ff_spline'
         self.cols[thisKey] = col()
-        self.cols[thisKey].header = 'FF'
-        self.cols[thisKey].tooltip = 'Fill factor as found from spline fit\nHover for value from characteristic equation fit'
+        self.cols[thisKey].header = 'FF\n[%]'
+        self.cols[thisKey].tooltip = 'Fill factor as found from spline fit'
 
-        thisKey = 'rs'
+        thisKey = 'rs_a'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'R_s\n[ohm*cm^2]'
-        self.cols[thisKey].tooltip = 'Specific series resistance as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Specific series resistance as found from characteristic equation fit'
 
-        thisKey = 'rsh'
+        thisKey = 'rsh_a'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'R_sh\n[ohm*cm^2]'
-        self.cols[thisKey].tooltip = 'Specific shunt resistance as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Specific shunt resistance as found from characteristic equation fit'
 
         thisKey = 'jph'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
-        self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
 
         thisKey = 'j0'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
-        self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
 
         thisKey = 'n'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'n'
-        self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit'
 
-        thisKey = 'Vmax'
+        thisKey = 'vmax_spline'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'V_max\n[mV]'
-        self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit\nHover for value from characteristic equation fit'
+        self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit'
 
         thisKey = 'area'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'Area\n[cm^2]'
         self.cols[thisKey].tooltip = 'Device area'
+        
+        thisKey = 'suns'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'Suns\n'
+        self.cols[thisKey].tooltip = 'Illumination intensity'        
 
-        thisKey = 'pmax2'
+        thisKey = 'pmax_spline'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'P_max\n[mW]'
-        self.cols[thisKey].tooltip = 'Maximum power as found from spline fit\nHover for value from characteristic equation fit'
+        self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
+        
+        thisKey = 'pce_fit'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'PCE_fit\n[%]'
+        self.cols[thisKey].tooltip = 'Power conversion efficiency as found from characteristic equation fit'
+        
+        thisKey = 'pmax_fit'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'P_max_fit\n[mW]'
+        self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
+        
+        thisKey = 'pmax_a_fit'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
+        self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
+        
+        thisKey = 'vmax_fit'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'V_max_fit\n[mV]'
+        self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from characteristic equation fit'
+        
+        thisKey = 'voc_fit'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'V_oc_fit\n[mV]'
+        self.cols[thisKey].tooltip = 'Open-circuit voltage as found from characteristic equation fit I=0 crossing'
+        
+        thisKey = 'ff_fit'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'FF_fit\n[%]'
+        self.cols[thisKey].tooltip = 'Fill factor as found from characteristic equation fit'        
 
-        thisKey = 'isc'
+        thisKey = 'isc_spline'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'I_sc\n[mA]'
-        self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing\nHover for value from characteristic equation V=0 crossing'
+        self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing'
 
+        thisKey = 'isc_fit'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'I_sc_fit\n[mA]'
+        self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit V=0 crossing'
+        
+        thisKey = 'jsc_fit'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'J_sc_fit\n[mA/cm^2]'
+        self.cols[thisKey].tooltip = 'Short-circuit current density as found from characteristic equation fit V=0 crossing'        
+        
         thisKey = 'iph'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'I_ph\n[mA]'
-        self.cols[thisKey].tooltip = 'Photogenerated current as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Photogenerated current as found from characteristic equation fit'
+        
+        thisKey = 'jph'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'J_ph\n[mA/mc^2]'
+        self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
 
         thisKey = 'i0'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'I_0\n[nA]'
-        self.cols[thisKey].tooltip = 'Reverse saturation current as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Reverse saturation current as found from characteristic equation fit'
+        
+        thisKey = 'j0'
+        self.cols[thisKey] = col()
+        self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
+        self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
 
-        thisKey = 'rs2'
+        thisKey = 'rs'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'R_s\n[ohm]'
-        self.cols[thisKey].tooltip = 'Series resistance as found from characteristic equation fit\nHover for 95% confidence interval'
+        self.cols[thisKey].tooltip = 'Series resistance as found from characteristic equation fit'
 
-        thisKey = 'rsh2'
+        thisKey = 'rsh'
         self.cols[thisKey] = col()
         self.cols[thisKey].header = 'R_sh\n[ohm]'
-        self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit\nHover for 95% confidence interval'		
-
+        self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit'
 
         #how long status messages show for
         self.messageDuration = 2500#ms
@@ -990,20 +1102,43 @@ class MainWindow(QMainWindow):
             #let's make a dict out of the table:
             tableDict = {}
             
-            fieldsToInclude= ('pce','voc','jsc','ff','Vmax','SSE','rs','rsh','jph','j0','n','area','file')
+            fieldsToInclude= ('pce_spline','pmax_spline','voc_spline','isc_spline','ff_spline','vmax_spline','SSE','pce_fit','pmax_fit','voc_fit','isc_fit','ff_fit','vmax_fit','rs','rsh','iph','i0','n','area','suns')
             
             #how many padding zeros should we use for the MATLAB variable names?
             ndigits = str(len(str(self.ui.tableWidget.rowCount()))) 
             
             for row in range(self.ui.tableWidget.rowCount()):
                 rowDict = {}
+                rowDict['file'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('file')).data(Qt.DisplayRole)
                 for field in fieldsToInclude:
-                    rowDict[field] = self.ui.tableWidget.item(row, list(self.cols.keys()).index(field)).data(0)
+                    rowDict[field] = self.ui.tableWidget.item(row, list(self.cols.keys()).index(field)).data(Qt.UserRole)
+                rowDict['i'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)['i']/1000*rowDict['area']
+                rowDict['v'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)['v']
                 tableDict['thing'+format(row, '0'+ndigits)] = rowDict
             
             # save our dict as a .mat file
             sio.savemat(fullPath, tableDict)
             print('Table data successfully written to', fullPath)
+            
+    def formatTableRowForDisplay(self,row):      
+        ignoreCols = ['plotBtn','exportBtn','file']
+        cols = list(self.cols.keys())
+        for coli in range(len(cols)):
+            thisCol = cols[coli]
+            if thisCol not in ignoreCols:
+                value = self.ui.tableWidget.item(row,coli).data(Qt.UserRole)
+                if thisCol == 'SSE':
+                    value = value*mWperW**2 # A^2 to mA^2
+                elif thisCol in ['ff_spline','ff_fit']:
+                    value = value*100 # to percent
+                elif thisCol in ['jsc_spline','isc_spline','voc_spline','voc_fit','jsc','isc','jph','iph','vmax_spline','vmax_fit','pmax_spline','pmax_fit','pmax_a_spline','pmax_a_fit']:
+                    value = value*1e3 # to milli-
+                elif thisCol in ['area']:
+                    value = value*1e2 # to centi-
+                elif thisCol in ['i0','j0']:
+                    value = value*1e9 # to nano-
+                    
+                self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,to_precision(value,4))
 
     def clearTableCall(self):
         for ii in range(self.rows):
@@ -1347,16 +1482,19 @@ class MainWindow(QMainWindow):
         self.ui.tableWidget.insertRow(self.rows)
         for ii in range(len(self.cols)):
             self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
-            
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setData(Qt.DisplayRole,float(round(Pmpp/area/suns*1e3,3)))
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setData(Qt.DisplayRole,float(round(Pmpp/area*1e3,3)))
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setData(Qt.DisplayRole,float(round(Isc/area*1e3,3)))
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setData(Qt.DisplayRole,float(round(Voc*1e3,1)))
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setData(Qt.DisplayRole,float(round(FF,3)))
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setData(Qt.DisplayRole,float(round(Vmpp*1e3,3)))
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('area')).setData(Qt.DisplayRole,round(area,3))
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setData(Qt.DisplayRole,float(round(Pmpp*1e3,3)))
-        self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setData(Qt.DisplayRole,float(round(Isc*1e3,3)))
+        
+        # here's how we put data into the table
+        insert = lambda colName,value: self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index(colName)).setData(Qt.UserRole,float(value.real))
+        insert('pce_spline',(Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100)
+        insert('pmax_spline',Pmpp/area)
+        insert('pmax_a_spline',Pmpp)
+        insert('isc_spline',Isc)
+        insert('jsc_spline',Isc/area)
+        insert('voc_spline',Voc)
+        insert('ff_spline',FF)
+        insert('vmax_spline',Vmpp)
+        insert('area',area)
+        insert('suns',suns)
 
         if not vsTime:
             if not self.ui.attemptCharEqnFitCheckBox.isChecked():
@@ -1531,33 +1669,25 @@ class MainWindow(QMainWindow):
                     FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
                     graphData['modelY'] = np.array([slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=x) for x in vv])*jScaleFactor
                     
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax')).setToolTip(str(round(Pmpp_charEqn.real/area*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('SSE')).setData(Qt.DisplayRole,float(round(SSE.real*1e6,5)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pce')).setToolTip(str(round(Pmpp_charEqn.real/area/suns*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jsc')).setToolTip(str(round(Isc_charEqn.real/area*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('voc')).setToolTip(str(round(Voc_charEqn.real*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('ff')).setToolTip(str(round(FF_charEqn.real,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setData(Qt.DisplayRole,float(round(params['Rs']*area,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs')).setToolTip('[{0}  {1}]'.format(lowers[2]*area, uppers[2]*area))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setData(Qt.DisplayRole,float(round(params['Rsh']*area,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh')).setToolTip('[{0}  {1}]'.format(lowers[3]*area, uppers[3]*area))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setData(Qt.DisplayRole,float(round(params['Iph']/area*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('jph')).setToolTip('[{0}  {1}]'.format(lowers[1]/area*1e3, uppers[1]/area*1e3))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setData(Qt.DisplayRole,float(round(params['I0']/area*1e9,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('j0')).setToolTip('[{0}  {1}]'.format(lowers[0]/area*1e9, uppers[0]/area*1e9))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setData(Qt.DisplayRole,float(round(params['n'],3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('n')).setToolTip('[{0}  {1}]'.format(lowers[4], uppers[4]))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('Vmax')).setToolTip(str(round(Vmpp_charEqn.real*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('pmax2')).setToolTip(str(round(Pmpp_charEqn.real*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('isc')).setToolTip(str(round(Isc_charEqn.real*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setData(Qt.DisplayRole,float(round(params['Iph']*1e3,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('iph')).setToolTip('[{0}  {1}]'.format(lowers[1]*1e3, uppers[1]*1e3))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setData(Qt.DisplayRole,float(round(params['I0']*1e9,3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('i0')).setToolTip('[{0}  {1}]'.format(lowers[0]*1e9, uppers[0]*1e9))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setData(Qt.DisplayRole,float(round(params['Rs'],3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rs2')).setToolTip('[{0}  {1}]'.format(lowers[2], uppers[2]))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setData(Qt.DisplayRole,float(round(params['Rsh'],3)))
-                    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('rsh2')).setToolTip('[{0}  {1}]'.format(lowers[3], uppers[3]))                    
+                    insert('SSE',SSE)
+                    insert('rs_a',params['Rs']*area)
+                    insert('rs',params['Rs'])
+                    insert('rsh_a',params['Rsh']*area)
+                    insert('rsh',params['Rsh'])
+                    insert('jph',params['Iph']/area)
+                    insert('iph',params['Iph'])
+                    insert('j0',params['I0']/area)
+                    insert('i0',params['I0'])
+                    insert('n',params['n'])
+                    insert('vmax_fit',Vmpp_charEqn)
+                    insert('pmax_fit',Pmpp_charEqn)
+                    insert('pmax_a_fit',Pmpp_charEqn/area)
+                    insert('pce_fit',(Pmpp_charEqn/area)/(stdIrridance*suns/sqcmpersqm)*100) 
+                    insert('voc_fit',Voc_charEqn)
+                    insert('ff_fit',FF_charEqn)
+                    insert('isc_fit',Isc_charEqn)
+                    insert('jsc_fit',Isc_charEqn/area)
+                    
                 else: # fit failure
                     self.badMessage()
                     self.ui.statusbar.showMessage("Bad fit because: " + fitResult['message'],2500)
@@ -1583,10 +1713,13 @@ class MainWindow(QMainWindow):
         plotBtn.clicked.connect(self.handleButton)
         self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('plotBtn'), plotBtn)
         self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('plotBtn')).setData(Qt.UserRole,graphData)
-
+        
+        
+        self.formatTableRowForDisplay(self.rows)
         self.ui.tableWidget.resizeColumnsToContents()
+        
         self.rows = self.rows + 1
-
+        
     def openCall(self):
         #remember the last path the user opened
         if self.settings.contains('lastFolder'):
