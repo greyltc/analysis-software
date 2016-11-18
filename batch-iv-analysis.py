@@ -155,6 +155,9 @@ def to_precision(x,p):
     https://code.google.com/p/webkit-mirror/source/browse/JavaScriptCore/kjs/number_object.cpp
     """
     
+    if x is None: # catch none
+        return str(x)
+    
     if not np.isfinite(x): # catch nan and inf
         return str(x)
 
@@ -1127,16 +1130,17 @@ class MainWindow(QMainWindow):
             thisCol = cols[coli]
             if thisCol not in ignoreCols:
                 value = self.ui.tableWidget.item(row,coli).data(Qt.UserRole)
-                if thisCol == 'SSE':
-                    value = value*mWperW**2 # A^2 to mA^2
-                elif thisCol in ['ff_spline','ff_fit']:
-                    value = value*100 # to percent
-                elif thisCol in ['jsc_spline','isc_spline','voc_spline','voc_fit','jsc','isc','jph','iph','vmax_spline','vmax_fit','pmax_spline','pmax_fit','pmax_a_spline','pmax_a_fit']:
-                    value = value*1e3 # to milli-
-                elif thisCol in ['area']:
-                    value = value*1e2 # to centi-
-                elif thisCol in ['i0','j0']:
-                    value = value*1e9 # to nano-
+                if value is not None:
+                    if thisCol == 'SSE':
+                        value = value*mWperW**2 # A^2 to mA^2
+                    elif thisCol in ['ff_spline','ff_fit']:
+                        value = value*100 # to percent
+                    elif thisCol in ['jsc_spline','isc_spline','voc_spline','voc_fit','jsc','isc','jph','iph','vmax_spline','vmax_fit','pmax_spline','pmax_fit','pmax_a_spline','pmax_a_fit']:
+                        value = value*1e3 # to milli-
+                    elif thisCol in ['area']:
+                        value = value*1e2 # to centi-
+                    elif thisCol in ['i0','j0']:
+                        value = value*1e9 # to nano-
                     
                 self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,to_precision(value,4))
 
