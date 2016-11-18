@@ -29,6 +29,7 @@ import mpmath.libmp
 assert mpmath.libmp.BACKEND == 'gmpy'
 import numpy as np
 import sympy
+import math
 from numpy import nan
 from numpy import inf
 from numpy import exp
@@ -153,10 +154,9 @@ def to_precision(x,p):
     Based on the webkit javascript implementation taken from here:
     https://code.google.com/p/webkit-mirror/source/browse/JavaScriptCore/kjs/number_object.cpp
     """
-
-
-    import math
-    x = float(x)
+    
+    if not np.isfinite(x): # catch nan and inf
+        return str(x)
 
     if x == 0.:
         return "0." + "0"*(p-1)
