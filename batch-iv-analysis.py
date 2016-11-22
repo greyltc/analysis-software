@@ -378,8 +378,14 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
     
     # make some guess for slopes (parasitic resistances)
     # using half-way points and end points:
-    guess['Rs'] = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
-    guess['Rsh'] = -1*(V_start_n-V_vp_n)/(I_start_n-I_vp_n)
+    if (I_ip_n == I_end_n):
+        guess['Rs'] = 10e9
+    else:
+        guess['Rs'] = -1*(V_end_n-V_ip_n)/(I_end_n-I_ip_n)
+    if (I_start_n == I_vp_n):
+        guess['Rsh'] = 10e9
+    else:
+        guess['Rsh'] = -1*(V_start_n-V_vp_n)/(I_start_n-I_vp_n)
     # using mpp and end points:
     #guess['Rs'] = -1*(V_end_n-V_vmpp_n)/(I_end_n-I_vmpp_n)
     #guess['Rsh'] = -1*(V_start_n-V_vmpp_n)/(I_start_n-I_vmpp_n)      
