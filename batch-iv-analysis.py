@@ -1209,9 +1209,9 @@ class MainWindow(QMainWindow):
             nSnaithFooterLines = 11 #number of footer lines in snaith IV file format
             isSnaithFile = True
             delimiter = '\t'
-            if fileExtension == '.liv1':
+            if (fileExtension == '.liv1') or (fileExtension == '.div1'):
                 snaithReverse = True
-            if fileExtension == '.liv2':
+            if (fileExtension == '.liv2') or (fileExtension == '.div2'):
                 snaithReverse = False
             fileBuffer = fileBuffer[::-1] # reverse the buffer
             fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
@@ -1737,7 +1737,7 @@ class MainWindow(QMainWindow):
         else:
             openDir = '.'
 
-        fileNames = QFileDialog.getOpenFileNames(self, directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2);;Folders (*)')
+        fileNames = QFileDialog.getOpenFileNames(self, directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2 *.div1 *.div2);;Folders (*)')
 
         if len(fileNames[0])>0:#check if user clicked cancel
             self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
