@@ -683,7 +683,7 @@ class PrefsWindow(QDialog):
 class MainWindow(QMainWindow):
     workingDirectory = ''
     fileNames = []
-    supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2']
+    supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2','*.div1','*.div2']
     bounds ={}
     bounds['I0'] = [0, inf] 
     bounds['Iph'] = [0, inf]
