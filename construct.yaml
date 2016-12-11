@@ -1,0 +1,15 @@
+name: batch-iv-analysis-installer
+version: 2.5
+
+channels:
+  - http://repo.continuum.io/pkgs/free/
+  - https://conda.anaconda.org/anaconda
+
+specs:
+  - python 3.4* [win32]
+  - python  [not win32]
+  - conda
+  - numpy
+  - scipy
+  - matplotlib
+  - git
