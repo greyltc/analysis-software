@@ -8,7 +8,7 @@ channels:
 
 specs:
   - python 3.4* [win32]
-  - python  [not win32]
+  - python 3.5*  [not win32]
   - conda
   - numpy
   - scipy
