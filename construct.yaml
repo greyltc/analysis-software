@@ -1,4 +1,4 @@
-name: batch-iv-analysis-installer
+name: pyenv
 version: 2.5
 install_in_dependency_order: True
 
