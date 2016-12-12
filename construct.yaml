@@ -15,3 +15,7 @@ specs:
   - matplotlib
   - git
   - pip
+
+exclude:
+  - menuinst
+  
