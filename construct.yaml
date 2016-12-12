@@ -1,5 +1,6 @@
 name: batch-iv-analysis-installer
 version: 2.5
+install_in_dependency_order: True
 
 channels:
   - http://repo.continuum.io/pkgs/free/
