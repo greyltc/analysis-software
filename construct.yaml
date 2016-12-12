@@ -13,3 +13,4 @@ specs:
   - scipy
   - matplotlib
   - git
+  - pip
