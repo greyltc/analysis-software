@@ -1,13 +1,5 @@
-#!/usr/bin/env python3
-
-# a tool for analysing solar cell i-v curves
-
-# written by Grey Christoforo <first name [at] last name [not] net>
-# please cite our work if you can!
-# DOI: 10.3390/photonics2041101
-
-from batch_iv_analysis_UI import Ui_batch_iv_analysis
-from prefs_UI import Ui_prefs
+from batch_iv_analysis.batch_iv_analysis_UI import Ui_batch_iv_analysis
+from batch_iv_analysis.prefs_UI import Ui_prefs
 
 # for performance tuning
 #import cProfile, pstats, io 
@@ -23,7 +15,7 @@ from io import StringIO
 import os, sys, inspect, csv
 
 from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo
-from PyQt5.QtWidgets import QApplication, QDialog, QMainWindow, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
+from PyQt5.QtWidgets import QMainWindow,QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
 
 import mpmath.libmp
 assert mpmath.libmp.BACKEND == 'gmpy'
@@ -1810,9 +1802,3 @@ class MainWindow(QMainWindow):
 
     def badMessage(self):
         self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(255,0,0,255);color:black;font-weight:bold;}")    
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    analysis = MainWindow()
-    analysis.show()
-    sys.exit(app.exec_())
