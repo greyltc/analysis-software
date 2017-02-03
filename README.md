@@ -54,7 +54,7 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 pacaur --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5 python-scikit-umfpack python-matplotlib
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
-./batch-iv-analysis.py
+python -m batch_iv_analysis batch_iv_analysis
 ```
 
 #### Windows and MacOS
@@ -67,7 +67,7 @@ conda install git
 conda install -c conda-forge gmpy2
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
-python batch-iv-analysis.py
+python -m batch_iv_analysis batch_iv_analysis
 ```
 
 #### Ubuntu Linux
@@ -75,5 +75,5 @@ python batch-iv-analysis.py
 # TODO: install deps
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
-./batch-iv-analysis.py
+python -m batch_iv_analysis batch_iv_analysis
 ```
