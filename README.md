@@ -59,12 +59,12 @@ python -m batch_iv_analysis batch_iv_analysis
 
 #### Windows and MacOS
 1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
-1. Run the "Anaconda Prompt" program that was installed in step #1 and type the following in:
+1. Run the "Anaconda Prompt" program that was installed in step #1 (on a Mac just run these commands in your terminal) and type the following in:
 
   ```
 conda update --all
 conda install git
-conda install -c conda-forge gmpy2
+conda install -c conda-forge gmpy2 # <-- this is optional and can speed up the calculations
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
 python -m batch_iv_analysis batch_iv_analysis
