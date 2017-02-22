@@ -18,7 +18,7 @@ from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir,
 from PyQt5.QtWidgets import QMainWindow,QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
 
 import mpmath.libmp
-assert mpmath.libmp.BACKEND == 'gmpy'
+#assert mpmath.libmp.BACKEND == 'gmpy'
 import numpy as np
 import sympy
 import math
