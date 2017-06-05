@@ -1483,19 +1483,24 @@ class MainWindow(QMainWindow):
         Voc = smoothSpline.roots(extrapolate=True,discontinuity=False)
         VocSize = Voc.size
         isDarkCurve = False
+        abortTheFit = True
         if VocSize is 0:
             Voc = nan
             isDarkCurve = True
+            abortTheFit = False
         elif VocSize is 1:
             Voc = float(Voc)
+            abortTheFit = False
         else: # got too many answers
             valid = np.logical_and(Voc > 0, Voc < max(VV)+0.05)
             nVocs = sum(valid)
             if nVocs !=1:
                 print('Warning: we found',nVocs,"values for Voc.")
+                #Voc = Voc[-1]
                 Voc = nan
             else:
                 Voc = float(Voc[valid][0])
+                abortTheFit = False
                 
         if isDarkCurve:
             print("Dark curve detected.")
@@ -1611,7 +1616,10 @@ class MainWindow(QMainWindow):
                 II = II*currentScaleFactor
                 
                 #pr.enable()
-                fitResult = doTheFit(VV,II,guess,localBounds)
+                if abortTheFit:
+                    fitResult = {'success': False, 'message': 'The abortTheFit flag was set!'}
+                else:
+                    fitResult = doTheFit(VV,II,guess,localBounds)
                 #fitParams, sigmas, errmsg, status = doTheFit(VV,II,guess,localBounds)
                 #{'success':True,'optParams':optimizeResult.x,'sigmas':sigmas,'message':optimizeResult.message}
                 #pr.disable()
