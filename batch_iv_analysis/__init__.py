@@ -683,6 +683,8 @@ class MainWindow(QMainWindow):
     bounds['Rsh'] = [0, inf]
     bounds['n'] = [0, inf]
     symbolCalcsNotDone = True
+    upperVLim = float('inf')
+    lowerVLim = float('-inf')
     
     # for table
     rows = 0 #this variable keepss track of how many rows there are in the results table
@@ -866,7 +868,25 @@ class MainWindow(QMainWindow):
         self.ui = Ui_batch_iv_analysis()
         self.ui.setupUi(self)
         
-        # load setting for fast vs accurate calcualtions
+        # load setting for lower voltage cuttoff
+        if not self.settings.contains('lowerVoltageCutoff'):
+            self.ui.lowerVoltageCutoffLineEdit.setText('-inf')
+            self.settings.setValue('lowerVoltageCutoff','-inf')
+        else:
+            self.ui.lowerVoltageCutoffLineEdit.setText(self.settings.value('lowerVoltageCutoff'))
+            self.lowerVLim=float(self.settings.value('lowerVoltageCutoff'))
+        self.ui.lowerVoltageCutoffLineEdit.editingFinished.connect(self.handleLowerLimChange)  
+            
+        # load setting for upper voltage cuttoff
+        if not self.settings.contains('upperVoltageCutoff'):
+            self.ui.upperVoltageCutoffLineEdit.setText('inf')
+            self.settings.setValue('lowerVoltageCutoff','inf')
+        else:
+            self.ui.upperVoltageCutoffLineEdit.setText(self.settings.value('upperVoltageCutoff'))
+            self.upperVLim=float(self.settings.value('upperVoltageCutoff'))
+        self.ui.upperVoltageCutoffLineEdit.editingFinished.connect(self.handleUpperLimChange)        
+        
+        # load setting for fast vs accurate calculations
         if not self.settings.contains('fastAndSloppy'):
             self.ui.doFastAndSloppyMathCheckBox.setChecked(False)
             self.settings.setValue('fastAndSloppy',False)
@@ -974,11 +994,27 @@ class MainWindow(QMainWindow):
         except:
             self.badMessage()
             self.ui.statusbar.showMessage("Could not export " + saveFile,self.messageDuration)
+            
+    def handleUpperLimChange(self):
+        lineEdit = self.sender()
+        try:
+            self.upperVLim = float(lineEdit.text())
+            self.settings.setValue('upperVoltageCutoff',lineEdit.text())
+        except:
+            pass
+        
+    def handleLowerLimChange(self):
+        lineEdit = self.sender()
+        try:
+            self.lowerVLim = float(lineEdit.text())
+            self.settings.setValue('lowerVoltageCutoff',lineEdit.text())
+        except:
+            pass    
     
     def handleMathChange(self):
         checkBox = self.sender()
         self.settings.setValue('fastAndSloppy',checkBox.isChecked())
-        self.symbolCalcsNotDone = True
+        self.symbolCalcsNotDone = checkBox.isChecked()
         
     def handleEqnFitChange(self):
         checkBox = self.sender()
@@ -1272,7 +1308,12 @@ class MainWindow(QMainWindow):
         newOrder = VV.argsort()
         VV=VV[newOrder]
         II=II[newOrder]
-            
+        
+        # trim data to voltage range
+        vMask = (VV>self.lowerVLim) & (VV<self.upperVLim)
+        VV=VV[vMask]
+        II=II[vMask]
+        
         # the task now is to figure out how this data was collected so that we can fix it
         # this is important because the guess and fit algorithms below expect the data to be
         # in a certian way

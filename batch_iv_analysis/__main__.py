@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+sys.path.append('../')
 from batch_iv_analysis import MainWindow
 from PyQt5.QtWidgets import QApplication
 

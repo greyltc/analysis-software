@@ -2,7 +2,7 @@
 
 # Form implementation generated from reading ui file 'batch-iv-analysis.ui'
 #
-# Created by: PyQt5 UI code generator 5.7
+# Created by: PyQt5 UI code generator 5.8
 #
 # WARNING! All changes made in this file will be lost!
 
@@ -48,6 +48,7 @@ class Ui_batch_iv_analysis(object):
         self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
         self.horizontalLayout.setObjectName("horizontalLayout")
         self.formLayout_2 = QtWidgets.QFormLayout()
+        self.formLayout_2.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         self.formLayout_2.setObjectName("formLayout_2")
         self.attemptCharEqnFitLabel = QtWidgets.QLabel(self.settingsTab)
         self.attemptCharEqnFitLabel.setObjectName("attemptCharEqnFitLabel")
@@ -62,15 +63,28 @@ class Ui_batch_iv_analysis(object):
         self.doFastAndSloppyMathCheckBox = QtWidgets.QCheckBox(self.settingsTab)
         self.doFastAndSloppyMathCheckBox.setObjectName("doFastAndSloppyMathCheckBox")
         self.formLayout_2.setWidget(1, QtWidgets.QFormLayout.FieldRole, self.doFastAndSloppyMathCheckBox)
+        self.lowerVoltageCutoffLabel = QtWidgets.QLabel(self.settingsTab)
+        self.lowerVoltageCutoffLabel.setObjectName("lowerVoltageCutoffLabel")
+        self.formLayout_2.setWidget(2, QtWidgets.QFormLayout.LabelRole, self.lowerVoltageCutoffLabel)
+        self.lowerVoltageCutoffLineEdit = QtWidgets.QLineEdit(self.settingsTab)
+        self.lowerVoltageCutoffLineEdit.setObjectName("lowerVoltageCutoffLineEdit")
+        self.formLayout_2.setWidget(2, QtWidgets.QFormLayout.FieldRole, self.lowerVoltageCutoffLineEdit)
+        self.upperVoltageCutoffLabel = QtWidgets.QLabel(self.settingsTab)
+        self.upperVoltageCutoffLabel.setObjectName("upperVoltageCutoffLabel")
+        self.formLayout_2.setWidget(3, QtWidgets.QFormLayout.LabelRole, self.upperVoltageCutoffLabel)
+        self.upperVoltageCutoffLineEdit = QtWidgets.QLineEdit(self.settingsTab)
+        self.upperVoltageCutoffLineEdit.setObjectName("upperVoltageCutoffLineEdit")
+        self.formLayout_2.setWidget(3, QtWidgets.QFormLayout.FieldRole, self.upperVoltageCutoffLineEdit)
         self.horizontalLayout.addLayout(self.formLayout_2)
         self.formLayout = QtWidgets.QFormLayout()
+        self.formLayout.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         self.formLayout.setObjectName("formLayout")
         self.horizontalLayout.addLayout(self.formLayout)
         self.tehTabs.addTab(self.settingsTab, "")
         self.gridLayout.addWidget(self.tehTabs, 0, 0, 1, 1)
         batch_iv_analysis.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(batch_iv_analysis)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 1242, 25))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 1242, 28))
         self.menubar.setObjectName("menubar")
         self.menuFile = QtWidgets.QMenu(self.menubar)
         self.menuFile.setObjectName("menuFile")
@@ -87,7 +101,7 @@ class Ui_batch_iv_analysis(object):
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.tehDock.sizePolicy().hasHeightForWidth())
         self.tehDock.setSizePolicy(sizePolicy)
-        self.tehDock.setMinimumSize(QtCore.QSize(85, 0))
+        self.tehDock.setMinimumSize(QtCore.QSize(93, 118))
         self.tehDock.setFeatures(QtWidgets.QDockWidget.DockWidgetFloatable|QtWidgets.QDockWidget.DockWidgetMovable)
         self.tehDock.setAllowedAreas(QtCore.Qt.BottomDockWidgetArea|QtCore.Qt.LeftDockWidgetArea|QtCore.Qt.RightDockWidgetArea)
         self.tehDock.setObjectName("tehDock")
@@ -149,6 +163,12 @@ class Ui_batch_iv_analysis(object):
         self.tehTabs.setTabText(self.tehTabs.indexOf(self.plotTab), _translate("batch_iv_analysis", "Plots"))
         self.attemptCharEqnFitLabel.setText(_translate("batch_iv_analysis", "Attempt Char. Eqn. Fit"))
         self.doFastAndSloppyMathLabel.setText(_translate("batch_iv_analysis", "Do Fast and Sloppy Math"))
+        self.lowerVoltageCutoffLabel.setToolTip(_translate("batch_iv_analysis", "<html><head/><body><p>Data below this voltage will be ignored</p></body></html>"))
+        self.lowerVoltageCutoffLabel.setText(_translate("batch_iv_analysis", "Lower Voltage Cutoff"))
+        self.lowerVoltageCutoffLineEdit.setText(_translate("batch_iv_analysis", "-inf"))
+        self.upperVoltageCutoffLabel.setToolTip(_translate("batch_iv_analysis", "<html><head/><body><p>Data above this voltage will be ignored</p></body></html>"))
+        self.upperVoltageCutoffLabel.setText(_translate("batch_iv_analysis", "Upper Voltage Cutoff"))
+        self.upperVoltageCutoffLineEdit.setText(_translate("batch_iv_analysis", "inf"))
         self.tehTabs.setTabText(self.tehTabs.indexOf(self.settingsTab), _translate("batch_iv_analysis", "Settings"))
         self.menuFile.setTitle(_translate("batch_iv_analysis", "File"))
         self.menuTools.setTitle(_translate("batch_iv_analysis", "Tools"))
