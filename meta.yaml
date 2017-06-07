@@ -22,18 +22,22 @@ requirements:
 
 build:
   number: 0
-  script: python setup.py install
+  script: python setup.py install --single-version-externally-managed --record record.txt
   noarch_python: True
+  entry_points:
+    - batch-iv-analysis = batch_iv_analysis:main
 
 test:
   imports:
     - batch_iv_analysis
 
 app:
-  entry: batch_iv_analysis .    [win]
-  entry: batch_iv_analysis .    [linux]
-  icon: icon.ico
-  summary: solar cell I-V data fitting
+#  entry: python -m batch_iv_analysis batch_iv_analysis    [win]
+#  entry: python -m batch_iv_analysis batch_iv_analysis    [linux]
+  entry: batch-iv-analysis
+  icon: icon.png
+  summary: Solar cell I-V data fitting
+  type: desk
 
 about:
   home: https://github.com/greysAcademicCode/batch-iv-analysis
