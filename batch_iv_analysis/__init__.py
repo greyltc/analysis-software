@@ -1487,20 +1487,17 @@ class MainWindow(QMainWindow):
         if VocSize is 0:
             Voc = nan
             isDarkCurve = True
-            abortTheFit = False
         elif VocSize is 1:
             Voc = float(Voc)
-            abortTheFit = False
         else: # got too many answers
             valid = np.logical_and(Voc > 0, Voc < max(VV)+0.05)
             nVocs = sum(valid)
             if nVocs !=1:
-                print('Warning: we found',nVocs,"values for Voc.")
-                #Voc = Voc[-1]
-                Voc = nan
+                print('Warning: we found',nVocs,"values for Voc, using the last one.")
+                Voc = Voc[-1]
+                #Voc = nan
             else:
                 Voc = float(Voc[valid][0])
-                abortTheFit = False
                 
         if isDarkCurve:
             print("Dark curve detected.")
@@ -1561,7 +1558,12 @@ class MainWindow(QMainWindow):
                 # take a guess at what the fit parameters will be
                 #pr.enable()
                 #tnot = time.time()
-                guess = makeAReallySmartGuess(VV,II,isDarkCurve)
+                try:
+                    guess = makeAReallySmartGuess(VV,II,isDarkCurve)
+                except:
+                    print("Warning: makeAReallySmartGuess() function failed!")
+                    guess = {'I0':1e-9, 'Iph':II[0], 'Rs':5, 'Rsh':1e6, 'n':1.0}
+                    
                 #print (time.time()-tnot)
                 #print(len(VV),len(II),VV.mean(),II.mean())
                 #pr.disable()
@@ -1616,10 +1618,11 @@ class MainWindow(QMainWindow):
                 II = II*currentScaleFactor
                 
                 #pr.enable()
-                if abortTheFit:
-                    fitResult = {'success': False, 'message': 'The abortTheFit flag was set!'}
-                else:
+                try:
                     fitResult = doTheFit(VV,II,guess,localBounds)
+                except:
+                    fitResult = {'success': False, 'message': 'Warning: doTheFit() function crashed!'}
+                    
                 #fitParams, sigmas, errmsg, status = doTheFit(VV,II,guess,localBounds)
                 #{'success':True,'optParams':optimizeResult.x,'sigmas':sigmas,'message':optimizeResult.message}
                 #pr.disable()
