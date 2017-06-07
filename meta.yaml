@@ -9,10 +9,10 @@ source:
 
 requirements:
   build:
-    - python >=3.6
+    - python
     - setuptools
   run:
-    - python >=3.6
+    - python
     - numpy
     - scipy
     - pyqt
