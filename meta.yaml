@@ -9,16 +9,18 @@ source:
 
 requirements:
   build:
-    - python [3.6]
+    - python >=3.6
     - setuptools
   run:
-    - python [3.6]
+    - python >=3.6
     - numpy
     - scipy
     - pyqt
     - sympy
     - matplotlib
     - mpmath
+    - python.app  # [osx]
+
 
 build:
   number: 0
@@ -26,14 +28,13 @@ build:
   noarch_python: True
   entry_points:
     - batch-iv-analysis = batch_iv_analysis:main
+  osx_is_app: True
 
 test:
   imports:
     - batch_iv_analysis
 
 app:
-#  entry: python -m batch_iv_analysis batch_iv_analysis    [win]
-#  entry: python -m batch_iv_analysis batch_iv_analysis    [linux]
   entry: batch-iv-analysis
   icon: icon.png
   summary: Solar cell I-V data fitting
