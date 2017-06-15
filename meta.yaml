@@ -1,11 +1,11 @@
 package:
   name: batch-iv-analysis
-  version: "2.7.2"
+  version: "2.7.3"
 
 source:
   path: .
-#  git_rev: v2.7.2
-#  git_url: https://github.com/greysAcademicCode/batch-iv-analysis.git
+  git_rev: v2.7.3
+  git_url: https://github.com/greysAcademicCode/batch-iv-analysis.git
 
 requirements:
   build:
@@ -27,7 +27,7 @@ build:
   script: python setup.py install --single-version-externally-managed --record record.txt
   noarch_python: True
   entry_points:
-    - batch-iv-analysis = batch_iv_analysis:main
+          - batch-iv-analysis = batch_iv_analysis:main
   osx_is_app: True
 
 test:

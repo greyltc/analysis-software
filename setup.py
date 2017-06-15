@@ -8,6 +8,6 @@ setup(
 	author='Grey Christoforo',
 	author_email='grey@christoforo.net',
 	url='https://github.com/greysAcademicCode/batch-iv-analysis',
-	entry_points={'gui_scripts': ['batch-iv-analysis = batch_iv_analysis.__main__:main', ],},
+	entry_points={'gui_scripts': ['batch-iv-analysis = batch_iv_analysis:main', ],},
 	packages=find_packages(),
 )
