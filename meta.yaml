@@ -1,10 +1,10 @@
 package:
   name: batch-iv-analysis
-  version: "2.7.4"
+  version: "2.7.5"
 
 source:
   path: .
-  git_rev: v2.7.4
+  git_rev: v2.7.5
   git_url: https://github.com/greysAcademicCode/batch-iv-analysis.git
 
 requirements:
@@ -37,10 +37,11 @@ test:
 app:
   entry: batch-iv-analysis
   icon: icon.png
-  summary: Solar cell I-V data fitting
+  summary: Solar cell I-V data fitter
   type: desk
 
 about:
   home: https://github.com/greysAcademicCode/batch-iv-analysis
   license: MIT
   license_file: LICENSE.txt
+  summary: Solar cell I-V data fitter
