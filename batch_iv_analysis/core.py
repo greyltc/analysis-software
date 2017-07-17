@@ -892,16 +892,16 @@ class MainWindow(QMainWindow):
     else:
       self.ui.lowerVoltageCutoffLineEdit.setText(self.settings.value('lowerVoltageCutoff'))
       self.lowerVLim=float(self.settings.value('lowerVoltageCutoff'))
-    self.ui.lowerVoltageCutoffLineEdit.editingFinished.connect(self.handleLowerLimChange)  
+    self.ui.lowerVoltageCutoffLineEdit.editingFinished.connect(self.handleLowerLimChange)
 
     # load setting for upper voltage cuttoff
     if not self.settings.contains('upperVoltageCutoff'):
       self.ui.upperVoltageCutoffLineEdit.setText('inf')
-      self.settings.setValue('lowerVoltageCutoff','inf')
+      self.settings.setValue('upperVoltageCutoff','inf')
     else:
       self.ui.upperVoltageCutoffLineEdit.setText(self.settings.value('upperVoltageCutoff'))
       self.upperVLim=float(self.settings.value('upperVoltageCutoff'))
-    self.ui.upperVoltageCutoffLineEdit.editingFinished.connect(self.handleUpperLimChange)        
+    self.ui.upperVoltageCutoffLineEdit.editingFinished.connect(self.handleUpperLimChange)
 
     # load setting for fast vs accurate calculations
     if not self.settings.contains('fastAndSloppy'):
