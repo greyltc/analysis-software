@@ -4,8 +4,8 @@ package:
 
 source:
   path: .
-  #git_rev: v2.7.5
-  #git_url: https://github.com/greysAcademicCode/batch-iv-analysis.git
+  git_rev: v2.8.0
+  git_url: https://github.com/greysAcademicCode/batch-iv-analysis.git
 
 requirements:
   build:
