@@ -1546,7 +1546,7 @@ class MainWindow(QMainWindow):
       self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
 
     # here's how we put data into the table
-    insert = lambda colName,value: self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index(colName)).setData(Qt.UserRole,float(value.real))
+    insert = lambda colName,value: self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index(colName)).setData(Qt.UserRole,float(np.real(value)))
     insert('pce_spline',(Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100)
     insert('pmax_spline',Pmpp/area)
     insert('pmax_a_spline',Pmpp)
