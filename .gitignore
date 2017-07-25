@@ -9,6 +9,8 @@ __pycache__/
 *.div1
 *.div2
 *.hold
+*.png
+!icon.png
 !exampleData/*.csv
 dist/
 build/
