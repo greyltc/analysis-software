@@ -47,14 +47,29 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 `pyuic5 -o batch_iv_analysis_UI.py batch-iv-analysis.ui`
  - Use this file to generate standalone release packages (see instructions below)
  
-### GUI installation
+### Installation
 ---
+#### Non-command-line install
 1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the Anaconda Navigator program
 1. Click the "Channels" button
 1. Add a new channel called `greyltc`
+1. Add a new channel called `conda-forge`
 1. Click the "Home" button
 1. Click Install for the batch-iv-analysis app that appears there
+#### Command-line install
+1. Download the python 3.6 miniconda [from here](https://conda.io/miniconda.html)
+1. Run Anaconda Prompt (or get to your Anaconda command prompt however you please) and type:
+```
+conda update conda
+conda update --all
+conda config --add channels conda-forge
+conda update --all
+conda config --add channels greyltc
+conda install batch-iv-analysis
+# now you can run the program with
+batch-iv-analysis
+```
 
 ### Hacking
 ---
@@ -63,20 +78,23 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 pacaur --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5 python-scikit-umfpack python-matplotlib
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
-python -m batch_iv_analysis batch_iv_analysis
+./batch-iv-analysis.py
 ```
 
 #### Windows and MacOS
 1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the "Anaconda Prompt" program that was installed in step #1 (on a Mac just run these commands in your terminal) and type the following in:
-
-  ```
+```
+conda update conda
 conda update --all
-conda install git
-conda install -c conda-forge gmpy2 # <-- this is optional and can speed up the calculations
+conda config --add channels conda-forge
+conda update --all
+conda install git conda-build
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
-python -m batch_iv_analysis batch_iv_analysis
+conda build .
+conda install --use-local batch-iv-analysis
+batch-iv-analysis
 ```
 
 #### Ubuntu Linux
@@ -84,5 +102,5 @@ python -m batch_iv_analysis batch_iv_analysis
 # TODO: install deps
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
-python -m batch_iv_analysis batch_iv_analysis
+./batch-iv-analysis.py
 ```
