@@ -1,5 +1,4 @@
 from batch_iv_analysis.batch_iv_analysis_UI import Ui_batch_iv_analysis
-from batch_iv_analysis.prefs_UI import Ui_prefs
 
 # for performance tuning
 #import cProfile, pstats, io 
@@ -471,27 +470,44 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
   return guess
 
 # here we attempt to fit the input data to the characteristic equation
-def doTheFit(VV,II,guess,bounds):
+def doTheFit(VV,II,guess,bounds,windowObj):
   x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
   #x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
-  residuals = lambda x,T,Y: [-y + float(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t).real) for t,y in zip(T,Y)]
+  #residuals = lambda x,T,Y: [-y + float(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t).real) for t,y in zip(T,Y)]
+  residuals = lambda x,T,Y: np.abs([np.real_if_close(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t)) - y for t,y in zip(T,Y)])
   #residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
   fitArgs = (residuals,x0)
   fitKwargs = {}
+  #fitKwargs['jac'] = '3-point'
   fitKwargs['jac'] = '2-point'
-  fitKwargs['method'] = 'lm'
+  #fitKwargs['jac'] = 'cs'
   fitKwargs['ftol'] = np.finfo(float).eps
   fitKwargs['xtol'] = np.finfo(float).eps
   fitKwargs['gtol'] = np.finfo(float).eps
+  #fitKwargs['x_scale'] = list(map(lambda x: x/10, x0))
+  #fitKwargs['x_scale'] = list(map(lambda x: x/100, x0))
+  #fitKwargs['x_scale'] = list(map(lambda x: x*1000, x0))
+  #fitKwargs['x_scale'] = x0
   fitKwargs['x_scale'] = 'jac'
-  fitKwargs['loss'] = 'linear'
-  fitKwargs['f_scale'] = 1.0
-  fitKwargs['diff_step'] = None
+  fitKwargs['loss'] = 'cauchy'
+  #fitKwargs['loss'] = 'arctan'
+  #fitKwargs['loss'] = 'linear'
+  #fitKwargs['f_scale'] = 100000.0
+  #fitKwargs['diff_step'] = list(map(lambda x: x/1000000, x0))
+  #fitKwargs['diff_step'] = None
+  fitKwargs['tr_solver'] = 'lsmr'
   fitKwargs['tr_solver'] = None
-  fitKwargs['tr_options'] = {}
-  fitKwargs['jac_sparsity'] = None
-  fitKwargs['max_nfev'] = None
-  fitKwargs['verbose'] = 0
+  fitKwargs['tr_options'] = {'regularize':True}
+  #fitKwargs['jac_sparsity'] = None
+  fitKwargs['max_nfev'] = 100000
+  fitKwargs['verbose'] = windowObj.ui.verbositySpinBox.value()
+  if windowObj.ui.fitMethodComboBox.currentIndex() == 0:
+    fitKwargs['method'] = 'trf'
+  elif windowObj.ui.fitMethodComboBox.currentIndex() == 1:
+    fitKwargs['method'] = 'dogbox'
+  elif windowObj.ui.fitMethodComboBox.currentIndex() == 2:
+    fitKwargs['method'] = 'lm'
+    fitKwargs['loss'] = 'linear' # loss must be linear for lm method
   fitKwargs['args'] = (VV,II)
   fitKwargs['kwargs'] = {}
 
@@ -508,6 +524,13 @@ def doTheFit(VV,II,guess,bounds):
 
   # do the fit
   optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
+  
+  # do the fit with curve_fit
+  #tehf = lambda XX,m_I0,m_Iph,m_Rs,m_Rsh,m_n: np.real_if_close(slns['I'](I0=m_I0, Iph=m_Iph, Rs=m_Rs, Rsh=m_Rsh, n=m_n, V=XX))
+  #fit_result = scipy.optimize.curve_fit(tehf,VV,II,p0=x0,method='trf',verbose=2,x_scale= list(map(lambda x: x/1000, x0)))
+  
+  
+  
   #optimizeResult.success = False
   #optimize.curve_fit(I_eqn, VV, II, p0=x0, bounds=fitKwargs['bounds'], diff_step=fitKwargs['diff_step'], method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
   #scipy.optimize.least_squares(residuals, np.array([  1.20347834e-13,   6.28639109e+02,   1.83005279e-04, 6.49757268e-02,   1.00000000e+00]), jac='cs', bounds=[('-inf', '-inf', '-inf', '-inf', 0), ('inf', 'inf', 'inf', 'inf', 'inf')], method='trf', max_nfev=12000, x_scale='jac', verbose=1,diff_step=[1.203478342631369e-14, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08])
@@ -656,38 +679,6 @@ class col:
   header = ''
   position = 0
   tooltip = ''
-
-class PrefsWindow(QDialog):
-  def __init__(self,parent,settings,bounds):
-    QDialog.__init__(self,parent)
-    self.ui = Ui_prefs()
-    self.ui.setupUi(self)
-    self.setModal(True)
-    self.setSizeGripEnabled(False)
-    self.settings=settings
-    self.bounds=bounds
-    #self.1(Qt.FramelessWindowHint)
-
-  def accept(self):
-    self.bounds["I0"]=[float(self.ui.I0_lb.text()),float(self.ui.I0_ub.text())]
-    self.bounds["Iph"]=[float(self.ui.Iph_lb.text()),float(self.ui.Iph_ub.text())]
-    self.bounds["Rs"]=[float(self.ui.Rs_lb.text()),float(self.ui.Rs_ub.text())]
-    self.bounds["Rsh"]=[float(self.ui.Rsh_lb.text()),float(self.ui.Rsh_ub.text())]        
-    self.bounds["n"]=[float(self.ui.n_lb.text()),float(self.ui.n_ub.text())]
-    self.settings.setValue('I0_lb',self.ui.I0_lb.text())
-    self.settings.setValue('I0_ub',self.ui.I0_ub.text())        
-    self.settings.setValue('Iph_lb',self.ui.Iph_lb.text())
-    self.settings.setValue('Iph_ub',self.ui.Iph_ub.text())        
-    self.settings.setValue('Rs_lb',self.ui.Rs_lb.text())
-    self.settings.setValue('Rs_ub',self.ui.Rs_ub.text())        
-    self.settings.setValue('Rsh_lb',self.ui.Rsh_lb.text())
-    self.settings.setValue('Rsh_ub',self.ui.Rsh_ub.text())        
-    self.settings.setValue('n_lb',self.ui.n_lb.text())
-    self.settings.setValue('n_ub',self.ui.n_ub.text())
-    self.done(0)
-  def reject(self):
-    print("rejected")
-    self.done(-1)
 
 class MainWindow(QMainWindow):
   workingDirectory = ''
@@ -919,9 +910,6 @@ class MainWindow(QMainWindow):
       self.ui.attemptCharEqnFitCheckBox.setChecked(self.settings.value('fitToEqn') == 'true')
     self.ui.attemptCharEqnFitCheckBox.stateChanged.connect(self.handleEqnFitChange)
 
-    # put the prefs window on the central widget
-    self.prefs = PrefsWindow(self.ui.centralwidget,self.settings,self.bounds)
-
     # set defaults
     I0_lb_string = "0" if not self.settings.contains('I0_lb') else self.settings.value('I0_lb')
     Iph_lb_string = "0" if not self.settings.contains('Iph_lb') else self.settings.value('Iph_lb')
@@ -933,7 +921,17 @@ class MainWindow(QMainWindow):
     Iph_ub_string = "inf" if not self.settings.contains('Iph_ub') else self.settings.value('Iph_ub')
     Rs_ub_string = "inf" if not self.settings.contains('Rs_ub') else self.settings.value('Rs_ub')
     Rsh_ub_string = "inf" if not self.settings.contains('Rsh_ub') else self.settings.value('Rsh_ub')
-    n_ub_string = "inf" if not self.settings.contains('n_ub') else self.settings.value('n_ub')        
+    n_ub_string = "inf" if not self.settings.contains('n_ub') else self.settings.value('n_ub')
+    
+    if self.settings.contains('fitMethod'):
+      self.ui.fitMethodComboBox.setCurrentIndex(int(self.settings.value('fitMethod')))
+    else:
+      self.settings.setValue('fitMethod',self.ui.fitMethodComboBox.currentIndex())
+      
+    if self.settings.contains('verbosity'):
+      self.ui.verbositySpinBox.setValue(int(self.settings.value('verbosity')))
+    else:
+      self.settings.setValue('verbosity',self.ui.verbositySpinBox.value())
 
     self.bounds['I0'][0] = np.float(I0_lb_string)
     self.bounds['Iph'][0] = np.float(Iph_lb_string)
@@ -947,17 +945,36 @@ class MainWindow(QMainWindow):
     self.bounds['Rsh'][1] = np.float(Rsh_ub_string)
     self.bounds['n'][1] = np.float(n_ub_string)
 
-    self.prefs.ui.I0_lb.setText(I0_lb_string)
-    self.prefs.ui.Iph_lb.setText(Iph_lb_string)
-    self.prefs.ui.Rs_lb.setText(Rs_lb_string)
-    self.prefs.ui.Rsh_lb.setText(Rsh_lb_string)
-    self.prefs.ui.n_lb.setText(n_lb_string)
+    self.ui.I0_lb.setText(I0_lb_string)
+    self.ui.Iph_lb.setText(Iph_lb_string)
+    self.ui.Rs_lb.setText(Rs_lb_string)
+    self.ui.Rsh_lb.setText(Rsh_lb_string)
+    self.ui.n_lb.setText(n_lb_string)
 
-    self.prefs.ui.I0_ub.setText(I0_ub_string)
-    self.prefs.ui.Iph_ub.setText(Iph_ub_string)
-    self.prefs.ui.Rs_ub.setText(Rs_ub_string)
-    self.prefs.ui.Rsh_ub.setText(Rsh_ub_string)
-    self.prefs.ui.n_ub.setText(n_ub_string)
+    self.ui.I0_ub.setText(I0_ub_string)
+    self.ui.Iph_ub.setText(Iph_ub_string)
+    self.ui.Rs_ub.setText(Rs_ub_string)
+    self.ui.Rsh_ub.setText(Rsh_ub_string)
+    self.ui.n_ub.setText(n_ub_string)
+    
+    # connect the bounds change handler
+    self.ui.I0_lb.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Iph_lb.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Rs_lb.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Rsh_lb.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.n_lb.editingFinished.connect(self.handleConstraintsChange)
+    
+    self.ui.I0_ub.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Iph_ub.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Rs_ub.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Rsh_ub.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.n_ub.editingFinished.connect(self.handleConstraintsChange)
+    
+    self.ui.fitMethodComboBox.currentIndexChanged.connect(self.handleFitMethodChange)
+    
+    self.ui.resetSettingsButton.clicked.connect(self.resetDefaults)
+    
+    self.ui.verbositySpinBox.valueChanged.connect(self.handleVerbosityChange)
 
     #insert cols
     for item in self.cols:
@@ -977,7 +994,6 @@ class MainWindow(QMainWindow):
     self.ui.actionEnable_Watching.triggered.connect(self.watchCall)
     self.ui.actionSave.triggered.connect(self.handleSave)
     self.ui.actionWatch_2.triggered.connect(self.handleWatchAction)
-    self.ui.actionFit_Constraints.triggered.connect(self.openFitConstraintDialog)
     self.ui.statusbar.messageChanged.connect(self.statusChanged)
 
     self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
@@ -985,6 +1001,17 @@ class MainWindow(QMainWindow):
     #override showMessage for the statusbar
     self.oldShowMessage = self.ui.statusbar.showMessage
     self.ui.statusbar.showMessage = self.myShowMessage
+    
+  def resetDefaults(self):
+    self.ui.attemptCharEqnFitCheckBox.setChecked(True)
+    self.ui.doFastAndSloppyMathCheckBox.setChecked(True)
+    self.ui.lowerVoltageCutoffLineEdit.setText('-inf')
+    self.ui.lowerVoltageCutoffLineEdit.editingFinished.emit()
+    self.ui.upperVoltageCutoffLineEdit.setText('inf')
+    self.ui.upperVoltageCutoffLineEdit.editingFinished.emit()
+    self.ui.fitMethodComboBox.setCurrentIndex(2)
+    self.ui.verbositySpinBox.setValue(0)
+    
 
   # let's make sure to print messages for the statusbar also in the console    
   def myShowMessage(*args, **kwargs):
@@ -1019,6 +1046,31 @@ class MainWindow(QMainWindow):
       self.settings.setValue('upperVoltageCutoff',lineEdit.text())
     except:
       pass
+    
+  def handleFitMethodChange(self):
+    comboBox = self.sender()
+    self.settings.setValue('fitMethod',comboBox.currentIndex())
+  
+  def handleVerbosityChange(self):
+    spinBox = self.sender()
+    self.settings.setValue('verbosity',spinBox.value())
+
+  def handleConstraintsChange(self):
+    lineEdit = self.sender()
+    name = lineEdit.objectName()
+    nameSplit = name.split('_')
+    
+    try:
+      text = lineEdit.text()
+      value = float(text)
+      if nameSplit[1] == 'lb':
+        self.bounds[nameSplit[0]][0] = value
+      else: # upper bound
+        self.bounds[nameSplit[0]][1] = value
+      self.settings.setValue(name,text)
+    except:
+      pass
+    
 
   def handleLowerLimChange(self):
     lineEdit = self.sender()
@@ -1636,7 +1688,7 @@ class MainWindow(QMainWindow):
 
         #pr.enable()
         try:
-          fitResult = doTheFit(VV,II,guess,localBounds)
+          fitResult = doTheFit(VV,II,guess,localBounds,self)
         except:
           fitResult = {'success': False, 'message': 'Warning: doTheFit() function crashed!'}
 
@@ -1790,6 +1842,8 @@ class MainWindow(QMainWindow):
     self.ui.tableWidget.resizeColumnsToContents()
 
     self.rows = self.rows + 1
+    
+    time.sleep(0.001) # sleep one ms, maybe that allows the table to update in windows
 
   def openCall(self):
     #remember the last path the user opened
@@ -1857,9 +1911,6 @@ class MainWindow(QMainWindow):
         else:
           #process the new file
           self.processFile(os.path.join(self.workingDirectory,aFile))
-
-  def openFitConstraintDialog(self):
-    self.prefs.show()
 
   def statusChanged(self,args):
     if not args:
