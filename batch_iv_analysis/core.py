@@ -499,7 +499,7 @@ def doTheFit(VV,II,guess,bounds,windowObj):
   fitKwargs['tr_solver'] = None
   fitKwargs['tr_options'] = {'regularize':True}
   #fitKwargs['jac_sparsity'] = None
-  fitKwargs['max_nfev'] = 100000
+  fitKwargs['max_nfev'] = 20000
   fitKwargs['verbose'] = windowObj.ui.verbositySpinBox.value()
   if windowObj.ui.fitMethodComboBox.currentIndex() == 0:
     fitKwargs['method'] = 'trf'
