@@ -314,7 +314,7 @@ def findBreaksAndCoefs(xx, yy, p=None):
     ai = ai[:n - 1, ...]
     if nd > 1:
       di = di.T
-      ci = ci.TStringIO
+      ci = ci.T
       ai = ai.T
     if not any(di):
       if not any(ci):
@@ -897,7 +897,7 @@ class MainWindow(QMainWindow):
     thisKey = 'j0'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
-    self.cols[thisKey].tooltip = 'Reverse saturation current deqWatchernsity as found from characteristic equation fit'
+    self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
 
     thisKey = 'rs'
     self.cols[thisKey] = col()
@@ -909,7 +909,7 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].header = 'R_sh\n[ohm]'
     self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit'
 
-    #how long status messages show forqWatcher
+    #how long status messages show for
     self.messageDuration = 2500#ms
 
     # Set up the user interface from Designer.
