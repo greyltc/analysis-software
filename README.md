@@ -63,7 +63,7 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 ```
 conda update conda
 conda update --all
-conda config --append channels new_channel
+conda config --append channels conda-forge
 conda update --all
 conda config --prepend channels greyltc
 conda install batch-iv-analysis
