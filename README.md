@@ -63,9 +63,9 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
 ```
 conda update conda
 conda update --all
-conda config --add channels conda-forge
+conda config --append channels new_channel
 conda update --all
-conda config --add channels greyltc
+conda config --prepend channels greyltc
 conda install batch-iv-analysis
 # now you can run the program with
 batch-iv-analysis
@@ -89,7 +89,7 @@ cd batch-iv-analysis
 ```
 conda update conda
 conda update --all
-conda config --add channels conda-forge
+conda config --append channels conda-forge
 conda update --all
 conda install git conda-build
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
