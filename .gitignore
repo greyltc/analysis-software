@@ -6,6 +6,11 @@ __pycache__/
 *.csv
 *.liv1
 *.liv2
+*.div1
+*.div2
+*.hold
+*.png
+!icon.png
 !exampleData/*.csv
 dist/
 build/

@@ -1858,17 +1858,17 @@ class MainWindow(QMainWindow):
           VmppGuess = VV[np.array(VV*II).argmax()]
           mppFound = False
           try:
-            Vmpp_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess)
+            Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess))
             mppFound = True
           except:
             try: # try again with a differnt starting point
               Vmpp_guess = Vmpp_guess-0.1
-              Vmpp_charEqn = sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess)
+              Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess))
               mppFound = True
             except: # two failures means we're done
               Vmpp_charEqn = nan
           if mppFound:
-            Impp_charEqn = slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=np.complex(Vmpp_charEqn))
+            Impp_charEqn = slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=Vmpp_charEqn)
             Pmpp_charEqn = Impp_charEqn*Vmpp_charEqn
           else:
             Impp_charEqn = nan
