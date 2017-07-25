@@ -69,7 +69,7 @@ conda config --prepend channels greyltc
 conda install batch-iv-analysis
 # now you can run the program with
 batch-iv-analysis
-# and you can make sure to keep everything up to date by periodically running
+# and later you can make sure to keep everything up to date by periodically running
 conda update --all
 ```
 
