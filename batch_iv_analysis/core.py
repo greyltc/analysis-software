@@ -9,11 +9,14 @@ import time
 
 #TODO: make area editable
 
+# to speed this up
+import concurrent.futures
+
 from collections import OrderedDict
 from io import StringIO
 import os, sys, inspect, csv
 
-from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo
+from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo, QObject, pyqtSignal, QRunnable
 from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
 
 import mpmath.libmp
@@ -76,7 +79,9 @@ def doSymbolicManipulations(fastAndSloppy=False):
   global I_eqn
   global slns
   global electricalModelVarsOnly
-  global I0, Iph, Rs, Rsh, n, I, V, Vth    
+  global I0, Iph, Rs, Rsh, n, I, V, Vth
+  
+  print("Hang tight, we're doing the one-time symbolic manipulations now...")
 
   # let's define some variables we'll use to do some symbolic equaiton manipulation
   modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
@@ -145,6 +150,8 @@ def doSymbolicManipulations(fastAndSloppy=False):
 
   # this puts the symbolic solution for I from above into a format needed for curve_fit
   I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
+  
+  return fastAndSloppy
 
 # tests if string is a number
 def isNumber(s):
@@ -221,7 +228,7 @@ def to_precision(x,p):
   return "".join(out)
 
 
-# needed for findKnotsAndCoefs below
+# needed for findKnotsAndCoefs belowfrom multiprocessing import Pool
 def _compute_u(p, D, dydx, dx, dx1, n):
   if p is None or p != 0:
     data = [dx[1:n - 1], 2 * (dx[:n - 2] + dx[1:n - 1]), dx[:n - 2]]
@@ -229,14 +236,14 @@ def _compute_u(p, D, dydx, dx, dx1, n):
 
   if p is None or p < 1:
     Q = scipy.sparse.spdiags(
-          [dx1[:n - 2], -(dx1[:n - 2] + dx1[1:n - 1]), dx1[1:n - 1]],
-            [0, -1, -2], n, n - 2)
+      [dx1[:n - 2], -(dx1[:n - 2] + dx1[1:n - 1]), dx1[1:n - 1]],
+          [0, -1, -2], n, n - 2)
     QDQ = (Q.T * D * Q)
     if p is None or p < 0:
       # Estimate p
       p = 1. / \
-              (1. + QDQ.diagonal().sum() /
-                 (100. * R.diagonal().sum() ** 2))
+        (1. + QDQ.diagonal().sum() /
+               (100. * R.diagonal().sum() ** 2))
 
     if p == 0:
       QQ = 6 * QDQ
@@ -286,7 +293,7 @@ def findBreaksAndCoefs(xx, yy, p=None):
   else:
 
     dx1 = 1. / dx
-    D = scipy.sparse.spdiags(var * np.ones(n), 0, n, n)  # The variance
+    D = scipy.sparse.spdiags(var * np.ones(n), 0, n, n)  # The varianceStringIO
 
     u, p = _compute_u(p, D, dydx, dx, dx1, n)
     dx1.shape = (n - 1, -1)
@@ -295,7 +302,7 @@ def findBreaksAndCoefs(xx, yy, p=None):
     if p < 1:
       # faster than yi-6*(1-p)*Q*u
       ai = (y - (6 * (1 - p) * D *
-                       np.diff(np.vstack([zrs,
+                 np.diff(np.vstack([zrs,
                                           np.diff(np.vstack([zrs, u, zrs]), axis=0) * dx1,
                                           zrs]), axis=0)).T).T
     else:
@@ -307,7 +314,7 @@ def findBreaksAndCoefs(xx, yy, p=None):
     ai = ai[:n - 1, ...]
     if nd > 1:
       di = di.T
-      ci = ci.T
+      ci = ci.TStringIO
       ai = ai.T
     if not any(di):
       if not any(ci):
@@ -316,7 +323,7 @@ def findBreaksAndCoefs(xx, yy, p=None):
         coefs = np.vstack([ci.ravel(), bi.ravel(), ai.ravel()])
     else:
       coefs = np.vstack(
-              [di.ravel(), ci.ravel(), bi.ravel(), ai.ravel()])
+        [di.ravel(), ci.ravel(), bi.ravel(), ai.ravel()])
 
   return coefs, x
 
@@ -402,8 +409,8 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
   aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
   x0 = np.array([guess['Rsh'],guess['Iph']]) # initial guess vector
   optimizeResult = scipy.optimize.least_squares(aLine, x0, jac='2-point', bounds=(u'-inf', u'inf'), 
-                                                  method='trf', 
-                            ftol=1e-08, 
+                                                method='trf', 
+                                                  ftol=1e-08, 
                             xtol=1e-08, 
                             gtol=1e-08, 
                             x_scale=1.0, 
@@ -423,21 +430,23 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
   # try to further refine guesses for I0 and Rs
   aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
   x0 = np.array([guess['Rs'],V_end_n/guess['Rs']]) # initial guess vector
-  optimizeResult = scipy.optimize.least_squares(aLine, x0, jac='2-point', bounds=(u'-inf', u'inf'), 
-                                                  method='trf', 
-                            ftol=1e-08, 
-                            xtol=1e-08, 
-                            gtol=1e-08, 
-                            x_scale=1.0, 
-                            loss='linear', 
-                            f_scale=1.0, 
-                            diff_step=None, 
-                            tr_solver=None, 
-                            tr_options={}, 
-                            jac_sparsity=None, 
-                            max_nfev=None, 
-                            verbose=0, args=(VV[ip_i:end_i],II[ip_i:end_i]), 
-                            kwargs={})
+  optimizeResult = scipy.optimize.least_squares(aLine, x0,
+                                                jac='2-point',
+    bounds=(u'-inf', u'inf'), 
+    method='trf', 
+    ftol=1e-08, 
+    xtol=1e-08, 
+    gtol=1e-08, 
+    x_scale=1.0, 
+    loss='linear', 
+    f_scale=1.0, 
+    diff_step=None, 
+    tr_solver=None, 
+    tr_options={}, 
+    jac_sparsity=None, 
+    max_nfev=None, 
+    verbose=0, args=(VV[ip_i:end_i],II[ip_i:end_i]), 
+    kwargs={})
   if optimizeResult.success:
     guess['Rs'] = optimizeResult.x[0]
     slope = optimizeResult.x[1]
@@ -524,13 +533,13 @@ def doTheFit(VV,II,guess,bounds,windowObj):
 
   # do the fit
   optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
-  
+
   # do the fit with curve_fit
   #tehf = lambda XX,m_I0,m_Iph,m_Rs,m_Rsh,m_n: np.real_if_close(slns['I'](I0=m_I0, Iph=m_Iph, Rs=m_Rs, Rsh=m_Rsh, n=m_n, V=XX))
   #fit_result = scipy.optimize.curve_fit(tehf,VV,II,p0=x0,method='trf',verbose=2,x_scale= list(map(lambda x: x/1000, x0)))
-  
-  
-  
+
+
+
   #optimizeResult.success = False
   #optimize.curve_fit(I_eqn, VV, II, p0=x0, bounds=fitKwargs['bounds'], diff_step=fitKwargs['diff_step'], method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
   #scipy.optimize.least_squares(residuals, np.array([  1.20347834e-13,   6.28639109e+02,   1.83005279e-04, 6.49757268e-02,   1.00000000e+00]), jac='cs', bounds=[('-inf', '-inf', '-inf', '-inf', 0), ('inf', 'inf', 'inf', 'inf', 'inf')], method='trf', max_nfev=12000, x_scale='jac', verbose=1,diff_step=[1.203478342631369e-14, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08])
@@ -680,11 +689,42 @@ class col:
   position = 0
   tooltip = ''
 
+class WorkerSignals(QObject):
+  result = pyqtSignal(dict)
+
+# this will process a file
+class Worker(QRunnable):
+
+  def __init__(self,mainWindow,fileName):
+    super(Worker, self).__init__()
+    self.mainWindow = mainWindow
+    self.fileName = fileName
+    self.signals = WorkerSignals()
+
+  def run(self):
+    result = self.mainWindow.processFile(self.fileName)
+    self.signals.result.emit(result)
+
+##class doSymbolicMathSignals(QObject):
+  ##result = pyqtSignal(bool)
+
+### this will process a file
+##class doSymbolicMath(QRunnable):
+
+  ##def __init__(self,mainWindow):
+    ##super(doSymbolicMath, self).__init__()
+    ##self.mainWindow = mainWindow
+    ##self.signals = doSymbolicMathSignals()
+
+  ##def run(self):
+    ##sloppy = doSymbolicManipulations(fastAndSloppy=self.mainWindow.ui.doFastAndSloppyMathCheckBox.isChecked())
+    ##self.signals.result.emit(sloppy)
+
 class MainWindow(QMainWindow):
   workingDirectory = ''
   fileNames = []
   supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2','*.div1','*.div2']
-  bounds ={}
+  bounds = {}
   bounds['I0'] = [0, inf] 
   bounds['Iph'] = [0, inf]
   bounds['Rs'] = [0, inf]
@@ -857,7 +897,7 @@ class MainWindow(QMainWindow):
     thisKey = 'j0'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
-    self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
+    self.cols[thisKey].tooltip = 'Reverse saturation current deqWatchernsity as found from characteristic equation fit'
 
     thisKey = 'rs'
     self.cols[thisKey] = col()
@@ -869,12 +909,20 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].header = 'R_sh\n[ohm]'
     self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit'
 
-    #how long status messages show for
+    #how long status messages show forqWatcher
     self.messageDuration = 2500#ms
 
     # Set up the user interface from Designer.
     self.ui = Ui_batch_iv_analysis()
     self.ui.setupUi(self)
+
+    # load setting for computation threads
+    if not self.settings.contains('threads'):
+      self.threads = 4
+      self.settings.setValue('threads',self.threads)
+    else:
+      self.threads = int(self.settings.value('threads'))
+    self.settings.setValue('threads',8)
 
     # load setting for lower voltage cuttoff
     if not self.settings.contains('lowerVoltageCutoff'):
@@ -922,12 +970,12 @@ class MainWindow(QMainWindow):
     Rs_ub_string = "inf" if not self.settings.contains('Rs_ub') else self.settings.value('Rs_ub')
     Rsh_ub_string = "inf" if not self.settings.contains('Rsh_ub') else self.settings.value('Rsh_ub')
     n_ub_string = "inf" if not self.settings.contains('n_ub') else self.settings.value('n_ub')
-    
+
     if self.settings.contains('fitMethod'):
       self.ui.fitMethodComboBox.setCurrentIndex(int(self.settings.value('fitMethod')))
     else:
       self.settings.setValue('fitMethod',self.ui.fitMethodComboBox.currentIndex())
-      
+
     if self.settings.contains('verbosity'):
       self.ui.verbositySpinBox.setValue(int(self.settings.value('verbosity')))
     else:
@@ -956,24 +1004,24 @@ class MainWindow(QMainWindow):
     self.ui.Rs_ub.setText(Rs_ub_string)
     self.ui.Rsh_ub.setText(Rsh_ub_string)
     self.ui.n_ub.setText(n_ub_string)
-    
+
     # connect the bounds change handler
     self.ui.I0_lb.editingFinished.connect(self.handleConstraintsChange)
     self.ui.Iph_lb.editingFinished.connect(self.handleConstraintsChange)
     self.ui.Rs_lb.editingFinished.connect(self.handleConstraintsChange)
     self.ui.Rsh_lb.editingFinished.connect(self.handleConstraintsChange)
     self.ui.n_lb.editingFinished.connect(self.handleConstraintsChange)
-    
+
     self.ui.I0_ub.editingFinished.connect(self.handleConstraintsChange)
     self.ui.Iph_ub.editingFinished.connect(self.handleConstraintsChange)
     self.ui.Rs_ub.editingFinished.connect(self.handleConstraintsChange)
     self.ui.Rsh_ub.editingFinished.connect(self.handleConstraintsChange)
     self.ui.n_ub.editingFinished.connect(self.handleConstraintsChange)
-    
+
     self.ui.fitMethodComboBox.currentIndexChanged.connect(self.handleFitMethodChange)
-    
+
     self.ui.resetSettingsButton.clicked.connect(self.resetDefaults)
-    
+
     self.ui.verbositySpinBox.valueChanged.connect(self.handleVerbosityChange)
 
     #insert cols
@@ -1001,7 +1049,30 @@ class MainWindow(QMainWindow):
     #override showMessage for the statusbar
     self.oldShowMessage = self.ui.statusbar.showMessage
     self.ui.statusbar.showMessage = self.myShowMessage
+
+    # this pool holds the workers
+    self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=self.threads)
     
+    # do symbolic calcs now if needed
+    if self.ui.attemptCharEqnFitCheckBox.isChecked():
+      doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+       
+  def handleMathFinished(self,sloppy):
+    tp = QThreadPool.globalInstance()
+    tp.setMaxThreadCount(self.threads)
+    self.symbolCalcsNotDone = False
+    print("One-time symbolic manipulations done! Fast and sloppy mode =", sloppy)
+
+  def processFitResult(self,result):
+    print('Got new fit result...')
+    print(result)
+    tp = QThreadPool.globalInstance()
+    activeThreads = tp.activeThreadCount()
+    #print('Active threads: '+str(activeThreads))
+    if activeThreads == 0:
+      tp.waitForDone()
+    #self.ui.statusbar.showMessage('Active threads: '+str(tp.activeThreadCount()),500)
+
   def resetDefaults(self):
     self.ui.attemptCharEqnFitCheckBox.setChecked(True)
     self.ui.doFastAndSloppyMathCheckBox.setChecked(True)
@@ -1011,7 +1082,7 @@ class MainWindow(QMainWindow):
     self.ui.upperVoltageCutoffLineEdit.editingFinished.emit()
     self.ui.fitMethodComboBox.setCurrentIndex(2)
     self.ui.verbositySpinBox.setValue(0)
-    
+
 
   # let's make sure to print messages for the statusbar also in the console    
   def myShowMessage(*args, **kwargs):
@@ -1046,11 +1117,11 @@ class MainWindow(QMainWindow):
       self.settings.setValue('upperVoltageCutoff',lineEdit.text())
     except:
       pass
-    
+
   def handleFitMethodChange(self):
     comboBox = self.sender()
     self.settings.setValue('fitMethod',comboBox.currentIndex())
-  
+
   def handleVerbosityChange(self):
     spinBox = self.sender()
     self.settings.setValue('verbosity',spinBox.value())
@@ -1059,7 +1130,7 @@ class MainWindow(QMainWindow):
     lineEdit = self.sender()
     name = lineEdit.objectName()
     nameSplit = name.split('_')
-    
+
     try:
       text = lineEdit.text()
       value = float(text)
@@ -1070,7 +1141,7 @@ class MainWindow(QMainWindow):
       self.settings.setValue(name,text)
     except:
       pass
-    
+
 
   def handleLowerLimChange(self):
     lineEdit = self.sender()
@@ -1083,11 +1154,26 @@ class MainWindow(QMainWindow):
   def handleMathChange(self):
     checkBox = self.sender()
     self.settings.setValue('fastAndSloppy',checkBox.isChecked())
-    self.symbolCalcsNotDone = checkBox.isChecked()
+    self.symbolCalcsNotDone = True
+    if self.ui.attemptCharEqnFitCheckBox.isChecked():
+      tp = QThreadPool.globalInstance()
+      tp.setMaxThreadCount(1)
+      worker = doSymbolicMath(self)
+      worker.setAutoDelete(True)
+      worker.signals.result.connect(self.handleMathFinished)
+      tp.start(worker)
 
   def handleEqnFitChange(self):
     checkBox = self.sender()
-    self.settings.setValue('fitToEqn',checkBox.isChecked()) 
+    self.settings.setValue('fitToEqn',checkBox.isChecked())
+    self.symbolCalcsNotDone = True
+    if checkBox.isChecked():
+      tp = QThreadPool.globalInstance()
+      tp.setMaxThreadCount(1)
+      worker = doSymbolicMath(self)
+      worker.setAutoDelete(True)
+      worker.signals.result.connect(self.handleMathFinished)
+      tp.start(worker)    
 
   def handleButton(self):
     btn = self.sender()
@@ -1098,7 +1184,6 @@ class MainWindow(QMainWindow):
       self.rowGraph(row)
     if col == 1:
       self.exportInterp(row)
-
 
   def rowGraph(self,row):
     thisGraphData = self.ui.tableWidget.item(row,list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)
@@ -1124,22 +1209,22 @@ class MainWindow(QMainWindow):
       ax.legend(handles, labels, loc=3)
 
       plt.annotate(
-              thisGraphData["Voc"].__format__('0.4f')+ ' V', 
-                xy = (thisGraphData["Voc"], 0), xytext = (40, 20),
+        thisGraphData["Voc"].__format__('0.4f')+ ' V', 
+              xy = (thisGraphData["Voc"], 0), xytext = (40, 20),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
       plt.annotate(
-              float(thisGraphData["Isc"]).__format__('0.4f') + ' mA/cm^2', 
-                xy = (0,thisGraphData["Isc"]), xytext = (40, 20),
+        float(thisGraphData["Isc"]).__format__('0.4f') + ' mA/cm^2', 
+              xy = (0,thisGraphData["Isc"]), xytext = (40, 20),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
       plt.annotate(
-              float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + '% @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
-                xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
+        float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + '% @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
+              xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
@@ -1255,12 +1340,10 @@ class MainWindow(QMainWindow):
     self.fileNames = []
 
   def processFile(self,fullPath):
+    result = {}
+    logMessages = StringIO()
+    result['fullPath'] = fullPath
 
-    # do symbolic calcs now if needed
-    if self.symbolCalcsNotDone and self.ui.attemptCharEqnFitCheckBox.isChecked():
-      print("Hang tight, we're doing the one-time symbolic manipulations now.")
-      doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
-      self.symbolCalcsNotDone = False
 
     fileName, fileExtension = os.path.splitext(fullPath)
     fileName = os.path.basename(fullPath)
@@ -1273,7 +1356,7 @@ class MainWindow(QMainWindow):
     else:
       delimiter = None
 
-    self.ui.statusbar.showMessage("processing: "+ fileName,2500)
+    print("Processing:", fileName, file = logMessages)
 
     #wait here for the file to be completely written to disk and closed before trying to read it
     fi = QFileInfo(fullPath)
@@ -1285,8 +1368,7 @@ class MainWindow(QMainWindow):
     fileBuffer = fp.read()
     fp.close()
     if len(fileBuffer) < 25:
-      self.badMessage()
-      self.ui.statusbar.showMessage('Could not read' + fileName +'. This file is less than 25 characters long.',2500)
+      print('Could not read' + fileName +'. This file is less than 25 characters long.', file = logMessages)
       return
     first10 = fileBuffer[0:10]
     last25 = fileBuffer[-26:-1]
@@ -1349,8 +1431,7 @@ class MainWindow(QMainWindow):
     try:
       data = np.loadtxt(c,delimiter=delimiter)
     except:
-      self.badMessage()
-      self.ui.statusbar.showMessage('Could not read' + fileName +'. Prepend # to all non-data lines and try again',2500)
+      print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
       return
     VV = data[:,0]
     II = data[:,1]
@@ -1402,10 +1483,10 @@ class MainWindow(QMainWindow):
       II=II[newOrder]
       VV=VV[newOrder]
       vv=np.linspace(min(VV),max(VV),1000)
-      self.ui.statusbar.showMessage("Flipping voltage sign.",500)
+      print("Flipping voltage sign.", file = logMessages)
     if II[0] < II[-1]:
       II = II * -1
-      self.ui.statusbar.showMessage("Flipping current sign.",500)
+      print("Flipping current sign.", file = logMessages)
 
     # now let's do a spline fit for our data
     # this prevents measurment noise from impacting our results
@@ -1562,14 +1643,14 @@ class MainWindow(QMainWindow):
       valid = np.logical_and(Voc > 0, Voc < max(VV)+0.05)
       nVocs = sum(valid)
       if nVocs !=1:
-        print('Warning: we found',nVocs,"values for Voc, using the last one.")
+        print("Warning: we found",nVocs,"values for Voc, using the last one.", file = logMessages)
         Voc = Voc[-1]
         #Voc = nan
       else:
         Voc = float(Voc[valid][0])
 
     if isDarkCurve:
-      print("Dark curve detected.")
+      print("Dark curve detected.", file = logMessages)
 
     Isc = float(smoothSpline(0))
     FF = Pmpp/(Voc*Isc)
@@ -1590,29 +1671,41 @@ class MainWindow(QMainWindow):
 
     splineY = smoothSpline(vv)*jScaleFactor
     modelY = [nan]
-    graphData = {'vsTime':vsTime,'origRow':self.rows,'fitX':vv,'modelY':modelY,'splineY':splineY,'i':II*jScaleFactor,'v':VV,'Voc':Voc,'Isc':Isc*jScaleFactor,'Vmax':Vmpp,'Imax':Impp*jScaleFactor}
+    result['graphData'] = {'vsTime':vsTime,'origRow':self.rows,'fitX':vv,'modelY':modelY,'splineY':splineY,'i':II*jScaleFactor,'v':VV,'Voc':Voc,'Isc':Isc*jScaleFactor,'Vmax':Vmpp,'Imax':Impp*jScaleFactor}
 
     # put items in table
-    self.ui.tableWidget.insertRow(self.rows)
-    for ii in range(len(self.cols)):
-      self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
+    ##self.ui.tableWidget.insertRow(self.rows)
+    ##for ii in range(len(self.cols)):
+    ##  self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
 
     # here's how we put data into the table
-    insert = lambda colName,value: self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index(colName)).setData(Qt.UserRole,float(np.real(value)))
-    insert('pce_spline',(Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100)
-    insert('pmax_spline',Pmpp/area)
-    insert('pmax_a_spline',Pmpp)
-    insert('isc_spline',Isc)
-    insert('jsc_spline',Isc/area)
-    insert('voc_spline',Voc)
-    insert('ff_spline',FF)
-    insert('vmax_spline',Vmpp)
-    insert('area',area)
-    insert('suns',suns)
+    ##insert = lambda colName,value: self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index(colName)).setData(Qt.UserRole,float(np.real(value)))
+    result['insert'] = {}
+    result['insert']['pce_spline'] = (Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100
+    result['insert']['pmax_spline'] = Pmpp/area
+    result['insert']['pmax_a_spline'] = Pmpp
+    result['insert']['isc_spline'] = Isc
+    result['insert']['jsc_spline'] = Isc/area
+    result['insert']['voc_spline'] = Voc
+    result['insert']['ff_spline'] = FF
+    result['insert']['vmax_spline'] = Vmpp
+    result['insert']['area'] = area
+    result['insert']['suns'] = suns
+
+    #insert('pce_spline',(Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100)
+    #insert('pmax_spline',Pmpp/area)
+    #insert('pmax_a_spline',Pmpp)
+    #insert('isc_spline',Isc)
+    #insert('jsc_spline',Isc/area)
+    #insert('voc_spline',Voc)
+    #insert('ff_spline',FF)
+    #insert('vmax_spline',Vmpp)
+    #insert('area',area)
+    #insert('suns',suns)
 
     if not vsTime:
       if not self.ui.attemptCharEqnFitCheckBox.isChecked():
-        print("Not attempting fit to characteristic equation.")
+        print("Not attempting fit to characteristic equation.", file = logMessages)
       else:
         # set bounds on the fit variables
         # if upper=lower bound, then that variable will be taken out of the optimization
@@ -1630,7 +1723,7 @@ class MainWindow(QMainWindow):
         try:
           guess = makeAReallySmartGuess(VV,II,isDarkCurve)
         except:
-          print("Warning: makeAReallySmartGuess() function failed!")
+          print("Warning: makeAReallySmartGuess() function failed!", file = logMessages)
           guess = {'I0':1e-9, 'Iph':II[0], 'Rs':5, 'Rsh':1e6, 'n':1.0}
 
         #print (time.time()-tnot)
@@ -1688,9 +1781,9 @@ class MainWindow(QMainWindow):
 
         #pr.enable()
         try:
-          fitResult = doTheFit(VV,II,guess,localBounds,self)
+          result['fitResult'] = doTheFit(VV,II,guess,localBounds,self)
         except:
-          fitResult = {'success': False, 'message': 'Warning: doTheFit() function crashed!'}
+          result['fitResult'] = {'success': False, 'message': 'Warning: doTheFit() function crashed!'}
 
         #fitParams, sigmas, errmsg, status = doTheFit(VV,II,guess,localBounds)
         #{'success':True,'optParams':optimizeResult.x,'sigmas':sigmas,'message':optimizeResult.message}
@@ -1710,17 +1803,16 @@ class MainWindow(QMainWindow):
         guess['Rsh'] = guess['Rsh']*currentScaleFactor
         II = II/currentScaleFactor
 
-        if (fitResult['success']):
-          self.goodMessage()
-          self.ui.statusbar.showMessage("Good fit because: " + fitResult['message'],2500)
+        if (result['fitResult']['success']):
+          print("Good fit because: " + result['fitResult']['message'], file = logMessages)
 
           params = {}
-          params['I0'] = fitResult['optParams'][0]/currentScaleFactor
-          params['Iph'] = fitResult['optParams'][1]/currentScaleFactor
-          params['Rs'] = fitResult['optParams'][2]*currentScaleFactor
-          params['Rsh'] = fitResult['optParams'][3]*currentScaleFactor
-          params['n'] = fitResult['optParams'][4]
-          SSE = fitResult['SSE']/currentScaleFactor**2
+          params['I0'] = result['fitResult']['optParams'][0]/currentScaleFactor
+          params['Iph'] = result['fitResult']['optParams'][1]/currentScaleFactor
+          params['Rs'] = result['fitResult']['optParams'][2]*currentScaleFactor
+          params['Rsh'] = result['fitResult']['optParams'][3]*currentScaleFactor
+          params['n'] = result['fitResult']['optParams'][4]
+          SSE = result['fitResult']['SSE']/currentScaleFactor**2
 
 
           # TODO: the sigmas are messed up (by scaling?) when doing a l-m fit
@@ -1735,7 +1827,7 @@ class MainWindow(QMainWindow):
           # this will produce an evaluation of how well the fit worked
           doVerboseAnalysis = False
           if doVerboseAnalysis:
-            analyzeGoodness(VV,II,params,guess,fitResult['message'])
+            analyzeGoodness(VV,II,params,guess,result['fitResult']['message'])
 
           #do error estimation:
           #alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
@@ -1790,60 +1882,80 @@ class MainWindow(QMainWindow):
 
           Isc_charEqn = Isc_eqn(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'])
           FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
-          graphData['modelY'] = np.array([slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=x) for x in vv])*jScaleFactor
+          result['graphData']['modelY'] = np.array([slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=x) for x in vv])*jScaleFactor
 
-          insert('SSE',SSE)
-          insert('rs_a',params['Rs']*area)
-          insert('rs',params['Rs'])
-          insert('rsh_a',params['Rsh']*area)
-          insert('rsh',params['Rsh'])
-          insert('jph',params['Iph']/area)
-          insert('iph',params['Iph'])
-          insert('j0',params['I0']/area)
-          insert('i0',params['I0'])
-          insert('n',params['n'])
-          insert('vmax_fit',Vmpp_charEqn)
-          insert('pmax_fit',Pmpp_charEqn)
-          insert('pmax_a_fit',Pmpp_charEqn/area)
-          insert('pce_fit',(Pmpp_charEqn/area)/(stdIrridance*suns/sqcmpersqm)*100) 
-          insert('voc_fit',Voc_charEqn)
-          insert('ff_fit',FF_charEqn)
-          insert('isc_fit',Isc_charEqn)
-          insert('jsc_fit',Isc_charEqn/area)
+          result['insert']['SSE'] = SSE
+          result['insert']['rs_a'] = params['Rs']*area
+          result['insert']['rs'] = params['Rs']
+          result['insert']['rsh_a'] = params['Rsh']*area
+          result['insert']['rsh'] = params['Rsh']
+          result['insert']['jph'] = params['Iph']/area
+          result['insert']['iph'] = params['Iph']
+          result['insert']['j0'] = params['I0']/area
+          result['insert']['i0'] = params['I0']
+          result['insert']['n'] = params['n']
+          result['insert']['vmax_fit'] = Vmpp_charEqn
+          result['insert']['pmax_fit'] = Pmpp_charEqn
+          result['insert']['pmax_a_fit'] = Pmpp_charEqn/area
+          result['insert']['pce_fit'] = (Pmpp_charEqn/area)/(stdIrridance*suns/sqcmpersqm)*100
+          result['insert']['voc_fit'] = Voc_charEqn
+          result['insert']['ff_fit'] = FF_charEqn
+          result['insert']['isc_fit'] = Isc_charEqn
+          result['insert']['jsc_fit'] = Isc_charEqn/area
+
+          #insert('SSE',SSE)
+          #insert('rs_a',params['Rs']*area)
+          #insert('rs',params['Rs'])
+          #insert('rsh_a',params['Rsh']*area)
+          #insert('rsh',params['Rsh'])
+          #insert('jph',params['Iph']/area)
+          #insert('iph',params['Iph'])
+          #insert('j0',params['I0']/area)
+          #insert('i0',params['I0'])
+          #insert('n',params['n'])
+          #insert('vmax_fit',Vmpp_charEqn)
+          #insert('pmax_fit',Pmpp_charEqn)
+          #insert('pmax_a_fit',Pmpp_charEqn/area)
+          #insert('pce_fit',(Pmpp_charEqn/area)/(stdIrridance*suns/sqcmpersqm)*100) 
+          #insert('voc_fit',Voc_charEqn)
+          #insert('ff_fit',FF_charEqn)
+          #insert('isc_fit',Isc_charEqn)
+          #insert('jsc_fit',Isc_charEqn/area)          
 
         else: # fit failure
-          self.badMessage()
-          self.ui.statusbar.showMessage("Bad fit because: " + fitResult['message'],2500)
-          modelY = np.empty(plotPoints)*nan
+          print("Bad fit because: " + result['fitResult']['message'],file = logMessages)
+          #modelY = np.empty(plotPoints)*nan
 
     else:#vs time
       print('This file contains time data.')
-      graphData = {'vsTime':vsTime,'origRow':self.rows,'time':tData,'i':IIt*jScaleFactor,'v':VVt}
+      result['fitResult']['graphData'] = {'vsTime':vsTime,'origRow':self.rows,'time':tData,'i':IIt*jScaleFactor,'v':VVt}
 
-    #export button
-    exportBtn = QPushButton(self.ui.tableWidget)
-    exportBtn.setText('Export')
-    exportBtn.clicked.connect(self.handleButton)
-    self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)        
+    ###export button
+    ##exportBtn = QPushButton(self.ui.tableWidget)
+    ##exportBtn.setText('Export')
+    ##exportBtn.clicked.connect(self.handleButton)
+    ##self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)        
 
-    #file name
-    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setText(fileName)
-    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setToolTip(''.join(comments))          
+    ###file name
+    ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setText(fileName)
+    ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setToolTip(''.join(comments))          
 
-    #plot button
-    plotBtn = QPushButton(self.ui.tableWidget)
-    plotBtn.setText('Plot')
-    plotBtn.clicked.connect(self.handleButton)
-    self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('plotBtn'), plotBtn)
-    self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('plotBtn')).setData(Qt.UserRole,graphData)
+    ###plot button
+    ##plotBtn = QPushButton(self.ui.tableWidget)
+    ##plotBtn.setText('Plot')
+    ##plotBtn.clicked.connect(self.handleButton)
+    ##self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('plotBtn'), plotBtn)
+    ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('plotBtn')).setData(Qt.UserRole,graphData)
 
 
-    self.formatTableRowForDisplay(self.rows)
-    self.ui.tableWidget.resizeColumnsToContents()
+    ##self.formatTableRowForDisplay(self.rows)
+    ##self.ui.tableWidget.resizeColumnsToContents()
 
-    self.rows = self.rows + 1
-    
-    time.sleep(0.001) # sleep one ms, maybe that allows the table to update in windows
+    ##self.rows = self.rows + 1
+    logMessages.seek(0)
+    result['logMessages'] = logMessages.read()
+    print(result)
+    return result
 
   def openCall(self):
     #remember the last path the user opened
@@ -1859,7 +1971,11 @@ class MainWindow(QMainWindow):
       self.settings.setValue('lastFolder',self.workingDirectory)
       for fullPath in fileNames[0]:
         fullPath = str(fullPath)
-        self.processFile(fullPath)
+        #worker = Worker(self, fullPath)
+        #worker.setAutoDelete(True)
+        #worker.signals.result.connect(self.processFitResult)
+        self.pool.submit(self.processFile,fullPath)
+        #self.processFile(fullPath)
 
       if self.ui.actionEnable_Watching.isChecked():
         watchedDirs = self.watcher.directories()
@@ -1910,7 +2026,12 @@ class MainWindow(QMainWindow):
           self.ui.statusbar.showMessage('Removed' + aFile,2500)
         else:
           #process the new file
-          self.processFile(os.path.join(self.workingDirectory,aFile))
+          fullPath = os.path.join(self.workingDirectory,aFile)
+          worker = Worker(self, fullPath)
+          tp = QThreadPool.globalInstance()
+          worker.setAutoDelete(True)
+          tp.start(worker)
+          #self.processFile(fullPath)
 
   def statusChanged(self,args):
     if not args:
