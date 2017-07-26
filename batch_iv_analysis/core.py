@@ -9,7 +9,7 @@ import time
 
 #TODO: make area editable
 
-# to speed this up
+# to speed this up, we'll use a process pool from here
 import concurrent.futures
 
 from collections import OrderedDict
@@ -42,6 +42,12 @@ import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
 #from uncertainties import ufloat #TODO: switch to using this for the error calcs
 
+class customSignals(QObject):
+  analysisResult = pyqtSignal(dict)
+  sloppy = pyqtSignal(bool)
+
+mySignals = customSignals()
+
 # some global variables because I'm lazy
 Voc = None
 Isc = None
@@ -70,7 +76,626 @@ def main(args=None):
   app = QApplication(sys.argv)
   analysis = MainWindow()
   analysis.show()
-  sys.exit(app.exec_())
+  ret = app.exec_()
+  sys.exit(ret)
+  
+def processFile(fullPath, params):
+  result = {}
+  logMessages = StringIO()
+  result['fullPath'] = fullPath
+  
+  fileName, fileExtension = os.path.splitext(fullPath)
+  fileName = os.path.basename(fullPath)
+  result['fileName'] = fileName
+
+  isSnaithFile = False
+  if fileExtension == '.csv':
+    delimiter = ','
+  elif fileExtension == '.tsv':
+    delimiter = '\t'
+  else:
+    delimiter = None
+
+  print("Processing:", fileName, file = logMessages)
+
+  #wait here for the file to be completely written to disk and closed before trying to read it
+  fi = QFileInfo(fullPath)
+  while (not fi.isWritable()):
+    time.sleep(0.001)
+    fi.refresh()
+
+  fp = open(fullPath, mode='r')
+  fileBuffer = fp.read()
+  fp.close()
+  if len(fileBuffer) < 25:
+    print('Could not read' + fileName +'. This file is less than 25 characters long.', file = logMessages)
+    return
+  first10 = fileBuffer[0:10]
+  last25 = fileBuffer[-26:-1]
+
+  isMcFile = False #true if this is a McGehee iv file format
+  isSnaithFile = False # true if this is a Snaith iv file format
+  #mcFile test:
+  if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
+    nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
+    #the first 8 chars do not contain comment symbol and do contain / and a tab, it's safe to assume mcgehee iv file format
+    isMcFile = True
+    #comment out the first 25 rows here
+    fileBuffer = '#'+fileBuffer
+    fileBuffer = fileBuffer.replace('\n', '\n#',nMcHeaderLines-1)
+  #snaithFile test:
+  elif last25.__contains__('suns:\t'):
+    nSnaithFooterLines = 11 #number of footer lines in snaith IV file format
+    isSnaithFile = True
+    delimiter = '\t'
+    if (fileExtension == '.liv1') or (fileExtension == '.div1'):
+      snaithReverse = True
+    if (fileExtension == '.liv2') or (fileExtension == '.div2'):
+      snaithReverse = False
+    fileBuffer = fileBuffer[::-1] # reverse the buffer
+    fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
+    fileBuffer = fileBuffer[::-1] # un-reverse the buffer
+    fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
+
+  splitBuffer = fileBuffer.splitlines(True)
+
+  suns = 1
+  area = 1 # in cm^2
+  noArea = True
+  noIntensity = True
+  vsTime = False #this is not an i,v vs t data file
+  #extract comments lines and search for area and intensity
+  comments = []
+  for line in splitBuffer:
+    if line.startswith('#'):
+      comments.append(line)
+      if line.__contains__('Area'):
+        numbersHere = [float(s) for s in line.split() if isNumber(s)]
+        if len(numbersHere) is 1:
+          area = numbersHere[0]
+          noArea = False
+      elif line.__contains__('I&V vs t'):
+        if float(line.split(' ')[5]) == 1:
+          vsTime = True
+      elif line.__contains__('Number of suns:'):
+        numbersHere = [float(s) for s in line.split() if isNumber(s)]
+        if len(numbersHere) is 1:
+          suns = numbersHere[0]
+          noIntensity = False
+
+  jScaleFactor = 1000/area #for converstion to current density[mA/cm^2]
+
+  c = StringIO(fileBuffer) # makes string look like a file 
+
+  #read in data
+  try:
+    data = np.loadtxt(c,delimiter=delimiter)
+  except:
+    print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
+    return
+  VV = data[:,0]
+  II = data[:,1]
+  if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
+    II = II/jScaleFactor
+
+  if vsTime:
+    tData = data[:,2]
+    # store off the time data in special vectors
+    VVt = VV
+    IIt = II
+    newOrder = tData.argsort()
+    VVt=VVt[newOrder]
+    IIt=IIt[newOrder]
+    tData=tData[newOrder]
+    tData=tData-tData[0]#start time at t=0            
+
+  # prune data points that share the same voltage
+  u, indices = np.unique(VV, return_index=True)
+  VV = VV[indices]
+  II = II[indices]
+
+  # sort data by ascending voltage
+  newOrder = VV.argsort()
+  VV=VV[newOrder]
+  II=II[newOrder]
+
+  # trim data to voltage range
+  vMask = (VV > params['lowerVLim']) & (VV < params['upperVLim'])
+  VV = VV[vMask]
+  II = II[vMask]
+
+  # the task now is to figure out how this data was collected so that we can fix it
+  # this is important because the guess and fit algorithms below expect the data to be
+  # in a certian way
+  # essentially, we want to know if current or voltage has the wrong sign
+  # the goal here is that the curve "knee" ends up in quadrant 1
+  # (for a light curve, and quadrant 4 for a dark curve)
+  smoothingParameter = 1-1e-3
+  coefs, brks = findBreaksAndCoefs(VV, II, smoothingParameter)        
+  superSmoothSpline = scipy.interpolate.PPoly(coefs,brks)
+  superSmoothSplineD1 = superSmoothSpline.derivative(1) # first deravive
+  superSmoothSplineD2 = superSmoothSpline.derivative(2) # second deravive
+
+  vv=np.linspace(min(VV),max(VV),1000)
+  if vv[np.abs(superSmoothSplineD2(vv)).argmax()] < 0: # fix flipped voltage sign
+    VV = VV * -1
+    newOrder = VV.argsort()
+    II=II[newOrder]
+    VV=VV[newOrder]
+    vv=np.linspace(min(VV),max(VV),1000)
+    print("Flipping voltage sign.", file = logMessages)
+  if II[0] < II[-1]:
+    II = II * -1
+    print("Flipping current sign.", file = logMessages)
+
+  # now let's do a spline fit for our data
+  # this prevents measurment noise from impacting our results
+  # and allows us to interpolate between data points
+
+  smoothingParameter = 1-2e-6
+  #0 -> LS-straight line
+  #1 -> cubic spline interpolant
+
+  coefs, brks = findBreaksAndCoefs(VV, II, smoothingParameter)
+  smoothSpline = scipy.interpolate.PPoly(coefs,brks)        
+
+  pCoefs, pBrks = findBreaksAndCoefs(VV, II*VV, smoothingParameter)
+  powerSpline = scipy.interpolate.PPoly(pCoefs,pBrks)
+  powerSplineD1 = powerSpline.derivative(1)
+
+
+
+  ##newCoefs = np.vstack((coefs,np.zeros(coefs.shape[1])))
+  ##k=4
+  ##for i in range(coefs.shape[1]-1):
+  ##    newCoefs[4,i+1] = sum(newCoefs[m, i] * (brks[i+1] - brks[i])**(k-m) for m in range(k+1))
+
+  ##newCoefs = np.vstack((coefs,np.zeros(coefs.shape[1]),np.zeros(coefs.shape[1])))
+  ##newCoefs = np.vstack((coefs,S))
+  ##newCoefs = np.vstack((newCoefs,np.zeros(coefs.shape[1])))
+  ##powerSpline = scipy.interpolate.PPoly(newCoefs,brks) # multiply smoothSpline by x        
+
+  ##splineB = scipy.interpolate.UnivariateSpline(VV, II, s=1e-7)
+  ##splineC = scipy.interpolate.Rbf(VV, II, smooth=0.05)
+  ##coeffsA = scipy.signal.cspline1d(II, lamb=0.5)
+  ##coeffsB = scipy.signal.cspline1d(II, smooth=0.1)
+  ##splineE = scipy.interpolate.Rbf(VV, II,function="inverse",smooth=2e-5)
+  ##II2 = scipy.signal.medfilt(II, kernel_size=5)
+  ##splineF = scipy.interpolate.Rbf(VV, II2,function='cubic', smooth=2e-8)
+  ##splineG = scipy.interpolate.UnivariateSpline(VV, II2, s=1e-7)
+
+  ##coefs, brks = _compute_coefs(VV, II, smoothingParameter, 1)
+  ##pthing = scipy.interpolate.PPoly(coefs,brks)        
+
+
+  #iiA = smoothSpline(vv)
+  #iiB = powerSpline(vv)
+  #iiC = smoothSpline(vv)*vv
+  #iiD = powerSplineD1(vv)
+  ##iiB = tehPPoly2(vv)
+  ##iiC = ppder1(vv)
+  ##iiD = ppder2(vv)
+  ###iiC = scipy.interpolate.splev(vv, tck)
+  ###iiC = splineC(vv)
+  ###iiD = scipy.signal.cspline1d_eval(coeffsA, vv,dx=dx)
+  ###iiE = splineE(vv)
+  ###iiF = splineF(vv)
+  ###iiG = splineG(vv)
+  ###iiH = pthing(vv)
+
+  #plt.title('Spline analysis')
+  #p1, = plt.plot(VV,II,ls='None',marker='o', label='Data')
+  #p2, = plt.plot(vv,iiA, label='smoothSpline')
+  #p3, = plt.plot(vv,iiB, label='powerSpline')
+  #p4, = plt.plot(vv,iiC, label='cheating')
+  #p5, = plt.plot(vv,iiD, label='powerSplineD1')
+  ##p6, = plt.plot(vv,iiD, label='der2')
+  ###p7, = plt.plot(vv,iiE, label='Rbf cubic')
+  ###p8, = plt.plot(vv,iiF, label='Rbf with medfilt')
+  ###p8, = plt.plot(vv,iiG, label='univariat with medfilt')
+  ###p8, = plt.plot(vv,iiH, label='rippedOut')
+  #ax = plt.gca()
+  #handles, labels = ax.get_legend_handles_labels()
+  #ax.legend(handles, labels, loc=3)
+  #plt.grid(b=True)
+  #plt.draw()
+  #plt.show()   
+  #plt.pause(500)
+
+  #print("done")
+
+  #if any(II>
+
+  # catch and fix flipped current sign
+  # The philosoply in use here is that energy producers have positive current defined as flowing out of the positive terminal
+  #if II[0] < II[-1]:
+  #    self.ui.statusbar.showMessage("Incorrect current convention detected. I'm fixing that for you.",500)
+  #    II = II * -1
+
+  #VV = VV * -1# TODO: remove this hack and properly detect inverted devices!
+  #II = II * -1
+  #indexInQuad1 = np.logical_and(VV>0,II>0)
+  #if any(indexInQuad1): # enters statement if there is at least one datapoint in quadrant 1
+    #isDarkCurve = False
+  #else:
+    ## pick out data points in each quadrant
+    #indexInQuad2 = np.logical_and(VV<0,II>0) 
+    #indexInQuad3 = np.logical_and(VV<0,II<0)
+    #indexInQuad4 = np.logical_and(VV>0,II<0)
+    ## find the largest powers in each quad
+    #if any(indexInQuad2):
+      #PP2 = np.min(VV[indexInQuad2]*II[indexInQuad2])
+    #else:
+      #PP2 = 0
+    #if any(indexInQuad3):
+      #PP3 = np.max(VV[indexInQuad3]*II[indexInQuad3])
+    #else:
+      #PP3 = 0
+    #if any(indexInQuad4):
+      #PP4 = np.max(VV[indexInQuad4]*II[indexInQuad4])
+    #else:
+      #PP4 = 0
+
+    ## catch and fix flipped voltage polarity(!)
+    #if (PP4<(PP2-PP3)):
+      #self.ui.statusbar.showMessage("Dark curve detected",500)
+      #isDarkCurve = True
+    #else:
+      ## TODO: dark curves of this messed up nature will likely not be caught
+      #self.ui.statusbar.showMessage("Inverted I-V convention detected: I'm fixing that for you.",500)
+      #II = II * -1
+      #VV = VV * -1
+      #newOrder = VV.argsort()
+      #VV=VV[newOrder]
+      #II=II[newOrder]                
+      #isDarkCurve = False
+
+  isDarkCurve = False
+  Vmpp = powerSplineD1.roots(extrapolate=False,discontinuity=False)
+  VmppSize = Vmpp.size
+  if VmppSize is 0:
+    Pmpp = nan
+    Impp = nan
+    Vmpp = nan
+    isDarkCurve = True
+  elif VmppSize is 1:
+    Vmpp = float(Vmpp)
+    Impp = float(smoothSpline(Vmpp))
+    Pmpp = Impp*Vmpp
+  else: # there are more than one local power maxima
+    Impp = smoothSpline(Vmpp)
+    Pmpp = Impp*Vmpp
+    arg = Pmpp.argmax()
+    Pmpp = float(Pmpp[arg])
+    Vmpp = float(Vmpp[arg])
+    Impp = float(Impp[arg])
+
+  Voc = smoothSpline.roots(extrapolate=True,discontinuity=False)
+  VocSize = Voc.size
+  isDarkCurve = False
+  abortTheFit = True
+  if VocSize is 0:
+    Voc = nan
+    isDarkCurve = True
+  elif VocSize is 1:
+    Voc = float(Voc)
+  else: # got too many answers
+    valid = np.logical_and(Voc > 0, Voc < max(VV)+0.05)
+    nVocs = sum(valid)
+    if nVocs !=1:
+      print("Warning: we found",nVocs,"values for Voc, using the last one.", file = logMessages)
+      Voc = Voc[-1]
+      #Voc = nan
+    else:
+      Voc = float(Voc[valid][0])
+
+  if isDarkCurve:
+    print("Dark curve detected.", file = logMessages)
+
+  Isc = float(smoothSpline(0))
+  FF = Pmpp/(Voc*Isc)
+
+  # here's how we'll discretize our fits
+  plotPoints = 1000
+  if min(VV) > 0: # check for only positive voltages
+    vvMin = -0.05 # plot at least 50 mV below zero
+  else:
+    vvMin = min(VV)
+
+  if max(VV) < Voc: # check for data beyond Voc
+    vvMax = Voc + 0.05 # plot at least 50 mV above Voc
+  else:
+    vvMax = max(VV)
+
+  vv = np.linspace(vvMin,vvMax,plotPoints)
+
+  splineY = smoothSpline(vv)*jScaleFactor
+  modelY = [nan]
+  result['graphData'] = {'vsTime':vsTime,'fitX':vv,'modelY':modelY,'splineY':splineY,'i':II*jScaleFactor,'v':VV,'Voc':Voc,'Isc':Isc*jScaleFactor,'Vmax':Vmpp,'Imax':Impp*jScaleFactor}
+
+  # put items in table
+  ##self.ui.tableWidget.insertRow(self.rows)
+  ##for ii in range(len(self.cols)):
+  ##  self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
+
+  # here's how we put data into the table
+  ##insert = lambda colName,value: self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index(colName)).setData(Qt.UserRole,float(np.real(value)))
+  result['insert'] = {}
+  result['insert']['pce_spline'] = (Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100
+  result['insert']['pmax_spline'] = Pmpp/area
+  result['insert']['pmax_a_spline'] = Pmpp
+  result['insert']['isc_spline'] = Isc
+  result['insert']['jsc_spline'] = Isc/area
+  result['insert']['voc_spline'] = Voc
+  result['insert']['ff_spline'] = FF
+  result['insert']['vmax_spline'] = Vmpp
+  result['insert']['area'] = area
+  result['insert']['suns'] = suns
+
+  #insert('pce_spline',(Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100)
+  #insert('pmax_spline',Pmpp/area)
+  #insert('pmax_a_spline',Pmpp)
+  #insert('isc_spline',Isc)
+  #insert('jsc_spline',Isc/area)
+  #insert('voc_spline',Voc)
+  #insert('ff_spline',FF)
+  #insert('vmax_spline',Vmpp)
+  #insert('area',area)
+  #insert('suns',suns)
+
+  if not vsTime:
+    if not params['doFit']:
+      print("Not attempting fit to characteristic equation.", file = logMessages)
+    else:
+      # set bounds on the fit variables
+      # if upper=lower bound, then that variable will be taken out of the optimization
+      #bounds ={}
+      #bounds['I0'] = [0, inf] 
+      #bounds['Iph'] = [0, inf]
+      #bounds['Rs'] = [0, inf]
+      #bounds['Rsh'] = [0, inf]
+      #bounds['n'] = [0, inf]
+      localBounds = params['bounds']
+
+      # take a guess at what the fit parameters will be
+      #pr.enable()
+      #tnot = time.time()
+      try:
+        guess = makeAReallySmartGuess(VV,II,isDarkCurve)
+      except:
+        print("Warning: makeAReallySmartGuess() function failed!", file = logMessages)
+        guess = {'I0':1e-9, 'Iph':II[0], 'Rs':5, 'Rsh':1e6, 'n':1.0}
+
+      #print (time.time()-tnot)
+      #print(len(VV),len(II),VV.mean(),II.mean())
+      #pr.disable()
+      #s = io.StringIO()
+      #sortby = 'cumulative'
+      #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+      #ps.print_stats()
+      #lines = s.getvalue()
+      #print(lines.splitlines()[0])
+      #print(lines)            
+
+
+      #localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
+      #localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
+      #localBounds['Rs'] = [x/currentScaleFactor for x in localBounds['Rs']]
+      #localBounds['Rsh'] = [x/currentScaleFactor for x in localBounds['Rsh']]
+
+      # let's make sure we're not guessing outside the bounds
+      if guess['I0'] < localBounds['I0'][0]:
+        guess['I0'] = localBounds['I0'][0]
+      elif guess['I0'] > localBounds['I0'][1]:
+        guess['I0'] = localBounds['I0'][1]
+
+      if guess['Iph'] < localBounds['Iph'][0]:
+        guess['Iph'] = localBounds['Iph'][0]
+      elif guess['Iph'] > localBounds['Iph'][1]:
+        guess['Iph'] = localBounds['Iph'][1]
+
+      if guess['Rs'] < localBounds['Rs'][0]:
+        guess['Rs'] = localBounds['Rs'][0]
+      elif guess['Rs'] > localBounds['Rs'][1]:
+        guess['Rs'] = localBounds['Rs'][1]
+
+      if guess['Rsh'] < localBounds['Rsh'][0]:
+        guess['Rsh'] = localBounds['Rsh'][0]
+      elif guess['Rsh'] > localBounds['Rsh'][1]:
+        guess['Rsh'] = localBounds['Rsh'][1]
+
+      if guess['n'] < localBounds['n'][0]:
+        guess['n'] = localBounds['n'][0]
+      elif guess['n'] > localBounds['n'][1]:
+        guess['n'] = localBounds['n'][1]
+
+      # scale the current up so that the curve fit algorithm doesn't run into machine precision issues
+      currentScaleFactor = 1/abs(II.mean())
+      #currentScaleFactor = 1e5
+      #currentScaleFactor = 1
+      guess['I0'] = guess['I0']*currentScaleFactor
+      guess['Iph'] = guess['Iph']*currentScaleFactor
+      guess['Rs'] = guess['Rs']/currentScaleFactor
+      guess['Rsh'] = guess['Rsh']/currentScaleFactor            
+      II = II*currentScaleFactor
+
+      #pr.enable()
+      try:
+        result['fitResult'] = doTheFit(VV, II, guess, localBounds, method = params['method'], verbose = params['verbose'])
+      except:
+        result['fitResult'] = {'success': False, 'message': 'Warning: doTheFit() function crashed!'}
+
+      #fitParams, sigmas, errmsg, status = doTheFit(VV,II,guess,localBounds)
+      #{'success':True,'optParams':optimizeResult.x,'sigmas':sigmas,'message':optimizeResult.message}
+      #pr.disable()
+      #s = io.StringIO()
+      #sortby = 'cumulative'
+      #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+      #ps.print_stats()
+      #lines = s.getvalue()
+      #print(lines.splitlines()[0])
+      #print(lines)
+
+      # unscale the things
+      guess['I0'] = guess['I0']/currentScaleFactor
+      guess['Iph'] = guess['Iph']/currentScaleFactor
+      guess['Rs'] = guess['Rs']*currentScaleFactor
+      guess['Rsh'] = guess['Rsh']*currentScaleFactor
+      II = II/currentScaleFactor
+
+      if (result['fitResult']['success']):
+        print("Good fit because: " + result['fitResult']['message'], file = logMessages)
+
+        params = {}
+        params['I0'] = result['fitResult']['optParams'][0]/currentScaleFactor
+        params['Iph'] = result['fitResult']['optParams'][1]/currentScaleFactor
+        params['Rs'] = result['fitResult']['optParams'][2]*currentScaleFactor
+        params['Rsh'] = result['fitResult']['optParams'][3]*currentScaleFactor
+        params['n'] = result['fitResult']['optParams'][4]
+        SSE = result['fitResult']['SSE']/currentScaleFactor**2
+
+
+        # TODO: the sigmas are messed up (by scaling?) when doing a l-m fit
+        # TODO: re-do uncertanties
+        #sigmas = fitResult['sigmas']
+        #sigmas[0] = sigmas[0]/currentScaleFactor
+        #sigmas[1] = sigmas[1]/currentScaleFactor
+        #sigmas[2] = sigmas[2]*currentScaleFactor
+        #sigmas[3] = sigmas[3]*currentScaleFactor
+        #fitParams[0] = params['I0']
+
+        # this will produce an evaluation of how well the fit worked
+        doVerboseAnalysis = False
+        if doVerboseAnalysis:
+          analyzeGoodness(VV,II,params,guess,result['fitResult']['message'])
+
+        #do error estimation:
+        #alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
+
+        #nn = len(VV)    # number of data points
+        #p = len(sigmas) # number of parameters
+
+        #dof = max(0, nn - p) # number of degrees of freedom
+
+        # student-t value for the dof and confidence level
+        #tval = t.ppf(1.0-alpha/2., dof) 
+
+        #lowers = []
+        #uppers = []
+        #calculate 95% confidence interval
+        #for a, p, sigma in zip(list(range(nn)), fitParams, sigmas):
+        #    lower = p - sigma*tval
+        #    upper = p + sigma*tval
+        #    lowers.append(lower)
+        #    uppers.append(upper)
+        uppers = [nan,nan,nan,nan,nan]
+        lowers = [nan,nan,nan,nan,nan]                
+
+        # force parameter
+        #params['Iph'] = 0.00192071
+
+        # find mpp
+        VmppGuess = VV[np.array(VV*II).argmax()]
+        mppFound = False
+        try:
+          Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess))
+          mppFound = True
+        except:
+          try: # try again with a differnt starting point
+            Vmpp_guess = Vmpp_guess-0.1
+            Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess))
+            mppFound = True
+          except: # two failures means we're done
+            Vmpp_charEqn = nan
+        if mppFound:
+          Impp_charEqn = slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=Vmpp_charEqn)
+          Pmpp_charEqn = Impp_charEqn*Vmpp_charEqn
+        else:
+          Impp_charEqn = nan
+          Pmpp_charEqn = nan
+
+        # find Voc
+        try:
+          Voc_charEqn = Voc_eqn(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
+        except:
+          Voc_charEqn = nan
+
+        Isc_charEqn = Isc_eqn(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'])
+        FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
+        result['graphData']['modelY'] = np.array([slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=x) for x in vv])*jScaleFactor
+
+        result['insert']['SSE'] = SSE
+        result['insert']['rs_a'] = params['Rs']*area
+        result['insert']['rs'] = params['Rs']
+        result['insert']['rsh_a'] = params['Rsh']*area
+        result['insert']['rsh'] = params['Rsh']
+        result['insert']['jph'] = params['Iph']/area
+        result['insert']['iph'] = params['Iph']
+        result['insert']['j0'] = params['I0']/area
+        result['insert']['i0'] = params['I0']
+        result['insert']['n'] = params['n']
+        result['insert']['vmax_fit'] = Vmpp_charEqn
+        result['insert']['pmax_fit'] = Pmpp_charEqn
+        result['insert']['pmax_a_fit'] = Pmpp_charEqn/area
+        result['insert']['pce_fit'] = (Pmpp_charEqn/area)/(stdIrridance*suns/sqcmpersqm)*100
+        result['insert']['voc_fit'] = Voc_charEqn
+        result['insert']['ff_fit'] = FF_charEqn
+        result['insert']['isc_fit'] = Isc_charEqn
+        result['insert']['jsc_fit'] = Isc_charEqn/area
+
+        #insert('SSE',SSE)
+        #insert('rs_a',params['Rs']*area)
+        #insert('rs',params['Rs'])
+        #insert('rsh_a',params['Rsh']*area)
+        #insert('rsh',params['Rsh'])
+        #insert('jph',params['Iph']/area)
+        #insert('iph',params['Iph'])
+        #insert('j0',params['I0']/area)
+        #insert('i0',params['I0'])
+        #insert('n',params['n'])
+        #insert('vmax_fit',Vmpp_charEqn)
+        #insert('pmax_fit',Pmpp_charEqn)
+        #insert('pmax_a_fit',Pmpp_charEqn/area)
+        #insert('pce_fit',(Pmpp_charEqn/area)/(stdIrridance*suns/sqcmpersqm)*100) 
+        #insert('voc_fit',Voc_charEqn)
+        #insert('ff_fit',FF_charEqn)
+        #insert('isc_fit',Isc_charEqn)
+        #insert('jsc_fit',Isc_charEqn/area)          
+
+      else: # fit failure
+        print("Bad fit because: " + result['fitResult']['message'],file = logMessages)
+        #modelY = np.empty(plotPoints)*nan
+
+  else:#vs time
+    print('This file contains time data.')
+    result['fitResult']['graphData'] = {'vsTime':vsTime,'time':tData,'i':IIt*jScaleFactor,'v':VVt}
+
+  ###export button
+  ##exportBtn = QPushButton(self.ui.tableWidget)
+  ##exportBtn.setText('Export')
+  ##exportBtn.clicked.connect(self.handleButton)
+  ##self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)        
+
+  ###file name
+  ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setText(fileName)
+  ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setToolTip(''.join(comments))          
+
+  ###plot button
+  ##plotBtn = QPushButton(self.ui.tableWidget)
+  ##plotBtn.setText('Plot')
+  ##plotBtn.clicked.connect(self.handleButton)
+  ##self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('plotBtn'), plotBtn)
+  ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('plotBtn')).setData(Qt.UserRole,graphData)
+
+
+  ##self.formatTableRowForDisplay(self.rows)
+  ##self.ui.tableWidget.resizeColumnsToContents()
+
+  ##self.rows = self.rows + 1
+  logMessages.seek(0)
+  result['logMessages'] = logMessages.read()
+  #print(result)
+  return result
 
 def doSymbolicManipulations(fastAndSloppy=False):
   global Voc_eqn
@@ -151,7 +776,9 @@ def doSymbolicManipulations(fastAndSloppy=False):
   # this puts the symbolic solution for I from above into a format needed for curve_fit
   I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
   
-  return fastAndSloppy
+  #signals = customSignals()
+  mySignals.sloppy.emit(fastAndSloppy)
+  #return fastAndSloppy
 
 # tests if string is a number
 def isNumber(s):
@@ -479,7 +1106,7 @@ def makeAReallySmartGuess(VV,II,isDarkCurve):
   return guess
 
 # here we attempt to fit the input data to the characteristic equation
-def doTheFit(VV,II,guess,bounds,windowObj):
+def doTheFit(VV, II, guess, bounds, method = 'trf',verbose = 0):
   x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
   #x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
   #residuals = lambda x,T,Y: [-y + float(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t).real) for t,y in zip(T,Y)]
@@ -509,13 +1136,9 @@ def doTheFit(VV,II,guess,bounds,windowObj):
   fitKwargs['tr_options'] = {'regularize':True}
   #fitKwargs['jac_sparsity'] = None
   fitKwargs['max_nfev'] = 20000
-  fitKwargs['verbose'] = windowObj.ui.verbositySpinBox.value()
-  if windowObj.ui.fitMethodComboBox.currentIndex() == 0:
-    fitKwargs['method'] = 'trf'
-  elif windowObj.ui.fitMethodComboBox.currentIndex() == 1:
-    fitKwargs['method'] = 'dogbox'
-  elif windowObj.ui.fitMethodComboBox.currentIndex() == 2:
-    fitKwargs['method'] = 'lm'
+  fitKwargs['verbose'] = verbose
+  fitKwargs['method'] = method
+  if method == 'lm':
     fitKwargs['loss'] = 'linear' # loss must be linear for lm method
   fitKwargs['args'] = (VV,II)
   fitKwargs['kwargs'] = {}
@@ -689,24 +1312,22 @@ class col:
   position = 0
   tooltip = ''
 
-class WorkerSignals(QObject):
-  result = pyqtSignal(dict)
+
 
 # this will process a file
-class Worker(QRunnable):
+#class Worker(QRunnable):
+#
+#  def __init__(self,mainWindow,fileName):
+#    super(Worker, self).__init__()
+#    self.mainWindow = mainWindow
+#    self.fileName = fileName
+#    self.signals = WorkerSignals()#
+#
+#  def run(self):
+#    result = self.mainWindow.processFile(self.fileName)
+#    self.signals.result.emit(result)
 
-  def __init__(self,mainWindow,fileName):
-    super(Worker, self).__init__()
-    self.mainWindow = mainWindow
-    self.fileName = fileName
-    self.signals = WorkerSignals()
 
-  def run(self):
-    result = self.mainWindow.processFile(self.fileName)
-    self.signals.result.emit(result)
-
-##class doSymbolicMathSignals(QObject):
-  ##result = pyqtSignal(bool)
 
 ### this will process a file
 ##class doSymbolicMath(QRunnable):
@@ -736,7 +1357,10 @@ class MainWindow(QMainWindow):
 
   # for table
   rows = 0 #this variable keepss track of how many rows there are in the results table
-  cols = OrderedDict()    
+  cols = OrderedDict()
+  
+  def closeEvent(self, event):
+    self.pool.shutdown(wait=False)
 
   def __init__(self):
     QMainWindow.__init__(self)
@@ -845,6 +1469,7 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
 
     thisKey = 'pmax_a_fit'
+
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
     self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
@@ -915,15 +1540,8 @@ class MainWindow(QMainWindow):
     # Set up the user interface from Designer.
     self.ui = Ui_batch_iv_analysis()
     self.ui.setupUi(self)
-
-    # load setting for computation threads
-    if not self.settings.contains('threads'):
-      self.threads = 4
-      self.settings.setValue('threads',self.threads)
-    else:
-      self.threads = int(self.settings.value('threads'))
-    self.settings.setValue('threads',8)
-
+      
+        
     # load setting for lower voltage cuttoff
     if not self.settings.contains('lowerVoltageCutoff'):
       self.ui.lowerVoltageCutoffLineEdit.setText('-inf')
@@ -980,6 +1598,12 @@ class MainWindow(QMainWindow):
       self.ui.verbositySpinBox.setValue(int(self.settings.value('verbosity')))
     else:
       self.settings.setValue('verbosity',self.ui.verbositySpinBox.value())
+
+    if self.settings.contains('threads'):
+      self.ui.analysisThreadsSpinBox.setValue(int(self.settings.value('threads')))
+    else:
+      self.settings.setValue('threads',self.ui.analysisThreadsSpinBox.value())
+    self.ui.analysisThreadsSpinBox.valueChanged.connect(self.handleNThreadChange)
 
     self.bounds['I0'][0] = np.float(I0_lb_string)
     self.bounds['Iph'][0] = np.float(Iph_lb_string)
@@ -1049,30 +1673,84 @@ class MainWindow(QMainWindow):
     #override showMessage for the statusbar
     self.oldShowMessage = self.ui.statusbar.showMessage
     self.ui.statusbar.showMessage = self.myShowMessage
-
-    # this pool holds the workers
-    self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=self.threads)
     
+    # this pool holds the workers
+    self.pool = concurrent.futures.ProcessPoolExecutor(max_workers = self.ui.analysisThreadsSpinBox.value())    
+    
+    #mySignals.sloppy.connect(self.handleMathFinished)
+    #mySignals.analysisResult.connect(self.processFitResult)
+        
     # do symbolic calcs now if needed
     if self.ui.attemptCharEqnFitCheckBox.isChecked():
+      #self.pool.submit(doSymbolicManipulations,fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
       doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
        
   def handleMathFinished(self,sloppy):
-    tp = QThreadPool.globalInstance()
-    tp.setMaxThreadCount(self.threads)
     self.symbolCalcsNotDone = False
     print("One-time symbolic manipulations done! Fast and sloppy mode =", sloppy)
+    
+  def distillAnalysisParams(self):
+    analysisParams = {}
+    analysisParams['lowerVLim'] = self.lowerVLim
+    analysisParams['upperVLim'] = self.upperVLim
+    analysisParams['doFit'] = self.ui.attemptCharEqnFitCheckBox.isChecked()
+    analysisParams['bounds'] = self.bounds
+    
+    if self.ui.fitMethodComboBox.currentIndex() == 0:
+      analysisParams['method'] = 'trf'
+    elif self.ui.fitMethodComboBox.currentIndex() == 1:
+      analysisParams['method'] = 'dogbox'
+    elif self.ui.fitMethodComboBox.currentIndex() == 2:
+      analysisParams['method'] = 'lm'
+    
+    analysisParams['verbose'] = self.ui.verbositySpinBox.value()
+    
+    return analysisParams
+  
+  def updatePoolStatus(self):
+    qDJobs = len(self.pool._pending_work_items)
+    processes = len(self.pool._processes)
+    activeJobs = len(self.pool._pending_work_items)-self.pool._work_ids.qsize()-self.pool._call_queue.qsize()
+    poolStatusString = '[ Pending jobs: ' + str(qDJobs) + ' ]   [ Active jobs: ' + str(activeJobs)+'/' + str(processes) + ' ]'
+    self.myShowMessage(poolStatusString)
 
-  def processFitResult(self,result):
-    print('Got new fit result...')
-    print(result)
-    tp = QThreadPool.globalInstance()
-    activeThreads = tp.activeThreadCount()
-    #print('Active threads: '+str(activeThreads))
-    if activeThreads == 0:
-      tp.waitForDone()
-    #self.ui.statusbar.showMessage('Active threads: '+str(tp.activeThreadCount()),500)
-
+  def processFitResult(self,submission):
+    
+    #print("self.pool._pending_work_items",self.pool._pending_work_items)
+    
+    #print("self.pool._call_queue.qsize()",self.pool._call_queue.qsize())
+    #print("self.pool._work_ids.qsize()",self.pool._work_ids.qsize())
+    #print("self.pool._queue_count",self.pool._queue_count)
+    #print("len(self.pool._processes)",len(self.pool._processes))
+    #print("len(self.pool._pending_work_items)",len(self.pool._pending_work_items))
+    #print("sum([value.future.running() for key, value in self.pool._pending_work_items.items()])", sum([value.future.running() for key, value in self.pool._pending_work_items.items()]))
+    #print('sum([s.running() for s in self.submissions])',sum([s.running() for s in self.submissions]))
+    #print('sum([s.done() for s in self.submissions])',sum([s.done() for s in self.submissions]))
+    #[print(value.__dict__) for key, value in self.pool._processes.items()]
+    
+    #print('attempt:',len(self.pool._pending_work_items)-self.pool._work_ids.qsize()-self.pool._call_queue.qsize())
+    #print("self.pool._processes",self.pool._processes)
+    #workersActive = sum([value.daemon for key, value in self.pool._processes.items()])    
+    #workersActive = sum([value.future.running() for key, value in self.pool._pending_work_items.items()])
+    #workersActive = [value.sentinel for key, value in self.pool._processes.items()]
+    self.updatePoolStatus()
+    if submission.done() and submission.exception(timeout=0) is None and type(submission.result()) is dict:
+      result = submission.result()
+      print('Got new fit result...')
+      print(result['fitResult'])
+      #print(result)
+      fileName, fileExtension = os.path.splitext(result['fullPath'])
+      fileName = os.path.basename(result['fullPath'])
+      self.fileNames.append(fileName)
+      #tp = QThreadPool.globalInstance()
+      #activeThreads = tp.activeThreadCount()
+      #print('Active threads: '+str(activeThreads))
+      #if activeThreads == 0:
+      #  tp.waitForDone()
+      #self.ui.statusbar.showMessage('Active threads: '+str(tp.activeThreadCount()),500)
+    else:
+      print('Error during file processing:', submission.exception(timeout=0))
+    
   def resetDefaults(self):
     self.ui.attemptCharEqnFitCheckBox.setChecked(True)
     self.ui.doFastAndSloppyMathCheckBox.setChecked(True)
@@ -1081,6 +1759,7 @@ class MainWindow(QMainWindow):
     self.ui.upperVoltageCutoffLineEdit.setText('inf')
     self.ui.upperVoltageCutoffLineEdit.editingFinished.emit()
     self.ui.fitMethodComboBox.setCurrentIndex(2)
+    self.ui.verbositySpinBox.setValue(0)
     self.ui.verbositySpinBox.setValue(0)
 
 
@@ -1126,6 +1805,10 @@ class MainWindow(QMainWindow):
     spinBox = self.sender()
     self.settings.setValue('verbosity',spinBox.value())
 
+  def handleNThreadChange(self):
+    spinBox = self.sender()
+    self.settings.setValue('threads',spinBox.value())
+
   def handleConstraintsChange(self):
     lineEdit = self.sender()
     name = lineEdit.objectName()
@@ -1156,12 +1839,8 @@ class MainWindow(QMainWindow):
     self.settings.setValue('fastAndSloppy',checkBox.isChecked())
     self.symbolCalcsNotDone = True
     if self.ui.attemptCharEqnFitCheckBox.isChecked():
-      tp = QThreadPool.globalInstance()
-      tp.setMaxThreadCount(1)
-      worker = doSymbolicMath(self)
-      worker.setAutoDelete(True)
-      worker.signals.result.connect(self.handleMathFinished)
-      tp.start(worker)
+      #pool._max_workers = 1
+      self.pool.submit(doSymbolicManipulations,fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
 
   def handleEqnFitChange(self):
     checkBox = self.sender()
@@ -1339,624 +2018,6 @@ class MainWindow(QMainWindow):
     self.rows = 0
     self.fileNames = []
 
-  def processFile(self,fullPath):
-    result = {}
-    logMessages = StringIO()
-    result['fullPath'] = fullPath
-
-
-    fileName, fileExtension = os.path.splitext(fullPath)
-    fileName = os.path.basename(fullPath)
-    self.fileNames.append(fileName)
-    isSnaithFile = False
-    if fileExtension == '.csv':
-      delimiter = ','
-    elif fileExtension == '.tsv':
-      delimiter = '\t'        
-    else:
-      delimiter = None
-
-    print("Processing:", fileName, file = logMessages)
-
-    #wait here for the file to be completely written to disk and closed before trying to read it
-    fi = QFileInfo(fullPath)
-    while (not fi.isWritable()):
-      time.sleep(0.001)
-      fi.refresh()
-
-    fp = open(fullPath, mode='r')
-    fileBuffer = fp.read()
-    fp.close()
-    if len(fileBuffer) < 25:
-      print('Could not read' + fileName +'. This file is less than 25 characters long.', file = logMessages)
-      return
-    first10 = fileBuffer[0:10]
-    last25 = fileBuffer[-26:-1]
-
-    isMcFile = False #true if this is a McGehee iv file format
-    isSnaithFile = False # true if this is a Snaith iv file format
-    #mcFile test:
-    if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
-      nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
-      #the first 8 chars do not contain comment symbol and do contain / and a tab, it's safe to assume mcgehee iv file format
-      isMcFile = True
-      #comment out the first 25 rows here
-      fileBuffer = '#'+fileBuffer
-      fileBuffer = fileBuffer.replace('\n', '\n#',nMcHeaderLines-1)
-    #snaithFile test:
-    elif last25.__contains__('suns:\t'):
-      nSnaithFooterLines = 11 #number of footer lines in snaith IV file format
-      isSnaithFile = True
-      delimiter = '\t'
-      if (fileExtension == '.liv1') or (fileExtension == '.div1'):
-        snaithReverse = True
-      if (fileExtension == '.liv2') or (fileExtension == '.div2'):
-        snaithReverse = False
-      fileBuffer = fileBuffer[::-1] # reverse the buffer
-      fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
-      fileBuffer = fileBuffer[::-1] # un-reverse the buffer
-      fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
-
-    splitBuffer = fileBuffer.splitlines(True)
-
-    suns = 1
-    area = 1 # in cm^2
-    noArea = True
-    noIntensity = True
-    vsTime = False #this is not an i,v vs t data file
-    #extract comments lines and search for area and intensity
-    comments = []
-    for line in splitBuffer:
-      if line.startswith('#'):
-        comments.append(line)
-        if line.__contains__('Area'):
-          numbersHere = [float(s) for s in line.split() if isNumber(s)]
-          if len(numbersHere) is 1:
-            area = numbersHere[0]
-            noArea = False
-        elif line.__contains__('I&V vs t'):
-          if float(line.split(' ')[5]) == 1:
-            vsTime = True
-        elif line.__contains__('Number of suns:'):
-          numbersHere = [float(s) for s in line.split() if isNumber(s)]
-          if len(numbersHere) is 1:
-            suns = numbersHere[0]
-            noIntensity = False
-
-    jScaleFactor = 1000/area #for converstion to current density[mA/cm^2]
-
-    c = StringIO(fileBuffer) # makes string look like a file 
-
-    #read in data
-    try:
-      data = np.loadtxt(c,delimiter=delimiter)
-    except:
-      print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
-      return
-    VV = data[:,0]
-    II = data[:,1]
-    if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
-      II = II/jScaleFactor
-
-    if vsTime:
-      tData = data[:,2]
-      # store off the time data in special vectors
-      VVt = VV
-      IIt = II
-      newOrder = tData.argsort()
-      VVt=VVt[newOrder]
-      IIt=IIt[newOrder]
-      tData=tData[newOrder]
-      tData=tData-tData[0]#start time at t=0            
-
-    # prune data points that share the same voltage
-    u, indices = np.unique(VV, return_index=True)
-    VV = VV[indices]
-    II = II[indices]
-
-    # sort data by ascending voltage
-    newOrder = VV.argsort()
-    VV=VV[newOrder]
-    II=II[newOrder]
-
-    # trim data to voltage range
-    vMask = (VV>self.lowerVLim) & (VV<self.upperVLim)
-    VV=VV[vMask]
-    II=II[vMask]
-
-    # the task now is to figure out how this data was collected so that we can fix it
-    # this is important because the guess and fit algorithms below expect the data to be
-    # in a certian way
-    # essentially, we want to know if current or voltage has the wrong sign
-    # the goal here is that the curve "knee" ends up in quadrant 1
-    # (for a light curve, and quadrant 4 for a dark curve)
-    smoothingParameter = 1-1e-3
-    coefs, brks = findBreaksAndCoefs(VV, II, smoothingParameter)        
-    superSmoothSpline = scipy.interpolate.PPoly(coefs,brks)
-    superSmoothSplineD1 = superSmoothSpline.derivative(1) # first deravive
-    superSmoothSplineD2 = superSmoothSpline.derivative(2) # second deravive
-
-    vv=np.linspace(min(VV),max(VV),1000)
-    if vv[np.abs(superSmoothSplineD2(vv)).argmax()] < 0: # fix flipped voltage sign
-      VV = VV * -1
-      newOrder = VV.argsort()
-      II=II[newOrder]
-      VV=VV[newOrder]
-      vv=np.linspace(min(VV),max(VV),1000)
-      print("Flipping voltage sign.", file = logMessages)
-    if II[0] < II[-1]:
-      II = II * -1
-      print("Flipping current sign.", file = logMessages)
-
-    # now let's do a spline fit for our data
-    # this prevents measurment noise from impacting our results
-    # and allows us to interpolate between data points
-
-    smoothingParameter = 1-2e-6
-    #0 -> LS-straight line
-    #1 -> cubic spline interpolant
-
-    coefs, brks = findBreaksAndCoefs(VV, II, smoothingParameter)
-    smoothSpline = scipy.interpolate.PPoly(coefs,brks)        
-
-    pCoefs, pBrks = findBreaksAndCoefs(VV, II*VV, smoothingParameter)
-    powerSpline = scipy.interpolate.PPoly(pCoefs,pBrks)
-    powerSplineD1 = powerSpline.derivative(1)
-
-
-
-    ##newCoefs = np.vstack((coefs,np.zeros(coefs.shape[1])))
-    ##k=4
-    ##for i in range(coefs.shape[1]-1):
-    ##    newCoefs[4,i+1] = sum(newCoefs[m, i] * (brks[i+1] - brks[i])**(k-m) for m in range(k+1))
-
-    ##newCoefs = np.vstack((coefs,np.zeros(coefs.shape[1]),np.zeros(coefs.shape[1])))
-    ##newCoefs = np.vstack((coefs,S))
-    ##newCoefs = np.vstack((newCoefs,np.zeros(coefs.shape[1])))
-    ##powerSpline = scipy.interpolate.PPoly(newCoefs,brks) # multiply smoothSpline by x        
-
-    ##splineB = scipy.interpolate.UnivariateSpline(VV, II, s=1e-7)
-    ##splineC = scipy.interpolate.Rbf(VV, II, smooth=0.05)
-    ##coeffsA = scipy.signal.cspline1d(II, lamb=0.5)
-    ##coeffsB = scipy.signal.cspline1d(II, smooth=0.1)
-    ##splineE = scipy.interpolate.Rbf(VV, II,function="inverse",smooth=2e-5)
-    ##II2 = scipy.signal.medfilt(II, kernel_size=5)
-    ##splineF = scipy.interpolate.Rbf(VV, II2,function='cubic', smooth=2e-8)
-    ##splineG = scipy.interpolate.UnivariateSpline(VV, II2, s=1e-7)
-
-    ##coefs, brks = _compute_coefs(VV, II, smoothingParameter, 1)
-    ##pthing = scipy.interpolate.PPoly(coefs,brks)        
-
-
-    #iiA = smoothSpline(vv)
-    #iiB = powerSpline(vv)
-    #iiC = smoothSpline(vv)*vv
-    #iiD = powerSplineD1(vv)
-    ##iiB = tehPPoly2(vv)
-    ##iiC = ppder1(vv)
-    ##iiD = ppder2(vv)
-    ###iiC = scipy.interpolate.splev(vv, tck)
-    ###iiC = splineC(vv)
-    ###iiD = scipy.signal.cspline1d_eval(coeffsA, vv,dx=dx)
-    ###iiE = splineE(vv)
-    ###iiF = splineF(vv)
-    ###iiG = splineG(vv)
-    ###iiH = pthing(vv)
-
-    #plt.title('Spline analysis')
-    #p1, = plt.plot(VV,II,ls='None',marker='o', label='Data')
-    #p2, = plt.plot(vv,iiA, label='smoothSpline')
-    #p3, = plt.plot(vv,iiB, label='powerSpline')
-    #p4, = plt.plot(vv,iiC, label='cheating')
-    #p5, = plt.plot(vv,iiD, label='powerSplineD1')
-    ##p6, = plt.plot(vv,iiD, label='der2')
-    ###p7, = plt.plot(vv,iiE, label='Rbf cubic')
-    ###p8, = plt.plot(vv,iiF, label='Rbf with medfilt')
-    ###p8, = plt.plot(vv,iiG, label='univariat with medfilt')
-    ###p8, = plt.plot(vv,iiH, label='rippedOut')
-    #ax = plt.gca()
-    #handles, labels = ax.get_legend_handles_labels()
-    #ax.legend(handles, labels, loc=3)
-    #plt.grid(b=True)
-    #plt.draw()
-    #plt.show()   
-    #plt.pause(500)
-
-    #print("done")
-
-    #if any(II>
-
-    # catch and fix flipped current sign
-    # The philosoply in use here is that energy producers have positive current defined as flowing out of the positive terminal
-    #if II[0] < II[-1]:
-    #    self.ui.statusbar.showMessage("Incorrect current convention detected. I'm fixing that for you.",500)
-    #    II = II * -1
-
-    #VV = VV * -1# TODO: remove this hack and properly detect inverted devices!
-    #II = II * -1
-    #indexInQuad1 = np.logical_and(VV>0,II>0)
-    #if any(indexInQuad1): # enters statement if there is at least one datapoint in quadrant 1
-      #isDarkCurve = False
-    #else:
-      ## pick out data points in each quadrant
-      #indexInQuad2 = np.logical_and(VV<0,II>0) 
-      #indexInQuad3 = np.logical_and(VV<0,II<0)
-      #indexInQuad4 = np.logical_and(VV>0,II<0)
-      ## find the largest powers in each quad
-      #if any(indexInQuad2):
-        #PP2 = np.min(VV[indexInQuad2]*II[indexInQuad2])
-      #else:
-        #PP2 = 0
-      #if any(indexInQuad3):
-        #PP3 = np.max(VV[indexInQuad3]*II[indexInQuad3])
-      #else:
-        #PP3 = 0
-      #if any(indexInQuad4):
-        #PP4 = np.max(VV[indexInQuad4]*II[indexInQuad4])
-      #else:
-        #PP4 = 0
-
-      ## catch and fix flipped voltage polarity(!)
-      #if (PP4<(PP2-PP3)):
-        #self.ui.statusbar.showMessage("Dark curve detected",500)
-        #isDarkCurve = True
-      #else:
-        ## TODO: dark curves of this messed up nature will likely not be caught
-        #self.ui.statusbar.showMessage("Inverted I-V convention detected: I'm fixing that for you.",500)
-        #II = II * -1
-        #VV = VV * -1
-        #newOrder = VV.argsort()
-        #VV=VV[newOrder]
-        #II=II[newOrder]                
-        #isDarkCurve = False
-
-    isDarkCurve = False
-    Vmpp = powerSplineD1.roots(extrapolate=False,discontinuity=False)
-    VmppSize = Vmpp.size
-    if VmppSize is 0:
-      Pmpp = nan
-      Impp = nan
-      Vmpp = nan
-      isDarkCurve = True
-    elif VmppSize is 1:
-      Vmpp = float(Vmpp)
-      Impp = float(smoothSpline(Vmpp))
-      Pmpp = Impp*Vmpp
-    else: # there are more than one local power maxima
-      Impp = smoothSpline(Vmpp)
-      Pmpp = Impp*Vmpp
-      arg = Pmpp.argmax()
-      Pmpp = float(Pmpp[arg])
-      Vmpp = float(Vmpp[arg])
-      Impp = float(Impp[arg])
-
-    Voc = smoothSpline.roots(extrapolate=True,discontinuity=False)
-    VocSize = Voc.size
-    isDarkCurve = False
-    abortTheFit = True
-    if VocSize is 0:
-      Voc = nan
-      isDarkCurve = True
-    elif VocSize is 1:
-      Voc = float(Voc)
-    else: # got too many answers
-      valid = np.logical_and(Voc > 0, Voc < max(VV)+0.05)
-      nVocs = sum(valid)
-      if nVocs !=1:
-        print("Warning: we found",nVocs,"values for Voc, using the last one.", file = logMessages)
-        Voc = Voc[-1]
-        #Voc = nan
-      else:
-        Voc = float(Voc[valid][0])
-
-    if isDarkCurve:
-      print("Dark curve detected.", file = logMessages)
-
-    Isc = float(smoothSpline(0))
-    FF = Pmpp/(Voc*Isc)
-
-    # here's how we'll discretize our fits
-    plotPoints = 1000
-    if min(VV) > 0: # check for only positive voltages
-      vvMin = -0.05 # plot at least 50 mV below zero
-    else:
-      vvMin = min(VV)
-
-    if max(VV) < Voc: # check for data beyond Voc
-      vvMax = Voc + 0.05 # plot at least 50 mV above Voc
-    else:
-      vvMax = max(VV)
-
-    vv = np.linspace(vvMin,vvMax,plotPoints)
-
-    splineY = smoothSpline(vv)*jScaleFactor
-    modelY = [nan]
-    result['graphData'] = {'vsTime':vsTime,'origRow':self.rows,'fitX':vv,'modelY':modelY,'splineY':splineY,'i':II*jScaleFactor,'v':VV,'Voc':Voc,'Isc':Isc*jScaleFactor,'Vmax':Vmpp,'Imax':Impp*jScaleFactor}
-
-    # put items in table
-    ##self.ui.tableWidget.insertRow(self.rows)
-    ##for ii in range(len(self.cols)):
-    ##  self.ui.tableWidget.setItem(self.rows,ii,QTableWidgetItem())
-
-    # here's how we put data into the table
-    ##insert = lambda colName,value: self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index(colName)).setData(Qt.UserRole,float(np.real(value)))
-    result['insert'] = {}
-    result['insert']['pce_spline'] = (Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100
-    result['insert']['pmax_spline'] = Pmpp/area
-    result['insert']['pmax_a_spline'] = Pmpp
-    result['insert']['isc_spline'] = Isc
-    result['insert']['jsc_spline'] = Isc/area
-    result['insert']['voc_spline'] = Voc
-    result['insert']['ff_spline'] = FF
-    result['insert']['vmax_spline'] = Vmpp
-    result['insert']['area'] = area
-    result['insert']['suns'] = suns
-
-    #insert('pce_spline',(Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100)
-    #insert('pmax_spline',Pmpp/area)
-    #insert('pmax_a_spline',Pmpp)
-    #insert('isc_spline',Isc)
-    #insert('jsc_spline',Isc/area)
-    #insert('voc_spline',Voc)
-    #insert('ff_spline',FF)
-    #insert('vmax_spline',Vmpp)
-    #insert('area',area)
-    #insert('suns',suns)
-
-    if not vsTime:
-      if not self.ui.attemptCharEqnFitCheckBox.isChecked():
-        print("Not attempting fit to characteristic equation.", file = logMessages)
-      else:
-        # set bounds on the fit variables
-        # if upper=lower bound, then that variable will be taken out of the optimization
-        #bounds ={}
-        #bounds['I0'] = [0, inf] 
-        #bounds['Iph'] = [0, inf]
-        #bounds['Rs'] = [0, inf]
-        #bounds['Rsh'] = [0, inf]
-        #bounds['n'] = [0, inf]
-        localBounds = self.bounds
-
-        # take a guess at what the fit parameters will be
-        #pr.enable()
-        #tnot = time.time()
-        try:
-          guess = makeAReallySmartGuess(VV,II,isDarkCurve)
-        except:
-          print("Warning: makeAReallySmartGuess() function failed!", file = logMessages)
-          guess = {'I0':1e-9, 'Iph':II[0], 'Rs':5, 'Rsh':1e6, 'n':1.0}
-
-        #print (time.time()-tnot)
-        #print(len(VV),len(II),VV.mean(),II.mean())
-        #pr.disable()
-        #s = io.StringIO()
-        #sortby = 'cumulative'
-        #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-        #ps.print_stats()
-        #lines = s.getvalue()
-        #print(lines.splitlines()[0])
-        #print(lines)            
-
-
-        #localBounds['I0'] = [x*currentScaleFactor for x in localBounds['I0']]
-        #localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
-        #localBounds['Rs'] = [x/currentScaleFactor for x in localBounds['Rs']]
-        #localBounds['Rsh'] = [x/currentScaleFactor for x in localBounds['Rsh']]
-
-        # let's make sure we're not guessing outside the bounds
-        if guess['I0'] < localBounds['I0'][0]:
-          guess['I0'] = localBounds['I0'][0]
-        elif guess['I0'] > localBounds['I0'][1]:
-          guess['I0'] = localBounds['I0'][1]
-
-        if guess['Iph'] < localBounds['Iph'][0]:
-          guess['Iph'] = localBounds['Iph'][0]
-        elif guess['Iph'] > localBounds['Iph'][1]:
-          guess['Iph'] = localBounds['Iph'][1]
-
-        if guess['Rs'] < localBounds['Rs'][0]:
-          guess['Rs'] = localBounds['Rs'][0]
-        elif guess['Rs'] > localBounds['Rs'][1]:
-          guess['Rs'] = localBounds['Rs'][1]
-
-        if guess['Rsh'] < localBounds['Rsh'][0]:
-          guess['Rsh'] = localBounds['Rsh'][0]
-        elif guess['Rsh'] > localBounds['Rsh'][1]:
-          guess['Rsh'] = localBounds['Rsh'][1]
-
-        if guess['n'] < localBounds['n'][0]:
-          guess['n'] = localBounds['n'][0]
-        elif guess['n'] > localBounds['n'][1]:
-          guess['n'] = localBounds['n'][1]
-
-        # scale the current up so that the curve fit algorithm doesn't run into machine precision issues
-        currentScaleFactor = 1/abs(II.mean())
-        #currentScaleFactor = 1e5
-        #currentScaleFactor = 1
-        guess['I0'] = guess['I0']*currentScaleFactor
-        guess['Iph'] = guess['Iph']*currentScaleFactor
-        guess['Rs'] = guess['Rs']/currentScaleFactor
-        guess['Rsh'] = guess['Rsh']/currentScaleFactor            
-        II = II*currentScaleFactor
-
-        #pr.enable()
-        try:
-          result['fitResult'] = doTheFit(VV,II,guess,localBounds,self)
-        except:
-          result['fitResult'] = {'success': False, 'message': 'Warning: doTheFit() function crashed!'}
-
-        #fitParams, sigmas, errmsg, status = doTheFit(VV,II,guess,localBounds)
-        #{'success':True,'optParams':optimizeResult.x,'sigmas':sigmas,'message':optimizeResult.message}
-        #pr.disable()
-        #s = io.StringIO()
-        #sortby = 'cumulative'
-        #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-        #ps.print_stats()
-        #lines = s.getvalue()
-        #print(lines.splitlines()[0])
-        #print(lines)
-
-        # unscale the things
-        guess['I0'] = guess['I0']/currentScaleFactor
-        guess['Iph'] = guess['Iph']/currentScaleFactor
-        guess['Rs'] = guess['Rs']*currentScaleFactor
-        guess['Rsh'] = guess['Rsh']*currentScaleFactor
-        II = II/currentScaleFactor
-
-        if (result['fitResult']['success']):
-          print("Good fit because: " + result['fitResult']['message'], file = logMessages)
-
-          params = {}
-          params['I0'] = result['fitResult']['optParams'][0]/currentScaleFactor
-          params['Iph'] = result['fitResult']['optParams'][1]/currentScaleFactor
-          params['Rs'] = result['fitResult']['optParams'][2]*currentScaleFactor
-          params['Rsh'] = result['fitResult']['optParams'][3]*currentScaleFactor
-          params['n'] = result['fitResult']['optParams'][4]
-          SSE = result['fitResult']['SSE']/currentScaleFactor**2
-
-
-          # TODO: the sigmas are messed up (by scaling?) when doing a l-m fit
-          # TODO: re-do uncertanties
-          #sigmas = fitResult['sigmas']
-          #sigmas[0] = sigmas[0]/currentScaleFactor
-          #sigmas[1] = sigmas[1]/currentScaleFactor
-          #sigmas[2] = sigmas[2]*currentScaleFactor
-          #sigmas[3] = sigmas[3]*currentScaleFactor
-          #fitParams[0] = params['I0']
-
-          # this will produce an evaluation of how well the fit worked
-          doVerboseAnalysis = False
-          if doVerboseAnalysis:
-            analyzeGoodness(VV,II,params,guess,result['fitResult']['message'])
-
-          #do error estimation:
-          #alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
-
-          #nn = len(VV)    # number of data points
-          #p = len(sigmas) # number of parameters
-
-          #dof = max(0, nn - p) # number of degrees of freedom
-
-          # student-t value for the dof and confidence level
-          #tval = t.ppf(1.0-alpha/2., dof) 
-
-          #lowers = []
-          #uppers = []
-          #calculate 95% confidence interval
-          #for a, p, sigma in zip(list(range(nn)), fitParams, sigmas):
-          #    lower = p - sigma*tval
-          #    upper = p + sigma*tval
-          #    lowers.append(lower)
-          #    uppers.append(upper)
-          uppers = [nan,nan,nan,nan,nan]
-          lowers = [nan,nan,nan,nan,nan]                
-
-          # force parameter
-          #params['Iph'] = 0.00192071
-
-          # find mpp
-          VmppGuess = VV[np.array(VV*II).argmax()]
-          mppFound = False
-          try:
-            Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess))
-            mppFound = True
-          except:
-            try: # try again with a differnt starting point
-              Vmpp_guess = Vmpp_guess-0.1
-              Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess))
-              mppFound = True
-            except: # two failures means we're done
-              Vmpp_charEqn = nan
-          if mppFound:
-            Impp_charEqn = slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=Vmpp_charEqn)
-            Pmpp_charEqn = Impp_charEqn*Vmpp_charEqn
-          else:
-            Impp_charEqn = nan
-            Pmpp_charEqn = nan
-
-          # find Voc
-          try:
-            Voc_charEqn = Voc_eqn(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
-          except:
-            Voc_charEqn = nan
-
-          Isc_charEqn = Isc_eqn(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'])
-          FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
-          result['graphData']['modelY'] = np.array([slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=x) for x in vv])*jScaleFactor
-
-          result['insert']['SSE'] = SSE
-          result['insert']['rs_a'] = params['Rs']*area
-          result['insert']['rs'] = params['Rs']
-          result['insert']['rsh_a'] = params['Rsh']*area
-          result['insert']['rsh'] = params['Rsh']
-          result['insert']['jph'] = params['Iph']/area
-          result['insert']['iph'] = params['Iph']
-          result['insert']['j0'] = params['I0']/area
-          result['insert']['i0'] = params['I0']
-          result['insert']['n'] = params['n']
-          result['insert']['vmax_fit'] = Vmpp_charEqn
-          result['insert']['pmax_fit'] = Pmpp_charEqn
-          result['insert']['pmax_a_fit'] = Pmpp_charEqn/area
-          result['insert']['pce_fit'] = (Pmpp_charEqn/area)/(stdIrridance*suns/sqcmpersqm)*100
-          result['insert']['voc_fit'] = Voc_charEqn
-          result['insert']['ff_fit'] = FF_charEqn
-          result['insert']['isc_fit'] = Isc_charEqn
-          result['insert']['jsc_fit'] = Isc_charEqn/area
-
-          #insert('SSE',SSE)
-          #insert('rs_a',params['Rs']*area)
-          #insert('rs',params['Rs'])
-          #insert('rsh_a',params['Rsh']*area)
-          #insert('rsh',params['Rsh'])
-          #insert('jph',params['Iph']/area)
-          #insert('iph',params['Iph'])
-          #insert('j0',params['I0']/area)
-          #insert('i0',params['I0'])
-          #insert('n',params['n'])
-          #insert('vmax_fit',Vmpp_charEqn)
-          #insert('pmax_fit',Pmpp_charEqn)
-          #insert('pmax_a_fit',Pmpp_charEqn/area)
-          #insert('pce_fit',(Pmpp_charEqn/area)/(stdIrridance*suns/sqcmpersqm)*100) 
-          #insert('voc_fit',Voc_charEqn)
-          #insert('ff_fit',FF_charEqn)
-          #insert('isc_fit',Isc_charEqn)
-          #insert('jsc_fit',Isc_charEqn/area)          
-
-        else: # fit failure
-          print("Bad fit because: " + result['fitResult']['message'],file = logMessages)
-          #modelY = np.empty(plotPoints)*nan
-
-    else:#vs time
-      print('This file contains time data.')
-      result['fitResult']['graphData'] = {'vsTime':vsTime,'origRow':self.rows,'time':tData,'i':IIt*jScaleFactor,'v':VVt}
-
-    ###export button
-    ##exportBtn = QPushButton(self.ui.tableWidget)
-    ##exportBtn.setText('Export')
-    ##exportBtn.clicked.connect(self.handleButton)
-    ##self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('exportBtn'), exportBtn)        
-
-    ###file name
-    ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setText(fileName)
-    ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('file')).setToolTip(''.join(comments))          
-
-    ###plot button
-    ##plotBtn = QPushButton(self.ui.tableWidget)
-    ##plotBtn.setText('Plot')
-    ##plotBtn.clicked.connect(self.handleButton)
-    ##self.ui.tableWidget.setCellWidget(self.rows,list(self.cols.keys()).index('plotBtn'), plotBtn)
-    ##self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index('plotBtn')).setData(Qt.UserRole,graphData)
-
-
-    ##self.formatTableRowForDisplay(self.rows)
-    ##self.ui.tableWidget.resizeColumnsToContents()
-
-    ##self.rows = self.rows + 1
-    logMessages.seek(0)
-    result['logMessages'] = logMessages.read()
-    print(result)
-    return result
-
   def openCall(self):
     #remember the last path the user opened
     if self.settings.contains('lastFolder'):
@@ -1971,11 +2032,13 @@ class MainWindow(QMainWindow):
       self.settings.setValue('lastFolder',self.workingDirectory)
       for fullPath in fileNames[0]:
         fullPath = str(fullPath)
+        analysisParams = self.distillAnalysisParams()
         #worker = Worker(self, fullPath)
         #worker.setAutoDelete(True)
         #worker.signals.result.connect(self.processFitResult)
-        self.pool.submit(self.processFile,fullPath)
-        #self.processFile(fullPath)
+        submission = self.pool.submit(processFile,fullPath,analysisParams)
+        submission.add_done_callback(self.processFitResult)
+        self.updatePoolStatus()
 
       if self.ui.actionEnable_Watching.isChecked():
         watchedDirs = self.watcher.directories()
