@@ -195,6 +195,7 @@ class ivAnalyzer:
     result = {}
     logMessages = StringIO()
     result['fullPath'] = fullPath
+    result['params'] = params # copy fit parameters over to result
     
     fileName, fileExtension = os.path.splitext(fullPath)
     fileName = os.path.basename(fullPath)
@@ -1293,11 +1294,12 @@ class MainWindow(QMainWindow):
   lowerVLim = float('-inf')
   analyzer = None
   multiprocess = True
+  uid = 0 # unique identifier associated with each file
 
   # for table
   #rows = 0 #this variable keepss track of how many rows there are in the results table
   cols = OrderedDict()
-  nextRow = 0
+  #nextRow = 0
   
   def closeEvent(self, event):
     self.pool.shutdown(wait=False)
@@ -1657,6 +1659,8 @@ class MainWindow(QMainWindow):
     analysisParams['upperVLim'] = self.upperVLim
     analysisParams['doFit'] = self.ui.attemptCharEqnFitCheckBox.isChecked()
     analysisParams['bounds'] = self.bounds
+    analysisParams['uid'] = self.uid # unique identifier
+    self.uid = self.uid + 1
     
     if self.ui.fitMethodComboBox.currentIndex() == 0:
       analysisParams['method'] = 'trf'
@@ -1675,48 +1679,6 @@ class MainWindow(QMainWindow):
     activeJobs = len(self.pool._pending_work_items)-self.pool._work_ids.qsize()-self.pool._call_queue.qsize()
     poolStatusString = '[ Pending jobs: ' + str(qDJobs) + ' ]   [ Active jobs: ' + str(activeJobs)+'/' + str(processes) + ' ]'
     self.myShowMessage(poolStatusString)
-
-  #def processFitResult(self,submission):
-  def processFitResult(self,thing):
-    
-    #print("self.pool._pending_work_items",self.pool._pending_work_items)
-    
-    #print("self.pool._call_queue.qsize()",self.pool._call_queue.qsize())
-    #print("self.pool._work_ids.qsize()",self.pool._work_ids.qsize())
-    #print("self.pool._queue_count",self.pool._queue_count)
-    #print("len(self.pool._processes)",len(self.pool._processes))
-    #print("len(self.pool._pending_work_items)",len(self.pool._pending_work_items))
-    #print("sum([value.future.running() for key, value in self.pool._pending_work_items.items()])", sum([value.future.running() for key, value in self.pool._pending_work_items.items()]))
-    #print('sum([s.running() for s in self.submissions])',sum([s.running() for s in self.submissions]))
-    #print('sum([s.done() for s in self.submissions])',sum([s.done() for s in self.submissions]))
-    #[print(value.__dict__) for key, value in self.pool._processes.items()]
-    
-    #print('attempt:',len(self.pool._pending_work_items)-self.pool._work_ids.qsize()-self.pool._call_queue.qsize())
-    #print("self.pool._processes",self.pool._processes)
-    #workersActive = sum([value.daemon for key, value in self.pool._processes.items()])    
-    #workersActive = sum([value.future.running() for key, value in self.pool._pending_work_items.items()])
-    #workersActive = [value.sentinel for key, value in self.pool._processes.items()]
-    if self.multiprocess:
-      self.updatePoolStatus()
-      if thing.done() and thing.exception(timeout=0) is None and type(thing.result()) is dict:
-        result = thing.result()
-      else:
-        print('Error during file processing:', thing.exception(timeout=0))
-        return
-    else: # single thread case
-      result = thing
-    print('Got new fit result...')
-    print(result['fitResult'])
-    #print(result)
-    fileName, fileExtension = os.path.splitext(result['fullPath'])
-    fileName = os.path.basename(result['fullPath'])
-    self.fileNames.append(fileName)
-    #tp = QThreadPool.globalInstance()
-    #activeThreads = tp.activeThreadCount()
-    #print('Active threads: '+str(activeThreads))
-    #if activeThreads == 0:
-    #  tp.waitForDone()
-    #self.ui.statusbar.showMessage('Active threads: '+str(tp.activeThreadCount()),500)  
     
   def resetDefaults(self):
     self.ui.attemptCharEqnFitCheckBox.setChecked(True)
@@ -1946,7 +1908,7 @@ class MainWindow(QMainWindow):
       sio.savemat(fullPath, tableDict)
       print('Table data successfully written to', fullPath)
 
-  def formatTableRowForDisplay(self,row):      
+  def sanitizeRow(self,row):      
     ignoreCols = ['plotBtn','exportBtn','file']
     cols = list(self.cols.keys())
     for coli in range(len(cols)):
@@ -1954,29 +1916,103 @@ class MainWindow(QMainWindow):
       if thisCol not in ignoreCols:
         value = self.ui.tableWidget.item(row,coli).data(Qt.UserRole)
         if value is not None:
+          saneValue = float(np.real(value))
           if thisCol == 'SSE':
-            value = value*mWperW**2 # A^2 to mA^2
+            displayValue = saneValue*mWperW**2 # A^2 to mA^2
           elif thisCol in ['ff_spline','ff_fit']:
-            value = value*100 # to percent
+            displayValue = saneValue*100 # to percent
           elif thisCol in ['jsc_spline','isc_spline','voc_spline','voc_fit','jsc','isc','jph','iph','vmax_spline','vmax_fit','pmax_spline','pmax_fit','pmax_a_spline','pmax_a_fit']:
-            value = value*1e3 # to milli-
+            displayValue = saneValue*1e3 # to milli-
           elif thisCol in ['area']:
-            value = value*1e2 # to centi-
+            displayValue = saneValue*1e2 # to centi-
           elif thisCol in ['i0','j0']:
-            value = value*1e9 # to nano-
-
-        self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,self.to_precision(value,4))
+            displayValue = saneValue*1e9 # to nano-
+          else:
+            displayValue = saneValue
+          displayValue = self.to_precision(displayValue,4)
+          self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,displayValue)
+          #displayValue = str(displayValue)
+          #self.ui.tableWidget.item(row,coli).setText(displayValue)
+          self.ui.tableWidget.resizeColumnToContents(coli)
+          self.ui.tableWidget.viewport().update()
+          
 
   # returns table column number given name
   def getCol(self,colName):
     return list(self.cols.keys()).index(colName)
   
+  # returns row number associated with a unique identifier
+  def getRowByUID(self,uid):
+    nRows = self.ui.tableWidget.rowCount()
+    fileCol = self.getCol('file')
+    row = None
+    for i in range(nRows):
+      thisCellItem = self.ui.tableWidget.item(i,fileCol)
+      if thisCellItem.data(Qt.UserRole) == uid:
+        row = i
+        break
+    return row
+  
   def clearTableCall(self):
     for ii in range(self.rows):
       self.ui.tableWidget.removeRow(0)
+    self.ui.tableWidget.clear()
     self.ui.tableWidget.clearContents()
-    self.rows = 0
     self.fileNames = []
+    
+  def newFile(self,fullPath):
+    # grab settings from gui
+    analysisParams = self.distillAnalysisParams()
+    
+    # insert filename into table immediately
+    thisRow = self.ui.tableWidget.rowCount()
+    self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
+    self.ui.tableWidget.insertRow(thisRow)
+    for ii in range(self.ui.tableWidget.columnCount()):
+      self.ui.tableWidget.setItem(thisRow,ii,QTableWidgetItem())
+    fileCol = self.getCol('file')
+    fileName = os.path.basename(fullPath)
+    self.ui.tableWidget.item(thisRow,fileCol).setText(fileName)
+    self.ui.tableWidget.item(thisRow,fileCol).setData(Qt.UserRole,analysisParams['uid']) # uid for the row
+    self.ui.tableWidget.resizeColumnToContents(fileCol)
+    self.ui.tableWidget.setSortingEnabled(True) # fix strange sort behavior
+    self.nextRow = thisRow + 1;
+    self.fileNames.append(fileName)
+    
+    if self.multiprocess:
+      submission = self.pool.submit(self.analyzer.processFile,fullPath,analysisParams)
+      submission.add_done_callback(self.processFitResult)
+      self.updatePoolStatus()
+    else: # single thread case
+      self.processFitResult(self.analyzer.processFile(fullPath, analysisParams))    
+
+  def processFitResult(self,thing):    
+    if self.multiprocess:
+      self.updatePoolStatus()
+      if thing.done() and thing.exception(timeout=0) is None and type(thing.result()) is dict:
+        result = thing.result()
+      else:
+        print('Error during file processing:', thing.exception(timeout=0))
+        return
+    else: # single thread case
+      result = thing
+    uid = result['params']['uid']
+    thisRow = self.getRowByUID(uid)
+    #print('Got new fit result, UID:',result['params']['uid'])
+    #print(result['fitResult'])
+    
+    self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
+    if thisRow is None:
+      print('Error: Failed to look up row')
+      self.ui.tableWidget.setSortingEnabled(True)
+      return
+    
+    insert = lambda colName,value: self.ui.tableWidget.item(thisRow,self.getCol(colName)).setData(Qt.UserRole,value)
+    insert('pce_spline',result['insert']['pce_spline'])
+    
+    self.sanitizeRow(thisRow)
+    self.ui.tableWidget.setSortingEnabled(True)
+    
 
   def openCall(self):
     #remember the last path the user opened
@@ -1991,27 +2027,8 @@ class MainWindow(QMainWindow):
       self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
       self.settings.setValue('lastFolder',self.workingDirectory)
       for fullPath in fileNames[0]:
-        fullPath = str(fullPath)
-        analysisParams = self.distillAnalysisParams()
-        #worker = Worker(self, fullPath)
-        #worker.setAutoDelete(True)
-        #worker.signals.result.connect(self.processFitResult)
+        self.newFile(str(fullPath))
         
-        self.ui.tableWidget.insertRow(self.nextRow)
-        for ii in range(len(self.cols)):
-          self.ui.tableWidget.setItem(self.nextRow,ii,QTableWidgetItem())
-        fileCol = self.getCol('file')
-        self.ui.tableWidget.item(self.nextRow,fileCol).setText(os.path.basename(fullPath))
-        self.ui.tableWidget.resizeColumnToContents(fileCol)
-        self.nextRow = self.nextRow + 1;
-        
-        if self.multiprocess:
-          submission = self.pool.submit(self.analyzer.processFile,fullPath,analysisParams)
-          submission.add_done_callback(self.processFitResult)
-          self.updatePoolStatus()
-        else: # single thread case
-          self.processFitResult(self.analyzer.processFile(fullPath, analysisParams))
-
       if self.ui.actionEnable_Watching.isChecked():
         watchedDirs = self.watcher.directories()
         self.watcher.removePaths(watchedDirs)
@@ -2080,7 +2097,7 @@ class MainWindow(QMainWindow):
     self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(255,0,0,255);color:black;font-weight:bold;}")
 
   # yanked from https://github.com/randlet/to-precision
-  def to_precision(x,p):
+  def to_precision(self,x,p):
     """
     returns a string representation of x formatted with a precision of p
   
