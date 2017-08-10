@@ -11,11 +11,15 @@ import time
 
 # to speed this up, we'll use a process pool from here
 import concurrent.futures
-import dill
 
 from collections import OrderedDict
 from io import StringIO
 import os, sys, inspect, csv
+
+#sys.setrecursionlimit(10000000)
+import dill
+#import pickle
+#import cloudpickle
 
 from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo, QObject, pyqtSignal, QRunnable
 from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
@@ -44,11 +48,15 @@ import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
 #from uncertainties import ufloat #TODO: switch to using this for the error calcs
 
-class customSignals(QObject):
-  analysisResult = pyqtSignal(dict)
-  sloppy = pyqtSignal(bool)
+class Object(object):
+  pass
 
-mySignals = customSignals()
+class customSignals(QObject):
+  populateRow = pyqtSignal(object)
+  #analysisResult = pyqtSignal(dict)
+  #sloppy = pyqtSignal(bool)
+
+#mySignals = customSignals()
 
 def main(args=None):
   """# a tool for analysing solar cell i-v curves
@@ -70,24 +78,66 @@ def main(args=None):
   
 class ivAnalyzer:
   isFastAndSloppy = None # is number crunching faster and less accurate
-  symSlns = None # symbolic solutions for solar cell parameters
-  slns = None # solutions that are ready to use numerically
+  symSolutions = None # symbolic solutions for solar cell parameters
   modelSymbols = None
   modelVariables = None
-  dillPickle = None # dill pickled solutions for numerical usage later 
+  dillPickle = None # dill pickled solutions for numerical usage later
+  slns = None
 
   sqcmpersqm = 10000 #cm^2 per m^2
   stdIrridance = 1000 #[W/m^2] standard reporting irridance
   mWperW = 1000 # mW per W
   
-  def __init__(self):
+  multiprocess = None
+  readyForAnalysis = False
+  
+  pool = None
+  poolWorkers = None
+    
+  def __init__(self,beFastAndSloppy=True, multiprocess=True, poolWorkers=8):
+    self.multiprocess = multiprocess
+    self.poolWorkers = poolWorkers
+    if self.multiprocess:
+      self.pool = concurrent.futures.ProcessPoolExecutor(max_workers = self.poolWorkers)
+      submission = self.pool.submit(ivAnalyzer.doSymbolicManipulations,beFastAndSloppy)
+      submission.add_done_callback(self.symbolsDone)
+    else:
+      results = ivAnalyzer.doSymbolicManipulations(beFastAndSloppy)
+      self.symbolsDone(results)
+  
+  def __setattr__(self, attr, value):
+    self.__dict__[attr] = value
+    if attr == 'isFastAndSloppy':
+      self.numericalize()
+      
+  def getPoolStatusString(self):
+    qDJobs = len(self.pool._pending_work_items)
+    processes = len(self.pool._processes)
+    activeJobs = len(self.pool._pending_work_items)-self.pool._work_ids.qsize()-self.pool._call_queue.qsize()
+    poolStatusString = '[ Pending jobs: ' + str(qDJobs) + ' ]   [ Active jobs: ' + str(activeJobs)+'/' + str(processes) + ' ]'
+    return poolStatusString
+    
+  def symbolsDone(self,results):
+    if type(results) is concurrent.futures._base.Future:
+      results = results.result()
+      
+    #print('results type is',type(results))
+    #if self.multiprocess:
+    #  results = results.result()
+    self.symSolutions = results['symSolutions']
+    self.modelSymbols = results['modelSymbols']
+    self.modelVariables = results['modelVariables']
+    self.isFastAndSloppy = results['beFastAndSloppy']
+    
+  def doSymbolicManipulations(beFastAndSloppy):
+    results = {}
     print("Hang tight, we're doing the one-time symbolic manipulations now...")
     
     # let's define some variables we'll use to do some symbolic equaiton manipulation
-    self.modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
-    I0, Iph, Rs, Rsh, n, I, V, Vth = self.modelSymbols
+    modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
+    I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
     modelConstants = (Vth,)
-    self.modelVariables = tuple(set(self.modelSymbols)-set(modelConstants))    
+    modelVariables = tuple(set(modelSymbols)-set(modelConstants))    
     
     # calculate values for our model's constants now
     cellTemp = 29 #degC all analysis is done assuming the cell is at 29 degC
@@ -111,7 +161,7 @@ class ivAnalyzer:
     symSolutionsNoSubs = {} # all the symbols preserved
     symSolutions = {}
     
-    for symbol in self.modelSymbols:
+    for symbol in modelSymbols:
       symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
       #symSolutionsNoSubs[str(symbol)] = sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0] #solveset doesn't work here (yet)
       symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
@@ -119,10 +169,10 @@ class ivAnalyzer:
       ##slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions,dummify=False)
     
     # now we'll solve for some useful device parameters
-    self.symSolutions = symSolutions # analytical solution for all variables
-    self.Voc_eqn = symSolutions['V'].subs(I,0) # analytical solution for Voc
+    #self.symSolutions = symSolutions # analytical solution for all variables
+    Voc_eqn = symSolutions['V'].subs(I,0) # analytical solution for Voc
     ##Voc_eqn = sympy.lambdify((I0,Rsh,Iph,n),Voc_eqn,functionSubstitutions,dummify=False)
-    self.Isc_eqn = symSolutions['I'].subs(V,0) # analytical solution for Isc
+    Isc_eqn = symSolutions['I'].subs(V,0) # analytical solution for Isc
     ##self.Isc_eqn = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc_eqn,functionSubstitutions,dummify=False)
     P = symSolutions['I']*V # analytical solution for power
     ##P_prime = sympy.diff(P,V) # analytical solution for Pmax
@@ -139,16 +189,20 @@ class ivAnalyzer:
     #I_eqn = autowrap(slns['I'])
     ##I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
     
-    #signals = customSignals()
-    #mySignals.sloppy.emit(fastAndSloppy)
     ##return True
+    symSolutions['Voc'] = Voc_eqn
+    results['symSolutions'] = symSolutions
+    results['modelSymbols'] = modelSymbols
+    results['modelVariables'] = modelVariables
+    results['beFastAndSloppy'] = beFastAndSloppy
+    return results
   
   # go from symbolic to numerical domain
-  def numericalize (self,beFastAndSloppy=False):
-    from sympy.abc import x 
+  def numericalize (self):
+    I0, Iph, Rs, Rsh, n, I, V, Vth = self.modelSymbols
     
     # here we define any function substitutions we'll need for lambdification later
-    if beFastAndSloppy:
+    if self.isFastAndSloppy:
       # for fast and inaccurate math
       functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp}
     else:
@@ -158,10 +212,13 @@ class ivAnalyzer:
     
     slns = {}
     for symbol in self.modelSymbols:
-      remainingVariables = list(set(self.modelVariables)-set([symbol]))
-      slns[str(symbol)] = sympy.lambdify(remainingVariables,self.symSolutions[str(symbol)],functionSubstitutions,dummify=False)
-      #slns[str(symbol)] = ufuncify(remainingVariables,self.symSolutions[str(symbol)],helpers=[['LambertW', sympy.LambertW(x), [x]]])  
-      #slns[str(symbol)] = functools.partial(tmp) 
+      if symbol is not Vth: # no reason to solve for thermal voltage
+        remainingVariables = list(set(self.modelVariables)-set([symbol]))
+        slns[str(symbol)] = sympy.lambdify(remainingVariables,self.symSolutions[str(symbol)],functionSubstitutions,dummify=False)
+        #slns[str(symbol)] = ufuncify(remainingVariables,self.symSolutions[str(symbol)],helpers=[['LambertW', sympy.LambertW(x), [x]]])  
+        #slns[str(symbol)] = functools.partial(tmp) 
+    
+    slns['Voc'] = sympy.lambdify([I0,Rsh,Iph,n],self.symSolutions['Voc'],functionSubstitutions,dummify=False)
     
     #self.slns = {}
     #self.slns['I'] = functools.partial(tmp['I'],V=V,Iph=Iph,I0=I0,Rsh=Rsh,Rs=Rs,n=n)
@@ -174,33 +231,57 @@ class ivAnalyzer:
     #def I0 (i,Iph,Rsh,Rs,v,n):
     #  return np.real_if_close(slns['I0'](Rsh=Rsh,n=n,Iph=Iph,Rs=Rs,I=i,V=v))
     #self.I0 = I0
-
-    self.isFastAndSloppy = beFastAndSloppy
-    self.dillPickle = dill.dumps(slns)
+    
+    if self.multiprocess:
+      if not self.isFastAndSloppy:
+        print("Error: I don't know how to pickle mpmath things.")
+        self.readyForAnalysis = False
+        return
+      else:
+        self.dillPickle = dill.dumps(slns)
+    else:
+      self.slns = slns
+    self.readyForAnalysis = True
+    print('Ready for analysis. F&S mode =',self.isFastAndSloppy)
     #return slns
-  
-  # unpickle the solutions
-  def unpickleSols(self):
-    self.slns = dill.loads(self.dillPickle)
-  
+
   #def I (self,Iph,I0,Rsh,Rs,v,n):
   #  return np.real_if_close(slns['I'](Rsh=Rsh,n=n,Iph=Iph,Rs=Rs,I0=I0,V=v))
 
   #def I0 (self,i,Iph,Rsh,Rs,v,n):
   #  return np.real_if_close(slns['I0'](Rsh=Rsh,n=n,Iph=Iph,Rs=Rs,I=i,V=v))
 
-  def processFile(self, fullPath, params):
-    #slns = dill.loads(self.slns)
-    self.unpickleSols()
-    result = {}
-    logMessages = StringIO()
-    result['fullPath'] = fullPath
-    result['params'] = params # copy fit parameters over to result
-    
-    fileName, fileExtension = os.path.splitext(fullPath)
-    fileName = os.path.basename(fullPath)
-    result['fileName'] = fileName
+  def printResults(results):
+    if type(results) is concurrent.futures._base.Future:
+      results = results.result()
+    print(results)
   
+  # paths = list of paths to files to be processed
+  # params = analysis parameters
+  # returnCall = function handle to call when the analysis is done
+  # this function should be ready to be passed one argument
+  # that argument could bethe analysis result dict
+  # or a future object where the analysis result dict can be recovered with .result()
+  def processFiles(self, paths, params, returnCall):
+    if type(paths) is not list:
+      paths = [paths]
+    tic = time.time()
+    while not self.readyForAnalysis:
+      time.sleep(0.1)
+      if (time.time() - tic) > 10:
+        print("Error: 10 seconds have passed and we're not ready yet. Aborting.")
+        return
+    for fullPath in paths:
+      if self.multiprocess:
+        submission = self.pool.submit(ivAnalyzer.processFile,fullPath,params,self.dillPickle)
+        submission.add_done_callback(returnCall)
+      else:
+        returnCall(ivAnalyzer.processFile(fullPath, params, self.slns))
+  
+  def _loadFile(fullPath):
+    logMessages = StringIO()
+    fileName, fileExtension = os.path.splitext(fullPath)
+    
     isSnaithFile = False
     if fileExtension == '.csv':
       delimiter = ','
@@ -208,9 +289,9 @@ class ivAnalyzer:
       delimiter = '\t'
     else:
       delimiter = None
-  
+    
     print("Processing:", fileName, file = logMessages)
-  
+    
     #wait here for the file to be completely written to disk and closed before trying to read it
     fi = QFileInfo(fullPath)
     while (not fi.isWritable()):
@@ -263,7 +344,7 @@ class ivAnalyzer:
       if line.startswith('#'):
         comments.append(line)
         if line.__contains__('Area'):
-          numbersHere = [float(s) for s in line.split() if self.isNumber(s)]
+          numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
           if len(numbersHere) is 1:
             area = numbersHere[0]
             noArea = False
@@ -271,7 +352,7 @@ class ivAnalyzer:
           if float(line.split(' ')[5]) == 1:
             vsTime = True
         elif line.__contains__('Number of suns:'):
-          numbersHere = [float(s) for s in line.split() if self.isNumber(s)]
+          numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
           if len(numbersHere) is 1:
             suns = numbersHere[0]
             noIntensity = False
@@ -311,12 +392,19 @@ class ivAnalyzer:
     newOrder = VV.argsort()
     VV=VV[newOrder]
     II=II[newOrder]
+    
+    ret = Object()
+    ret.VV = VV
+    ret.II = II
+    ret.vsTime = vsTime
+    logMessages.seek(0)
+    ret.logMessages = logMessages.read()
+    ret.suns = suns
+    ret.area = area*1e-4 # in sq m
+    
+    return ret
   
-    # trim data to voltage range
-    vMask = (VV > params['lowerVLim']) & (VV < params['upperVLim'])
-    VV = VV[vMask]
-    II = II[vMask]
-  
+  def _doSplineStuff(VV,II):
     # the task now is to figure out how this data was collected so that we can fix it
     # this is important because the guess and fit algorithms below expect the data to be
     # in a certian way
@@ -324,7 +412,7 @@ class ivAnalyzer:
     # the goal here is that the curve "knee" ends up in quadrant 1
     # (for a light curve, and quadrant 4 for a dark curve)
     smoothingParameter = 1-1e-3
-    coefs, brks = self.findBreaksAndCoefs(VV, II, smoothingParameter)        
+    coefs, brks = ivAnalyzer.findBreaksAndCoefs(VV, II, smoothingParameter)        
     superSmoothSpline = scipy.interpolate.PPoly(coefs,brks)
     superSmoothSplineD1 = superSmoothSpline.derivative(1) # first deravive
     superSmoothSplineD2 = superSmoothSpline.derivative(2) # second deravive
@@ -349,15 +437,14 @@ class ivAnalyzer:
     #0 -> LS-straight line
     #1 -> cubic spline interpolant
   
-    coefs, brks = self.findBreaksAndCoefs(VV, II, smoothingParameter)
+    coefs, brks = ivAnalyzer.findBreaksAndCoefs(VV, II, smoothingParameter)
     smoothSpline = scipy.interpolate.PPoly(coefs,brks)        
   
-    pCoefs, pBrks = self.findBreaksAndCoefs(VV, II*VV, smoothingParameter)
+    pCoefs, pBrks = ivAnalyzer.findBreaksAndCoefs(VV, II*VV, smoothingParameter)
     powerSpline = scipy.interpolate.PPoly(pCoefs,pBrks)
     powerSplineD1 = powerSpline.derivative(1)
   
-  
-  
+
     ##newCoefs = np.vstack((coefs,np.zeros(coefs.shape[1])))
     ##k=4
     ##for i in range(coefs.shape[1]-1):
@@ -485,9 +572,8 @@ class ivAnalyzer:
   
     Voc = smoothSpline.roots(extrapolate=True,discontinuity=False)
     VocSize = Voc.size
-    isDarkCurve = False
     abortTheFit = True
-    if VocSize is 0:
+    if VocSize is 0: # never crosses zero, must be dark curve
       Voc = nan
       isDarkCurve = True
     elif VocSize is 1:
@@ -506,11 +592,11 @@ class ivAnalyzer:
       print("Dark curve detected.", file = logMessages)
   
     Isc = float(smoothSpline(0))
-    FF = Pmpp/(Voc*Isc)
+    #FF = Pmpp/(Voc*Isc)
   
     # here's how we'll discretize our fits
     plotPoints = 1000
-    if min(VV) > 0: # check for only positive voltages
+    if min(VV) >= 0: # check for non-negative
       vvMin = -0.05 # plot at least 50 mV below zero
     else:
       vvMin = min(VV)
@@ -522,9 +608,8 @@ class ivAnalyzer:
   
     vv = np.linspace(vvMin,vvMax,plotPoints)
   
-    splineY = smoothSpline(vv)*jScaleFactor
-    modelY = [nan]
-    result['graphData'] = {'vsTime':vsTime,'fitX':vv,'modelY':modelY,'splineY':splineY,'i':II*jScaleFactor,'v':VV,'Voc':Voc,'Isc':Isc*jScaleFactor,'Vmax':Vmpp,'Imax':Impp*jScaleFactor}
+    #splineY = smoothSpline(vv)*jScaleFactor
+    ##result['graphData'] = {'vsTime':vsTime,'fitX':vv,'modelY':modelY,'splineY':splineY,'i':II*jScaleFactor,'v':VV,'Voc':Voc,'Isc':Isc*jScaleFactor,'Vmax':Vmpp,'Imax':Impp*jScaleFactor}
   
     # put items in table
     ##self.ui.tableWidget.insertRow(self.rows)
@@ -533,17 +618,17 @@ class ivAnalyzer:
   
     # here's how we put data into the table
     ##insert = lambda colName,value: self.ui.tableWidget.item(self.rows,list(self.cols.keys()).index(colName)).setData(Qt.UserRole,float(np.real(value)))
-    result['insert'] = {}
-    result['insert']['pce_spline'] = (Pmpp/area)/(self.stdIrridance*suns/self.sqcmpersqm)*100
-    result['insert']['pmax_spline'] = Pmpp/area
-    result['insert']['pmax_a_spline'] = Pmpp
-    result['insert']['isc_spline'] = Isc
-    result['insert']['jsc_spline'] = Isc/area
-    result['insert']['voc_spline'] = Voc
-    result['insert']['ff_spline'] = FF
-    result['insert']['vmax_spline'] = Vmpp
-    result['insert']['area'] = area
-    result['insert']['suns'] = suns
+    #result['insert'] = {}
+    #result['insert']['pce_spline'] = (Pmpp/area)/(self.stdIrridance*suns/self.sqcmpersqm)*100
+    #result['insert']['pmax_spline'] = Pmpp/area
+    #result['insert']['pmax_a_spline'] = Pmpp
+    #result['insert']['isc_spline'] = Isc
+    #result['insert']['jsc_spline'] = Isc/area
+    #result['insert']['voc_spline'] = Voc
+    #result['insert']['ff_spline'] = FF
+    #result['insert']['vmax_spline'] = Vmpp
+    #result['insert']['area'] = area
+    #result['insert']['suns'] = suns
   
     #insert('pce_spline',(Pmpp/area)/(stdIrridance*suns/sqcmpersqm)*100)
     #insert('pmax_spline',Pmpp/area)
@@ -555,7 +640,49 @@ class ivAnalyzer:
     #insert('vmax_spline',Vmpp)
     #insert('area',area)
     #insert('suns',suns)
+    
+    ret = Object()
+    ret.voltageData = VV # raw voltage data points
+    ret.currentData = II # raw current data points
+    ret.analyticalVoltage = vv # voltage vlaues for analytical purposes
+    ret.splineCurrent = smoothSpline(vv) # current values from spline fit
+    ret.Pmpp = Pmpp # power at max power point
+    ret.Vmpp = Vmpp # voltage of maximum power point
+    ret.Isc = Isc # short circuit current
+    ret.Voc = Voc # open circuit voltage
+    ret.isDarkCurve = isDarkCurve # dark curve detection flag
+    
+    return ret
   
+  def processFile(fullPath, params, s):
+    result = {}
+    logMessages = StringIO()
+    result['fullPath'] = fullPath
+    #result['params'] = params # copy fit parameters over to result
+    
+    fileName, fileExtension = os.path.splitext(fullPath)
+    fileName = os.path.basename(fullPath)
+    result['fileName'] = fileName
+    
+    fileData = ivAnalyzer._loadFile(fullPath)
+    
+    VV = fileData.VV
+    II = fileData.II
+    vsTime = fileData.vsTime
+    suns = fileData.suns
+    area = fileData.area
+  
+    # trim data to voltage range
+    vMask = (VV > params['lowerVLim']) & (VV < params['upperVLim'])
+    VV = VV[vMask]
+    II = II[vMask]
+    
+    splineData = ivAnalyzer._doSplineStuff(VV, II)
+    VV = splineData.voltageData
+    II = splineData.currentData
+    vv = splineData.analyticalVoltage
+    isDarkCurve = splineData.isDarkCurve
+
     if not vsTime:
       if not params['doFit']:
         print("Not attempting fit to characteristic equation.", file = logMessages)
@@ -568,17 +695,20 @@ class ivAnalyzer:
         #bounds['Rs'] = [0, inf]
         #bounds['Rsh'] = [0, inf]
         #bounds['n'] = [0, inf]
-        localBounds = params['bounds']
+        
   
         # take a guess at what the fit parameters will be
         #pr.enable()
         #tnot = time.time()
+        if type(s) is not dict:
+          s = dill.loads(s) # multiprocess case
+          
         try:
-          guess = self.makeAReallySmartGuess(VV,II,isDarkCurve)
+          guess = ivAnalyzer.makeAReallySmartGuess(VV, II, isDarkCurve, s['I'], s['I0'])
         except:
           print("Warning: makeAReallySmartGuess() function failed!", file = logMessages)
           guess = {'I0':1e-9, 'Iph':II[0], 'Rs':5, 'Rsh':1e6, 'n':1.0}
-  
+        
         #print (time.time()-tnot)
         #print(len(VV),len(II),VV.mean(),II.mean())
         #pr.disable()
@@ -595,6 +725,8 @@ class ivAnalyzer:
         #localBounds['Iph'] = [x*currentScaleFactor for x in localBounds['Iph']]
         #localBounds['Rs'] = [x/currentScaleFactor for x in localBounds['Rs']]
         #localBounds['Rsh'] = [x/currentScaleFactor for x in localBounds['Rsh']]
+        
+        localBounds = params['bounds']
   
         # let's make sure we're not guessing outside the bounds
         if guess['I0'] < localBounds['I0'][0]:
@@ -634,7 +766,7 @@ class ivAnalyzer:
   
         #pr.enable()
         try:
-          result['fitResult'] = self.doTheFit(VV, II, guess, localBounds, method = params['method'], verbose = params['verbose'])
+          result['fitResult'] = ivAnalyzer.doTheFit(VV, II,s['I'], guess, localBounds, method = params['method'], verbose = params['verbose'])
         except:      
           result['fitResult'] = {'success': False, 'message': 'Warning: doTheFit() function crashed: '+ str(sys.exc_info()[0])}
   
@@ -659,12 +791,12 @@ class ivAnalyzer:
         if (result['fitResult']['success']):
           print("Good fit because: " + result['fitResult']['message'], file = logMessages)
   
-          params = {}
-          params['I0'] = result['fitResult']['optParams'][0]/currentScaleFactor
-          params['Iph'] = result['fitResult']['optParams'][1]/currentScaleFactor
-          params['Rs'] = result['fitResult']['optParams'][2]*currentScaleFactor
-          params['Rsh'] = result['fitResult']['optParams'][3]*currentScaleFactor
-          params['n'] = result['fitResult']['optParams'][4]
+          p = {}
+          p['I0'] = result['fitResult']['optParams'][0]/currentScaleFactor
+          p['Iph'] = result['fitResult']['optParams'][1]/currentScaleFactor
+          p['Rs'] = result['fitResult']['optParams'][2]*currentScaleFactor
+          p['Rsh'] = result['fitResult']['optParams'][3]*currentScaleFactor
+          p['n'] = result['fitResult']['optParams'][4]
           SSE = result['fitResult']['SSE']/currentScaleFactor**2
   
   
@@ -675,12 +807,12 @@ class ivAnalyzer:
           #sigmas[1] = sigmas[1]/currentScaleFactor
           #sigmas[2] = sigmas[2]*currentScaleFactor
           #sigmas[3] = sigmas[3]*currentScaleFactor
-          #fitParams[0] = params['I0']
+          #fitParams[0] = p['I0']
   
           # this will produce an evaluation of how well the fit worked
           doVerboseAnalysis = False
           if doVerboseAnalysis:
-            analyzeGoodness(VV,II,params,guess,result['fitResult']['message'])
+            ivAnalyzer.analyzeGoodness(VV,II, s['I'],p,guess,result['fitResult']['message'])
   
           #do error estimation:
           #alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
@@ -705,23 +837,23 @@ class ivAnalyzer:
           lowers = [nan,nan,nan,nan,nan]                
   
           # force parameter
-          #params['Iph'] = 0.00192071
+          #p['Iph'] = 0.00192071
   
           # find mpp
           VmppGuess = VV[np.array(VV*II).argmax()]
           mppFound = False
           try:
-            Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess))
+            Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[p['I0'],p['Iph'],p['Rsh'],p['Rs'],p['n']])), VmppGuess))
             mppFound = True
           except:
             try: # try again with a differnt starting point
               Vmpp_guess = Vmpp_guess-0.1
-              Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[params['I0'],params['Iph'],params['Rsh'],params['Rs'],params['n']])), VmppGuess))
+              Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[p['I0'],p['Iph'],p['Rsh'],p['Rs'],p['n']])), VmppGuess))
               mppFound = True
             except: # two failures means we're done
               Vmpp_charEqn = nan
           if mppFound:
-            Impp_charEqn = self.slns['I'](n=params['n'],I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],V=Vmpp_charEqn)
+            Impp_charEqn = s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=Vmpp_charEqn)
             Pmpp_charEqn = Impp_charEqn*Vmpp_charEqn
           else:
             Impp_charEqn = nan
@@ -729,46 +861,58 @@ class ivAnalyzer:
   
           # find Voc
           try:
-            Voc_charEqn = Voc_eqn(I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],n=params['n'])
+            Voc_charEqn = s['Voc'](I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],n=p['n'])
+            if not np.isfinite(Voc_charEqn):
+              Inew = lambda V: float(np.real(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=V)))
+              sol = scipy.optimize.root(Inew,1)
+              if sol.success:
+                Voc_charEqn = sol.x[0]
+              else:
+                Voc_charEqn = nan
           except:
             Voc_charEqn = nan
           
+          jScaleFactor = 1000/fileData.area #for converstion to current density[mA/cm^2]
+          
           #Isc_charEqn = self.slns['']
-          Isc_charEqn = np.real_if_close(self.slns['I'](n=params['n'],I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],V=0))
+          Isc_charEqn = np.real_if_close(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=0))
           
           FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
-          result['graphData']['modelY'] = np.array([np.real_if_close(self.slns['I'](n=params['n'],I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],V=x)) for x in vv])*jScaleFactor
-          #result['graphData']['modelY'] = np.array([slns['I'](I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],n=params['n'],V=x) for x in vv])*jScaleFactor
+          result['graphData'] = {}
+          result['graphData']['modelY'] = np.array([np.real_if_close(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=x)) for x in vv])*jScaleFactor
+          
+          #result['graphData']['modelY'] = np.array([slns['I'](I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],n=p['n'],V=x) for x in vv])*jScaleFactor
   
+          result['insert'] = {}
           result['insert']['SSE'] = SSE
-          result['insert']['rs_a'] = params['Rs']*area
-          result['insert']['rs'] = params['Rs']
-          result['insert']['rsh_a'] = params['Rsh']*area
-          result['insert']['rsh'] = params['Rsh']
-          result['insert']['jph'] = params['Iph']/area
-          result['insert']['iph'] = params['Iph']
-          result['insert']['j0'] = params['I0']/area
-          result['insert']['i0'] = params['I0']
-          result['insert']['n'] = params['n']
+          result['insert']['rs_a'] = p['Rs']*area
+          result['insert']['rs'] = p['Rs']
+          result['insert']['rsh_a'] = p['Rsh']*area
+          result['insert']['rsh'] = p['Rsh']
+          result['insert']['jph'] = p['Iph']/area
+          result['insert']['iph'] = p['Iph']
+          result['insert']['j0'] = p['I0']/area
+          result['insert']['i0'] = p['I0']
+          result['insert']['n'] = p['n']
           result['insert']['vmax_fit'] = Vmpp_charEqn
           result['insert']['pmax_fit'] = Pmpp_charEqn
           result['insert']['pmax_a_fit'] = Pmpp_charEqn/area
-          result['insert']['pce_fit'] = (Pmpp_charEqn/area)/(self.stdIrridance*suns/self.sqcmpersqm)*100
+          result['insert']['pce_fit'] = (Pmpp_charEqn/area)/(ivAnalyzer.stdIrridance*suns/ivAnalyzer.sqcmpersqm)*100
           result['insert']['voc_fit'] = Voc_charEqn
           result['insert']['ff_fit'] = FF_charEqn
           result['insert']['isc_fit'] = Isc_charEqn
           result['insert']['jsc_fit'] = Isc_charEqn/area
   
           #insert('SSE',SSE)
-          #insert('rs_a',params['Rs']*area)
-          #insert('rs',params['Rs'])
-          #insert('rsh_a',params['Rsh']*area)
-          #insert('rsh',params['Rsh'])
-          #insert('jph',params['Iph']/area)
-          #insert('iph',params['Iph'])
-          #insert('j0',params['I0']/area)
-          #insert('i0',params['I0'])
-          #insert('n',params['n'])
+          #insert('rs_a',p['Rs']*area)
+          #insert('rs',p['Rs'])
+          #insert('rsh_a',p['Rsh']*area)
+          #insert('rsh',p['Rsh'])
+          #insert('jph',p['Iph']/area)
+          #insert('iph',p['Iph'])
+          #insert('j0',p['I0']/area)
+          #insert('i0',p['I0'])
+          #insert('n',p['n'])
           #insert('vmax_fit',Vmpp_charEqn)
           #insert('pmax_fit',Pmpp_charEqn)
           #insert('pmax_a_fit',Pmpp_charEqn/area)
@@ -776,7 +920,7 @@ class ivAnalyzer:
           #insert('voc_fit',Voc_charEqn)
           #insert('ff_fit',FF_charEqn)
           #insert('isc_fit',Isc_charEqn)
-          #insert('jsc_fit',Isc_charEqn/area)          
+          #insert('jsc_fit',IscPmpp_charEqn/area)          
   
         else: # fit failure
           print("Bad fit because: " + result['fitResult']['message'],file = logMessages)
@@ -810,11 +954,26 @@ class ivAnalyzer:
     ##self.rows = self.rows + 1
     logMessages.seek(0)
     result['logMessages'] = logMessages.read()
-    #print(result)
-    return result
+    #print(result)pmax_a_spline
+    ret = Object()
+    #ret.pce = (splineData.Pmpp/fileData.area)/(ivAnalyzer.stdIrridance*fileData.suns/ivAnalyzer.sqcmpersqm)
+    ret.pmpp = splineData.Pmpp # power at max power point
+    ret.vmpp = splineData.Vmpp
+    ret.isc = splineData.Isc
+    ret.voc = splineData.Voc
+    ret.sse = SSE
+    ret.area = fileData.area
+    ret.suns = fileData.suns
+    ret.params = params
+    ret.v = splineData.voltageData
+    ret.i = splineData.currentData
+    ret.x = splineData.analyticalVoltage
+    ret.splineCurrent = splineData.splineCurrent
+    return ret
+    #return result
   
   # tests if string is a number
-  def isNumber(self,s):
+  def isNumber(s):
     try:
       float(s)
     except ValueError:
@@ -823,7 +982,7 @@ class ivAnalyzer:
 
 
   # needed for findKnotsAndCoefs below
-  def _compute_u(self, p, D, dydx, dx, dx1, n):
+  def _compute_u(p, D, dydx, dx, dx1, n):
     if p is None or p != 0:
       data = [dx[1:n - 1], 2 * (dx[:n - 2] + dx[1:n - 1]), dx[:n - 2]]
       R = scipy.sparse.spdiags(data, [-1, 0, 1], n - 2, n - 2)
@@ -853,7 +1012,7 @@ class ivAnalyzer:
     return u.reshape(n - 2, -1), p        
   
   # calculates breakpoints and coefficents for a smoothed piecewise polynomial interpolant for 1d data
-  def findBreaksAndCoefs(self, xx, yy, p=None):
+  def findBreaksAndCoefs(xx, yy, p=None):
     var=1
     x, y = np.atleast_1d(xx, yy)
     x = x.ravel()
@@ -889,7 +1048,7 @@ class ivAnalyzer:
       dx1 = 1. / dx
       D = scipy.sparse.spdiags(var * np.ones(n), 0, n, n)  # The varianceStringIO
   
-      u, p = self._compute_u(p, D, dydx, dx, dx1, n)
+      u, p = ivAnalyzer._compute_u(p, D, dydx, dx, dx1, n)
       dx1.shape = (n - 1, -1)
       dx.shape = (n - 1, -1)
       zrs = np.zeros(nd)
@@ -925,7 +1084,7 @@ class ivAnalyzer:
   # of the equation that w're about to attempt to fit so that
   # the (relatively dumb and fragile) final optimization/curve fitting routine
   # has the best chance of giving good results
-  def makeAReallySmartGuess(self, VV, II, isDarkCurve):
+  def makeAReallySmartGuess(VV, II, isDarkCurve, fI, fI0):
     #data point selection:
     #lowest voltage (might be same as Isc)
     nPoints = len(VV)
@@ -1043,41 +1202,42 @@ class ivAnalyzer:
       kwargs={})
     if optimizeResult.success:
       guess['Rs'] = optimizeResult.x[0]
-      slope = optimizeResult.x[1]
+      RsYInter = optimizeResult.x[1]
   
-    guess['I0'] = np.real_if_close(self.slns['I0'](n=guess['n'],V=V_ip_n,Iph=guess['Iph'],I=I_ip_n,Rs=guess['Rs'],Rsh=guess['Rsh']))
-  
-    # if you'd like to see how smart/dumb our really smart guess was
-    visualizeGuess = False
-    if visualizeGuess:
-      print("My guesses are",guess)
-      vv=np.linspace(min(VV),max(VV),1000)
-      ii=np.array([self.slns['I'](n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v) for v in vv])
-      ii2=np.array(aLine([guess['Rs'],slope],vv,np.zeros(len(vv)))) # Rs fit line
-      ii3=np.array(aLine([guess['Rsh'],guess['Iph']],vv,np.zeros(len(vv)))) # Rsh fit line
-      plt.title('Guess and raw data')
-      plt.plot(vv,ii) # char eqn
-      plt.plot(vv,ii2) # Rs fit line
-      plt.plot(vv,ii3) # Rsh fit line
-      plt.plot(V_ip_n,I_ip_n,'+r',markersize=10)
-      plt.plot(V_vp_n,I_vp_n,'+r',markersize=10)
-      plt.plot(V_vmpp_n,I_vmpp_n,'+r',markersize=10)
-      plt.scatter(VV,II)
-      plt.grid(b=True)
-      yRange = max(II) - min(II)
-      plt.ylim(min(II)-yRange*.1,max(II)+yRange*.1)
-      plt.draw()
-      plt.show()
-      plt.pause(1)
-  
+    guess['I0'] = float(np.real_if_close(fI0(n=guess['n'],V=V_ip_n,Iph=guess['Iph'],I=I_ip_n,Rs=guess['Rs'],Rsh=guess['Rsh'])))
+    
+    #ivAnalyzer.visualizeGuess(VV,II,guess,fI,RsYInter,V_ip_n,I_ip_n,V_vp_n,I_vp_n,V_vmpp_n,I_vmpp_n)
     return guess
   
+  # so you'd like to see how smart/dumb our really smart guess was...
+  def visualizeGuess(VV,II,guess,fI,RsYInter,V_ip_n,I_ip_n,V_vp_n,I_vp_n,V_vmpp_n,I_vmpp_n):
+    vv = np.linspace(min(VV),max(VV),1000)
+    aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
+    print("My guesses are",guess)
+    ii=np.array([fI(n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v) for v in vv])
+    ii2=np.array(aLine([guess['Rs'],RsYInter],vv,np.zeros(len(vv)))) # Rs fit line
+    ii3=np.array(aLine([guess['Rsh'],guess['Iph']],vv,np.zeros(len(vv)))) # Rsh fit line
+    plt.title('Guess and raw data')
+    plt.plot(vv,ii) # char eqn
+    plt.plot(vv,ii2) # Rs fit line
+    plt.plot(vv,ii3) # Rsh fit line
+    plt.plot(V_ip_n,I_ip_n,'+r',markersize=10)
+    plt.plot(V_vp_n,I_vp_n,'+r',markersize=10)
+    plt.plot(V_vmpp_n,I_vmpp_n,'+r',markersize=10)
+    plt.scatter(VV,II)
+    plt.grid(b=True)
+    yRange = max(II) - min(II)
+    plt.ylim(min(II)-yRange*.1,max(II)+yRange*.1)
+    plt.draw()
+    plt.show()
+    plt.pause(1)
+    
   # here we attempt to fit the input data to the characteristic equation
-  def doTheFit(self, VV, II, guess, bounds, method = 'trf',verbose = 0):
+  def doTheFit(VV, II, fI, guess, bounds, method = 'trf',verbose = 0):
     x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
     #x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
     #residuals = lambda x,T,Y: [-y + float(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t).real) for t,y in zip(T,Y)]
-    residuals = lambda x,T,Y: np.abs([np.real_if_close(self.slns['I'](n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t)) - y for t,y in zip(T,Y)])
+    residuals = lambda x,T,Y: np.abs([np.real_if_close(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t)) - y for t,y in zip(T,Y)])
     #residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
     fitArgs = (residuals,x0)
     fitKwargs = {}
@@ -1250,7 +1410,7 @@ class ivAnalyzer:
     #return(fitParams, sigmas, infodict, errmsg, ier)
   
   # this routine analyzes/quantifies the goodness of our fit
-  def analyzeGoodness(self, VV, II, params, guess, msg):
+  def analyzeGoodness(VV, II, fI, params, guess, msg):
     # sum of square of differences between data and fit [A^2]
     print("fit:")
     print(params)                
@@ -1260,8 +1420,8 @@ class ivAnalyzer:
     print(msg)
   
     vv=np.linspace(VV[0],VV[-1],1000)
-    ii=np.array([self.slns['I'](n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v).real for v in vv])
-    ii2=np.array([self.slns['I'](n=params['n'],I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],V=v).real for v in vv])
+    ii=np.array([fI(n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v).real for v in vv])
+    ii2=np.array([fI(n=params['n'],I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],V=v).real for v in vv])
     plt.title('Fit analysis')
     p1, = plt.plot(vv,ii, label='Guess',ls='--')
     p2, = plt.plot(vv,ii2, label='Fit')
@@ -1273,6 +1433,7 @@ class ivAnalyzer:
     plt.grid(b=True)
     plt.draw()
     plt.show()
+    plt.pause(1)
 
 class col:
   header = ''
@@ -1302,7 +1463,8 @@ class MainWindow(QMainWindow):
   #nextRow = 0
   
   def closeEvent(self, event):
-    self.pool.shutdown(wait=False)
+    pass
+    #self.pool.shutdown(wait=False)
 
   def __init__(self):
     QMainWindow.__init__(self)
@@ -1335,11 +1497,6 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].header = 'PCE\n[%]'
     self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit'
 
-    thisKey = 'pmax_a_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'P_max\n[mW/cm^2]'
-    self.cols[thisKey].tooltip = 'Maximum power density as found from spline fit'
-
     thisKey = 'jsc_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
@@ -1354,6 +1511,36 @@ class MainWindow(QMainWindow):
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'FF\n[%]'
     self.cols[thisKey].tooltip = 'Fill factor as found from spline fit'
+    
+    thisKey = 'area'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Area\n[cm^2]'
+    self.cols[thisKey].tooltip = 'Device area'
+  
+    thisKey = 'suns'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Suns\n'
+    self.cols[thisKey].tooltip = 'Illumination intensity'        
+  
+    thisKey = 'pmax_a_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'P_max\n[mW]'
+    self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
+
+    thisKey = 'vmax_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_max\n[mV]'
+    self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit'
+    
+    thisKey = 'isc_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_sc\n[mA]'
+    self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing'    
+  
+    thisKey = 'n'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'n'
+    self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit'
 
     thisKey = 'rs_a'
     self.cols[thisKey] = col()
@@ -1375,30 +1562,10 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
     self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
 
-    thisKey = 'n'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'n'
-    self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit'
-
-    thisKey = 'vmax_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'V_max\n[mV]'
-    self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit'
-
-    thisKey = 'area'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'Area\n[cm^2]'
-    self.cols[thisKey].tooltip = 'Device area'
-
-    thisKey = 'suns'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'Suns\n'
-    self.cols[thisKey].tooltip = 'Illumination intensity'        
-
-    thisKey = 'pmax_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'P_max\n[mW]'
-    self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
+    #thisKey = 'pmax_spline'
+    #self.cols[thisKey] = col()
+    #self.cols[thisKey].header = 'P_max\n[mW]'
+    #self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
 
     thisKey = 'pce_fit'
     self.cols[thisKey] = col()
@@ -1411,7 +1578,6 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
 
     thisKey = 'pmax_a_fit'
-
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
     self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
@@ -1431,11 +1597,6 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].header = 'FF_fit\n[%]'
     self.cols[thisKey].tooltip = 'Fill factor as found from characteristic equation fit'        
 
-    thisKey = 'isc_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'I_sc\n[mA]'
-    self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing'
-
     thisKey = 'isc_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'I_sc_fit\n[mA]'
@@ -1453,7 +1614,7 @@ class MainWindow(QMainWindow):
 
     thisKey = 'jph'
     self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'J_ph\n[mA/mc^2]'
+    self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
     self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
 
     thisKey = 'i0'
@@ -1617,35 +1778,41 @@ class MainWindow(QMainWindow):
     self.ui.statusbar.showMessage = self.myShowMessage
     
     # this pool holds the workers
-    self.pool = concurrent.futures.ProcessPoolExecutor(max_workers = self.ui.analysisThreadsSpinBox.value())    
+    #self.pool = concurrent.futures.ProcessPoolExecutor(max_workers = self.ui.analysisThreadsSpinBox.value())    
     
+    self.mySignals = customSignals()
+    self.mySignals.populateRow.connect(self.populateRow)
     #mySignals.sloppy.connect(self.handleMathFinished)
     #mySignals.analysisResult.connect(self.processFitResult)
     
     #woot = ivAnalyzer()
     #woot.numericalize(beFastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
     
+    poolWorkers=8
+    beFastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked()
+    self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=self.multiprocess, poolWorkers=poolWorkers)
+     
     # do symbolic calcs now if needed
-    if self.ui.attemptCharEqnFitCheckBox.isChecked():
-      if self.multiprocess:
-        submission = self.pool.submit(ivAnalyzer)
-        #submission = self.pool.submit(self.analyzer.doSymbolicManipulations,fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
-        submission.add_done_callback(self.handleMathFinished)
-        #self.analyzer.doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
-        #doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
-      else:
-        self.handleMathFinished(ivAnalyzer())
+    #if self.ui.attemptCharEqnFitCheckBox.isChecked():
+    #  if self.multiprocess:
+    #    submission = self.pool.submit(ivAnalyzer)
+    #    #submission = self.pool.submit(self.analyzer.doSymbolicManipulations,fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+    #    submission.add_done_callback(self.handleMathFinished)
+    #    #self.analyzer.doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+    #    #doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+    #  else:
+    #    self.handleMathFinished(ivAnalyzer())
        
   #def handleMathFinished(self,submission):
-  def handleMathFinished(self,thing):
-    self.symbolCalcsNotDone = False
-    if self.multiprocess:
-      self.analyzer = thing.result()
-    else:
-      self.analyzer = thing
-    print("One-time symbolic manipulations done!")
-    self.analyzer.numericalize(beFastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
-    print("Fast and sloppy mode =", self.analyzer.isFastAndSloppy)
+  #def handleMathFinished(self,thing):
+    #self.symbolCalcsNotDone = False
+    #if self.multiprocess:
+    #  self.analyzer = thing.result()
+    #else:
+    #  self.analyzer = thing
+    #print("One-time symbolic manipulations done!")
+    #self.analyzer.numericalize(beFastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+    #print("Fast and sloppy mode =", self.analyzer.isFastAndSloppy)
     #print(self.analyzer)
     #self.analyzer.I_eqn = submission.result()['I_eqn']
     #self.analyzer.P_prime = submission.result()['P_prime']
@@ -1674,11 +1841,7 @@ class MainWindow(QMainWindow):
     return analysisParams
   
   def updatePoolStatus(self):
-    qDJobs = len(self.pool._pending_work_items)
-    processes = len(self.pool._processes)
-    activeJobs = len(self.pool._pending_work_items)-self.pool._work_ids.qsize()-self.pool._call_queue.qsize()
-    poolStatusString = '[ Pending jobs: ' + str(qDJobs) + ' ]   [ Active jobs: ' + str(activeJobs)+'/' + str(processes) + ' ]'
-    self.myShowMessage(poolStatusString)
+    self.myShowMessage(self.analyzer.getPoolStatusString())
     
   def resetDefaults(self):
     self.ui.attemptCharEqnFitCheckBox.setChecked(True)
@@ -1753,7 +1916,6 @@ class MainWindow(QMainWindow):
     except:
       pass
 
-
   def handleLowerLimChange(self):
     lineEdit = self.sender()
     try:
@@ -1765,8 +1927,9 @@ class MainWindow(QMainWindow):
   def handleMathChange(self):
     checkBox = self.sender()
     self.settings.setValue('fastAndSloppy',checkBox.isChecked())
-    self.analyzer.numericalize(beFastAndSloppy=checkBox.isChecked())
-    print("Fast and sloppy mode =", self.analyzer.isFastAndSloppy)
+    self.analyzer.isFastAndSloppy = checkBox.isChecked()
+    #self.analyzer.numericalize(beFastAndSloppy=checkBox.isChecked())
+    #print("Fast and sloppy mode =", self.analyzer.isFastAndSloppy)
     
   def handleEqnFitChange(self):
     checkBox = self.sender()
@@ -1914,29 +2077,32 @@ class MainWindow(QMainWindow):
     for coli in range(len(cols)):
       thisCol = cols[coli]
       if thisCol not in ignoreCols:
-        value = self.ui.tableWidget.item(row,coli).data(Qt.UserRole)
-        if value is not None:
-          saneValue = float(np.real(value))
-          if thisCol == 'SSE':
-            displayValue = saneValue*mWperW**2 # A^2 to mA^2
-          elif thisCol in ['ff_spline','ff_fit']:
-            displayValue = saneValue*100 # to percent
-          elif thisCol in ['jsc_spline','isc_spline','voc_spline','voc_fit','jsc','isc','jph','iph','vmax_spline','vmax_fit','pmax_spline','pmax_fit','pmax_a_spline','pmax_a_fit']:
-            displayValue = saneValue*1e3 # to milli-
-          elif thisCol in ['area']:
-            displayValue = saneValue*1e2 # to centi-
-          elif thisCol in ['i0','j0']:
-            displayValue = saneValue*1e9 # to nano-
-          else:
-            displayValue = saneValue
-          displayValue = self.to_precision(displayValue,4)
-          self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,displayValue)
-          #displayValue = str(displayValue)
-          #self.ui.tableWidget.item(row,coli).setText(displayValue)
-          self.ui.tableWidget.resizeColumnToContents(coli)
-          self.ui.tableWidget.viewport().update()
+        thisTableItem = self.ui.tableWidget.item(row,coli)
+        if thisTableItem is not None:
+          value = thisTableItem.data(Qt.UserRole)
+          if value is not None:
+            saneValue = float(np.real(value))
+            if thisCol == 'SSE':
+              displayValue = saneValue*1000**2 # A^2 to mA^2
+            elif thisCol in ['ff_spline','ff_fit','pce_spline']:
+              displayValue = saneValue*100 # to percent
+            elif thisCol in ['isc_spline','voc_spline','voc_fit','isc','jph','iph','vmax_spline','vmax_fit','pmax_spline','pmax_fit','pmax_a_spline','pmax_a_fit']:
+              displayValue = saneValue*1e3 # to milli-
+            elif thisCol in ['jsc_spline','jsc']:
+              displayValue = saneValue*1e3*1e-4 # to milli- per cm^2
+            elif thisCol in ['area']:
+              displayValue = saneValue*1e2**2 # to centi-^4
+            elif thisCol in ['i0','j0']:
+              displayValue = saneValue*1e9 # to nano-
+            else:
+              displayValue = saneValue
+            displayValue = self.to_precision(displayValue,4)
+            self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,displayValue)
+            #displayValue = str(displayValue)
+            #self.ui.tableWidget.item(row,coli).setText(displayValue)
+            self.ui.tableWidget.resizeColumnToContents(coli)
+            self.ui.tableWidget.viewport().update()
           
-
   # returns table column number given name
   def getCol(self,colName):
     return list(self.cols.keys()).index(colName)
@@ -1970,50 +2136,100 @@ class MainWindow(QMainWindow):
     self.ui.tableWidget.insertRow(thisRow)
     for ii in range(self.ui.tableWidget.columnCount()):
       self.ui.tableWidget.setItem(thisRow,ii,QTableWidgetItem())
-    fileCol = self.getCol('file')
     fileName = os.path.basename(fullPath)
-    self.ui.tableWidget.item(thisRow,fileCol).setText(fileName)
-    self.ui.tableWidget.item(thisRow,fileCol).setData(Qt.UserRole,analysisParams['uid']) # uid for the row
-    self.ui.tableWidget.resizeColumnToContents(fileCol)
+
+    self.tableInsert(thisRow,'file', fileName, role=Qt.DisplayRole)
+    self.tableInsert(thisRow,'file', analysisParams['uid'])
+    
+    #self.tableInsert(thisRow,'file', fileName)
+    #self.ui.tableWidget.item(thisRow,self.getCol('file')).setData(Qt.UserRole,analysisParams['uid']) # uid for the row    
+    #thisItem.setText(fileName)
+    #thisItem.setData(Qt.UserRole, analysisParams['uid'])
+    #self.ui.tableWidget.setItem(thisRow,thisCol,thisItem)
+    #self.ui.tableWidget.item(thisRow,fileCol).setText(fileName)
+    #self.ui.tableWidget.item(thisRow,fileCol).setData(Qt.UserRole,analysisParams['uid']) # uid for the row
+    #self.ui.tableWidget.resizeColumnToContents(thisCol)
     self.ui.tableWidget.setSortingEnabled(True) # fix strange sort behavior
-    self.nextRow = thisRow + 1;
     self.fileNames.append(fileName)
     
+    self.analyzer.processFiles(fullPath, analysisParams, self.processFitResult)
+    
     if self.multiprocess:
-      submission = self.pool.submit(self.analyzer.processFile,fullPath,analysisParams)
-      submission.add_done_callback(self.processFitResult)
+    #  submission = self.pool.submit(self.analyzer.processFile,fullPath,analysisParams)
+    #  submission.add_done_callback(self.processFitResult)
       self.updatePoolStatus()
-    else: # single thread case
-      self.processFitResult(self.analyzer.processFile(fullPath, analysisParams))    
+    #else: # single thread case
+    #  self.processFitResult(self.analyzer.processFile(fullPath, analysisParams))    
 
-  def processFitResult(self,thing):    
-    if self.multiprocess:
+  def tableInsert(self,thisRow,colName,value,role=Qt.UserRole):    
+    thisCol = self.getCol(colName)
+    thisItem = self.ui.tableWidget.item(thisRow,thisCol)
+    thisItem.setData(role,value)
+    self.ui.tableWidget.resizeColumnToContents(thisCol)
+    
+  def processFitResult(self,result):
+    if type(result) is concurrent.futures._base.Future:
       self.updatePoolStatus()
-      if thing.done() and thing.exception(timeout=0) is None and type(thing.result()) is dict:
-        result = thing.result()
+      if result.done() and result.exception(timeout=0) is None:
+        result = result.result()
       else:
-        print('Error during file processing:', thing.exception(timeout=0))
+        print('Error during file processing:', result.exception(timeout=0))
         return
-    else: # single thread case
-      result = thing
-    uid = result['params']['uid']
+    uid = result.params['uid']
     thisRow = self.getRowByUID(uid)
     #print('Got new fit result, UID:',result['params']['uid'])
     #print(result['fitResult'])
     
+    #
+    
+    #thisItem = QTableWidgetItem()
+    #thisItem.setData
+    
+    rowData = Object()
+    rowData.pmax_a_spline = result.pmpp
+    rowData.vmax_spline = result.vmpp
+    rowData.isc_spline = result.isc
+    rowData.voc_spline = result.voc
+    rowData.SSE = result.sse
+    rowData.area = result.area
+    rowData.suns = result.suns
+    #rowData.suns = result.suns
+    
+    rowData.n = thisRow
+    #obj.colName = 'pce_spline'
+    #obj.value = getattr(result, 'pce')
+    #obj.role = Qt.DisplayRole
+    #self.tableInsert(thisRow,'file', fileName)
+    self.mySignals.populateRow.emit(rowData)
+    
+    
+    #self.tableInsert(thisRow, 'pce_spline', getattr(result, 'pce'))
+    #item = self.ui.tableWidget.item(thisRow,self.getCol(thisThing))
+    #thisItem = QTableWidgetItem()
+    #value = result['insert'][thisThing]
+    #role = Qt.UserRole
+    #item.setData(role,value)
+    
+    #insert = lambda colName,value: self.ui.tableWidget.item(thisRow,self.getCol(colName)).setData(Qt.UserRole,value)
+    #thisThing = 'pce_spline'
+    #insert(thisThing,result['insert'][thisThing])
+
+  def populateRow(self,rowData):
     self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
-    if thisRow is None:
-      print('Error: Failed to look up row')
-      self.ui.tableWidget.setSortingEnabled(True)
-      return
     
-    insert = lambda colName,value: self.ui.tableWidget.item(thisRow,self.getCol(colName)).setData(Qt.UserRole,value)
-    insert('pce_spline',result['insert']['pce_spline'])
+    # derived row data values:
+    rowData.pce_spline = (rowData.pmax_a_spline/rowData.area)/(ivAnalyzer.stdIrridance*rowData.suns)
+    rowData.ff_spline = rowData.pmax_a_spline/(rowData.isc_spline*rowData.voc_spline)
+    rowData.jsc_spline = rowData.isc_spline/rowData.area
     
-    self.sanitizeRow(thisRow)
+    for key,value in rowData.__dict__.items():
+      colName = key
+      if key not in ['n']:
+        self.tableInsert(rowData.n, key, value)
+    
+    self.sanitizeRow(rowData.n)
     self.ui.tableWidget.setSortingEnabled(True)
     
-
   def openCall(self):
     #remember the last path the user opened
     if self.settings.contains('lastFolder'):
