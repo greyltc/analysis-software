@@ -97,10 +97,10 @@ class ivAnalyzer:
   poolWorkers = None
     
   def __init__(self,beFastAndSloppy=True, multiprocess=True, poolWorkers=8):
-    self.multiprocess = multiprocess
+    self.__dict__['multiprocess'] = multiprocess
     self.poolWorkers = poolWorkers
     if self.multiprocess:
-      self.pool = concurrent.futures.ProcessPoolExecutor(max_workers = self.poolWorkers)
+      self.buildAPool()
       submission = self.pool.submit(ivAnalyzer.doSymbolicManipulations,beFastAndSloppy)
       submission.add_done_callback(self.symbolsDone)
     else:
@@ -108,9 +108,39 @@ class ivAnalyzer:
       self.symbolsDone(results)
   
   def __setattr__(self, attr, value):
-    self.__dict__[attr] = value
     if attr == 'isFastAndSloppy':
+      self.__dict__[attr] = value
       self.numericalize()
+    elif attr == 'poolWorkers':
+      self.__dict__[attr] = value
+      if self.multiprocess and self.pool is not None:
+        self.buildAPool()
+    elif attr == 'multiprocess':
+      changed = (self.__dict__[attr]) != value
+      if changed:
+        self.__dict__[attr] = value
+        self.readyForAnalysis = False
+        self.numericalize()
+        if value:
+          self.buildAPool()
+      if not value:
+        try:
+          self.pool.shutdown()
+        except:
+          pass
+        del(self.pool)
+        self.pool = None
+    else:
+      self.__dict__[attr] = value
+      
+  def buildAPool(self):
+    if self.pool is not None:
+      try:
+        self.pool.shutdown()
+      except:
+        pass
+      del(self.pool)
+    self.pool = concurrent.futures.ProcessPoolExecutor(max_workers = self.poolWorkers)
       
   def getPoolStatusString(self):
     qDJobs = len(self.pool._pending_work_items)
@@ -1481,7 +1511,6 @@ class MainWindow(QMainWindow):
   upperVLim = float('inf')
   lowerVLim = float('-inf')
   analyzer = None
-  multiprocess = True
   uid = 0 # unique identifier associated with each file
 
   # for table
@@ -1527,176 +1556,147 @@ class MainWindow(QMainWindow):
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'PCE\n[%]'
     self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'jsc_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
     self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'voc_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'V_oc\n[mV]'
     self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit I=0 crossing'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'ff_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'FF\n[%]'
     self.cols[thisKey].tooltip = 'Fill factor as found from spline fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'area'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'Area\n[cm^2]'
     self.cols[thisKey].tooltip = 'Device area'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'suns'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'Suns\n'
     self.cols[thisKey].tooltip = 'Illumination intensity'        
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'pmax_a_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'P_max\n[mW]'
     self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'vmax_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'V_max\n[mV]'
     self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'isc_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'I_sc\n[mA]'
     self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing'    
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'SSE'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'SSE\n[mA^2]'
     self.cols[thisKey].tooltip = 'Sum of the square of the errors between the data points and the fit to the char. eqn. (a measure of fit goodness)'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
     
     thisKey = 'n'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'n'
     self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'rs_a'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'R_s\n[ohm*cm^2]'
     self.cols[thisKey].tooltip = 'Specific series resistance as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'rsh_a'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'R_sh\n[ohm*cm^2]'
     self.cols[thisKey].tooltip = 'Specific shunt resistance as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'jph'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
     self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'j0'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
     self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'pce_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'PCE_fit\n[%]'
     self.cols[thisKey].tooltip = 'Power conversion efficiency as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'pmax_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'P_max_fit\n[mW]'
     self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'pmax_a_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
     self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'vmax_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'V_max_fit\n[mV]'
     self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'voc_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'V_oc_fit\n[mV]'
     self.cols[thisKey].tooltip = 'Open-circuit voltage as found from characteristic equation fit I=0 crossing'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'ff_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'FF_fit\n[%]'
     self.cols[thisKey].tooltip = 'Fill factor as found from characteristic equation fit'        
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'isc_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'I_sc_fit\n[mA]'
     self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit V=0 crossing'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'jsc_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_sc_fit\n[mA/cm^2]'
     self.cols[thisKey].tooltip = 'Short-circuit current density as found from characteristic equation fit V=0 crossing'        
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'iph'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'I_ph\n[mA]'
     self.cols[thisKey].tooltip = 'Photogenerated current as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'jph'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
     self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'i0'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'I_0\n[nA]'
     self.cols[thisKey].tooltip = 'Reverse saturation current as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'j0'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
     self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'rs'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'R_s\n[ohm]'
     self.cols[thisKey].tooltip = 'Series resistance as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
   
     thisKey = 'rsh'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'R_sh\n[ohm]'
     self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit'
-    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
-          
+              
     # load setting for lower voltage cuttoff
     if not self.settings.contains('lowerVoltageCutoff'):
       self.ui.lowerVoltageCutoffLineEdit.setText('-inf')
@@ -1717,12 +1717,22 @@ class MainWindow(QMainWindow):
 
     # load setting for fast vs accurate calculations
     if not self.settings.contains('fastAndSloppy'):
-      self.ui.doFastAndSloppyMathCheckBox.setChecked(False)
-      self.settings.setValue('fastAndSloppy',False)
+      self.ui.doFastAndSloppyMathCheckBox.setChecked(True)
+      self.settings.setValue('fastAndSloppy',True)
     else:
       self.ui.doFastAndSloppyMathCheckBox.setChecked(self.settings.value('fastAndSloppy') == 'true')
     self.ui.doFastAndSloppyMathCheckBox.stateChanged.connect(self.handleMathChange)
-
+    
+    # load setting for multiprocessing
+    if not self.settings.contains('multiprocessing'):
+      self.ui.useMultithreadingModeCheckBox.setChecked(True)
+      self.settings.setValue('multiprocessing',True)
+    else:
+      value = self.settings.value('multiprocessing') == 'true'
+      self.ui.useMultithreadingModeCheckBox.setChecked(value)
+      self.ui.analysisThreadsSpinBox.setEnabled(value)
+    self.ui.useMultithreadingModeCheckBox.stateChanged.connect(self.handleMultiprocessingChange)
+    
     # load setting for fitting eqn or not
     if not self.settings.contains('fitToEqn'):
       self.ui.attemptCharEqnFitCheckBox.setChecked(False)
@@ -1835,9 +1845,10 @@ class MainWindow(QMainWindow):
     #mySignals.sloppy.connect(self.handleMathFinished)
     #mySignals.analysisResult.connect(self.processFitResult)
      
-    poolWorkers=8
-    beFastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked()
-    self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=self.multiprocess, poolWorkers=poolWorkers)
+    poolWorkers = self.ui.analysisThreadsSpinBox.value()
+    beFastAndSloppy = self.ui.doFastAndSloppyMathCheckBox.isChecked()
+    multiprocess = self.ui.useMultithreadingModeCheckBox.isChecked()
+    self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=multiprocess, poolWorkers=poolWorkers)
      
     # do symbolic calcs now if needed
     #if self.ui.attemptCharEqnFitCheckBox.isChecked():
@@ -1899,7 +1910,9 @@ class MainWindow(QMainWindow):
     self.ui.upperVoltageCutoffLineEdit.editingFinished.emit()
     self.ui.fitMethodComboBox.setCurrentIndex(2)
     self.ui.verbositySpinBox.setValue(0)
-    self.ui.analysisThreadsSpinBox.setValue(1)
+    self.ui.analysisThreadsSpinBox.setValue(8)
+    self.ui.analysisThreadsSpinBox.setEnabled(True)
+    self.ui.useMultithreadingModeCheckBox.setChecked(True)
 
   # let's make sure to print messages for the statusbar also in the console    
   def myShowMessage(*args, **kwargs):
@@ -1945,7 +1958,9 @@ class MainWindow(QMainWindow):
 
   def handleNThreadChange(self):
     spinBox = self.sender()
-    self.settings.setValue('threads',spinBox.value())
+    value = spinBox.value()
+    self.settings.setValue('threads',value)
+    self.analyzer.poolWorkers = value
 
   def handleConstraintsChange(self):
     lineEdit = self.sender()
@@ -1981,6 +1996,13 @@ class MainWindow(QMainWindow):
   def handleEqnFitChange(self):
     checkBox = self.sender()
     self.settings.setValue('fitToEqn',checkBox.isChecked())
+    
+  def handleMultiprocessingChange(self):
+    checkBox = self.sender()
+    value = checkBox.isChecked()
+    self.settings.setValue('multiprocessing',value)
+    self.ui.analysisThreadsSpinBox.setEnabled(value)
+    self.analyzer.multiprocess = value
 
   def handleButton(self):
     btn = self.sender()
@@ -2231,7 +2253,7 @@ class MainWindow(QMainWindow):
     #self._processFitResult(result)
     
   def _processFitResult(self,result):
-    if self.multiprocess:
+    if self.ui.useMultithreadingModeCheckBox.isChecked():
       self.updatePoolStatus()
     uid = result.params['uid']
     thisRow = self.getRowByUID(uid)
