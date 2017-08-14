@@ -22,8 +22,9 @@ import dill
 #import cloudpickle
 
 from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo, QObject, pyqtSignal, QRunnable
-from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton
+from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QItemDelegate
 
+import itertools
 import mpmath.libmp
 assert mpmath.libmp.BACKEND == 'gmpy'
 import numpy as np
@@ -52,7 +53,8 @@ class Object(object):
   pass
 
 class customSignals(QObject):
-  populateRow = pyqtSignal(object)
+  newFitResult = pyqtSignal(object)
+  #populateRow = pyqtSignal(object)
   #analysisResult = pyqtSignal(dict)
   #sloppy = pyqtSignal(bool)
 
@@ -257,7 +259,7 @@ class ivAnalyzer:
     print(results)
   
   # paths = list of paths to files to be processed
-  # params = analysis parameters
+  # params = list of associated analysis parameters
   # returnCall = function handle to call when the analysis is done
   # this function should be ready to be passed one argument
   # that argument could bethe analysis result dict
@@ -265,18 +267,26 @@ class ivAnalyzer:
   def processFiles(self, paths, params, returnCall):
     if type(paths) is not list:
       paths = [paths]
+      params = [params]
+      
     tic = time.time()
     while not self.readyForAnalysis:
       time.sleep(0.1)
       if (time.time() - tic) > 10:
         print("Error: 10 seconds have passed and we're not ready yet. Aborting.")
         return
-    for fullPath in paths:
+    
+    futures = []
+    for fullPath, thisParams in zip(paths,params):
       if self.multiprocess:
-        submission = self.pool.submit(ivAnalyzer.processFile,fullPath,params,self.dillPickle)
-        submission.add_done_callback(returnCall)
+        futures.append(self.pool.submit(ivAnalyzer.processFile,fullPath,thisParams,self.dillPickle))
+        futures[-1].add_done_callback(returnCall)
       else:
-        returnCall(ivAnalyzer.processFile(fullPath, params, self.slns))
+        result = ivAnalyzer.processFile(fullPath, thisParams, self.slns)
+        returnCall(result)
+    
+    #if self.multiprocess:
+    #  concurrent.futures.wait(futures)
   
   def _loadFile(fullPath):
     logMessages = StringIO()
@@ -405,6 +415,7 @@ class ivAnalyzer:
     return ret
   
   def _doSplineStuff(VV,II):
+    logMessages = StringIO()    
     # the task now is to figure out how this data was collected so that we can fix it
     # this is important because the guess and fit algorithms below expect the data to be
     # in a certian way
@@ -651,11 +662,13 @@ class ivAnalyzer:
     ret.Isc = Isc # short circuit current
     ret.Voc = Voc # open circuit voltage
     ret.isDarkCurve = isDarkCurve # dark curve detection flag
-    
+    logMessages.seek(0)
+    ret.logMessages = logMessages.read() 
     return ret
   
   def processFile(fullPath, params, s):
     result = {}
+    ret = Object()
     logMessages = StringIO()
     result['fullPath'] = fullPath
     #result['params'] = params # copy fit parameters over to result
@@ -885,6 +898,7 @@ class ivAnalyzer:
   
           result['insert'] = {}
           result['insert']['SSE'] = SSE
+          ret.sse = SSE
           result['insert']['rs_a'] = p['Rs']*area
           result['insert']['rs'] = p['Rs']
           result['insert']['rsh_a'] = p['Rsh']*area
@@ -952,16 +966,15 @@ class ivAnalyzer:
     ##self.ui.tableWidget.resizeColumnsToContents()
   
     ##self.rows = self.rows + 1
-    logMessages.seek(0)
-    result['logMessages'] = logMessages.read()
+    
     #print(result)pmax_a_spline
-    ret = Object()
+    
     #ret.pce = (splineData.Pmpp/fileData.area)/(ivAnalyzer.stdIrridance*fileData.suns/ivAnalyzer.sqcmpersqm)
     ret.pmpp = splineData.Pmpp # power at max power point
     ret.vmpp = splineData.Vmpp
     ret.isc = splineData.Isc
     ret.voc = splineData.Voc
-    ret.sse = SSE
+    
     ret.area = fileData.area
     ret.suns = fileData.suns
     ret.params = params
@@ -969,6 +982,8 @@ class ivAnalyzer:
     ret.i = splineData.currentData
     ret.x = splineData.analyticalVoltage
     ret.splineCurrent = splineData.splineCurrent
+    logMessages.seek(0)
+    ret.logMessages = logMessages.read()    
     return ret
     #return result
   
@@ -1439,6 +1454,18 @@ class col:
   header = ''
   position = 0
   tooltip = ''
+  
+class FloatDelegate(QItemDelegate):
+  def __init__(self, sigFigs, parent=None):
+    QItemDelegate.__init__(self, parent=parent)
+    self.sigFigs = sigFigs
+  def paint(self, painter, option, index):
+    value = index.model().data(index, Qt.DisplayRole)
+    try:
+      number = float(value)
+      painter.drawText(option.rect, Qt.AlignLeft|Qt.AlignVCenter, MainWindow.to_precision(value,self.sigFigs))
+    except :
+      QItemDelegate.paint(self, painter, option, index)  
 
 class MainWindow(QMainWindow):
   workingDirectory = ''
@@ -1471,171 +1498,6 @@ class MainWindow(QMainWindow):
 
     self.settings = QSettings("greyltc", "batch-iv-analysis")
 
-    # populate column headers
-    thisKey = 'plotBtn'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'Draw Plot'
-    self.cols[thisKey].tooltip = 'Click this button to draw a plot for that row'        
-
-    thisKey = 'exportBtn'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'Export'
-    self.cols[thisKey].tooltip = 'Click this button to export\ninterpolated data points from fits'        
-
-    thisKey = 'file'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'File'
-    self.cols[thisKey].tooltip = 'File name\nHover to see header from data file'
-
-    thisKey = 'SSE'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'SSE\n[mA^2]'
-    self.cols[thisKey].tooltip = 'Sum of the square of the errors between the data points and the fit to the char. eqn. (a measure of fit goodness)'
-
-    thisKey = 'pce_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'PCE\n[%]'
-    self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit'
-
-    thisKey = 'jsc_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
-    self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing'
-
-    thisKey = 'voc_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'V_oc\n[mV]'
-    self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit I=0 crossing'
-
-    thisKey = 'ff_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'FF\n[%]'
-    self.cols[thisKey].tooltip = 'Fill factor as found from spline fit'
-    
-    thisKey = 'area'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'Area\n[cm^2]'
-    self.cols[thisKey].tooltip = 'Device area'
-  
-    thisKey = 'suns'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'Suns\n'
-    self.cols[thisKey].tooltip = 'Illumination intensity'        
-  
-    thisKey = 'pmax_a_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'P_max\n[mW]'
-    self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
-
-    thisKey = 'vmax_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'V_max\n[mV]'
-    self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit'
-    
-    thisKey = 'isc_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'I_sc\n[mA]'
-    self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing'    
-  
-    thisKey = 'n'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'n'
-    self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit'
-
-    thisKey = 'rs_a'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'R_s\n[ohm*cm^2]'
-    self.cols[thisKey].tooltip = 'Specific series resistance as found from characteristic equation fit'
-
-    thisKey = 'rsh_a'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'R_sh\n[ohm*cm^2]'
-    self.cols[thisKey].tooltip = 'Specific shunt resistance as found from characteristic equation fit'
-
-    thisKey = 'jph'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
-    self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
-
-    thisKey = 'j0'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
-    self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
-
-    #thisKey = 'pmax_spline'
-    #self.cols[thisKey] = col()
-    #self.cols[thisKey].header = 'P_max\n[mW]'
-    #self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
-
-    thisKey = 'pce_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'PCE_fit\n[%]'
-    self.cols[thisKey].tooltip = 'Power conversion efficiency as found from characteristic equation fit'
-
-    thisKey = 'pmax_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'P_max_fit\n[mW]'
-    self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
-
-    thisKey = 'pmax_a_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
-    self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
-
-    thisKey = 'vmax_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'V_max_fit\n[mV]'
-    self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from characteristic equation fit'
-
-    thisKey = 'voc_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'V_oc_fit\n[mV]'
-    self.cols[thisKey].tooltip = 'Open-circuit voltage as found from characteristic equation fit I=0 crossing'
-
-    thisKey = 'ff_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'FF_fit\n[%]'
-    self.cols[thisKey].tooltip = 'Fill factor as found from characteristic equation fit'        
-
-    thisKey = 'isc_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'I_sc_fit\n[mA]'
-    self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit V=0 crossing'
-
-    thisKey = 'jsc_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'J_sc_fit\n[mA/cm^2]'
-    self.cols[thisKey].tooltip = 'Short-circuit current density as found from characteristic equation fit V=0 crossing'        
-
-    thisKey = 'iph'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'I_ph\n[mA]'
-    self.cols[thisKey].tooltip = 'Photogenerated current as found from characteristic equation fit'
-
-    thisKey = 'jph'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
-    self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
-
-    thisKey = 'i0'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'I_0\n[nA]'
-    self.cols[thisKey].tooltip = 'Reverse saturation current as found from characteristic equation fit'
-
-    thisKey = 'j0'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
-    self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
-
-    thisKey = 'rs'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'R_s\n[ohm]'
-    self.cols[thisKey].tooltip = 'Series resistance as found from characteristic equation fit'
-
-    thisKey = 'rsh'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'R_sh\n[ohm]'
-    self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit'
 
     #how long status messages show for
     self.messageDuration = 2500#ms
@@ -1643,8 +1505,198 @@ class MainWindow(QMainWindow):
     # Set up the user interface from Designer.
     self.ui = Ui_batch_iv_analysis()
     self.ui.setupUi(self)
-      
-        
+    self.ui.tableWidget.setItemDelegate(FloatDelegate(4))
+    
+    # populate column headers
+    thisKey = 'plotBtn'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Draw Plot'
+    self.cols[thisKey].tooltip = 'Click this button to draw a plot for that row'        
+  
+    thisKey = 'exportBtn'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Export'
+    self.cols[thisKey].tooltip = 'Click this button to export\ninterpolated data points from fits'        
+  
+    thisKey = 'file'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'File'
+    self.cols[thisKey].tooltip = 'File name\nHover to see header from data file'
+    
+    thisKey = 'pce_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'PCE\n[%]'
+    self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'jsc_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'voc_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_oc\n[mV]'
+    self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit I=0 crossing'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'ff_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'FF\n[%]'
+    self.cols[thisKey].tooltip = 'Fill factor as found from spline fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'area'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Area\n[cm^2]'
+    self.cols[thisKey].tooltip = 'Device area'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'suns'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Suns\n'
+    self.cols[thisKey].tooltip = 'Illumination intensity'        
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'pmax_a_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'P_max\n[mW]'
+    self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'vmax_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_max\n[mV]'
+    self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'isc_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_sc\n[mA]'
+    self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing'    
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'SSE'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'SSE\n[mA^2]'
+    self.cols[thisKey].tooltip = 'Sum of the square of the errors between the data points and the fit to the char. eqn. (a measure of fit goodness)'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+    
+    thisKey = 'n'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'n'
+    self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'rs_a'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'R_s\n[ohm*cm^2]'
+    self.cols[thisKey].tooltip = 'Specific series resistance as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'rsh_a'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'R_sh\n[ohm*cm^2]'
+    self.cols[thisKey].tooltip = 'Specific shunt resistance as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'jph'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'j0'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
+    self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'pce_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'PCE_fit\n[%]'
+    self.cols[thisKey].tooltip = 'Power conversion efficiency as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'pmax_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'P_max_fit\n[mW]'
+    self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'pmax_a_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
+    self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'vmax_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_max_fit\n[mV]'
+    self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'voc_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_oc_fit\n[mV]'
+    self.cols[thisKey].tooltip = 'Open-circuit voltage as found from characteristic equation fit I=0 crossing'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'ff_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'FF_fit\n[%]'
+    self.cols[thisKey].tooltip = 'Fill factor as found from characteristic equation fit'        
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'isc_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_sc_fit\n[mA]'
+    self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit V=0 crossing'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'jsc_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_sc_fit\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Short-circuit current density as found from characteristic equation fit V=0 crossing'        
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'iph'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_ph\n[mA]'
+    self.cols[thisKey].tooltip = 'Photogenerated current as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'jph'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'i0'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_0\n[nA]'
+    self.cols[thisKey].tooltip = 'Reverse saturation current as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'j0'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
+    self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'rs'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'R_s\n[ohm]'
+    self.cols[thisKey].tooltip = 'Series resistance as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+  
+    thisKey = 'rsh'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'R_sh\n[ohm]'
+    self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit'
+    #self.ui.tableWidget.setItemDelegateForColumn(len(self.cols)-1,FloatDelegate(4))
+          
     # load setting for lower voltage cuttoff
     if not self.settings.contains('lowerVoltageCutoff'):
       self.ui.lowerVoltageCutoffLineEdit.setText('-inf')
@@ -1777,17 +1829,12 @@ class MainWindow(QMainWindow):
     self.oldShowMessage = self.ui.statusbar.showMessage
     self.ui.statusbar.showMessage = self.myShowMessage
     
-    # this pool holds the workers
-    #self.pool = concurrent.futures.ProcessPoolExecutor(max_workers = self.ui.analysisThreadsSpinBox.value())    
-    
     self.mySignals = customSignals()
-    self.mySignals.populateRow.connect(self.populateRow)
+    self.mySignals.newFitResult.connect(self._processFitResult)
+    #self.mySignals.populateRow.connect(self.populateRow)
     #mySignals.sloppy.connect(self.handleMathFinished)
     #mySignals.analysisResult.connect(self.processFitResult)
-    
-    #woot = ivAnalyzer()
-    #woot.numericalize(beFastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
-    
+     
     poolWorkers=8
     beFastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked()
     self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=self.multiprocess, poolWorkers=poolWorkers)
@@ -1819,7 +1866,7 @@ class MainWindow(QMainWindow):
     #self.analyzer.slns = submission.result()['slns']
     #self.analyzer.electricalModelVarsOnly = submission.result()['electricalModelVarsOnly']
     #print(self.analyzer.I_eqn)
-    
+        
   def distillAnalysisParams(self):
     analysisParams = {}
     analysisParams['lowerVLim'] = self.lowerVLim
@@ -2075,7 +2122,7 @@ class MainWindow(QMainWindow):
     ignoreCols = ['plotBtn','exportBtn','file']
     cols = list(self.cols.keys())
     for coli in range(len(cols)):
-      thisCol = cols[coli]
+      thisCol = cols[coli]      
       if thisCol not in ignoreCols:
         thisTableItem = self.ui.tableWidget.item(row,coli)
         if thisTableItem is not None:
@@ -2096,13 +2143,11 @@ class MainWindow(QMainWindow):
               displayValue = saneValue*1e9 # to nano-
             else:
               displayValue = saneValue
-            displayValue = self.to_precision(displayValue,4)
-            self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,displayValue)
-            #displayValue = str(displayValue)
-            #self.ui.tableWidget.item(row,coli).setText(displayValue)
+            displayValue = MainWindow.to_precision(displayValue,4)
+            self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,float(displayValue))
             self.ui.tableWidget.resizeColumnToContents(coli)
             self.ui.tableWidget.viewport().update()
-          
+
   # returns table column number given name
   def getCol(self,colName):
     return list(self.cols.keys()).index(colName)
@@ -2120,46 +2165,53 @@ class MainWindow(QMainWindow):
     return row
   
   def clearTableCall(self):
-    for ii in range(self.rows):
+    for ii in range(self.ui.tableWidget.rowCount()):
       self.ui.tableWidget.removeRow(0)
-    self.ui.tableWidget.clear()
-    self.ui.tableWidget.clearContents()
+
+    
+    #self.ui.tableWidget.clear()
+    #self.ui.tableWidget.clearContents()
     self.fileNames = []
     
-  def newFile(self,fullPath):
-    # grab settings from gui
-    analysisParams = self.distillAnalysisParams()
+  def newFiles(self,fullPaths):
+    analysisParams = []
     
-    # insert filename into table immediately
-    thisRow = self.ui.tableWidget.rowCount()
-    self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
-    self.ui.tableWidget.insertRow(thisRow)
-    for ii in range(self.ui.tableWidget.columnCount()):
-      self.ui.tableWidget.setItem(thisRow,ii,QTableWidgetItem())
-    fileName = os.path.basename(fullPath)
-
-    self.tableInsert(thisRow,'file', fileName, role=Qt.DisplayRole)
-    self.tableInsert(thisRow,'file', analysisParams['uid'])
+    for i in range(len(fullPaths)):
+      # grab settings from gui
+      analysisParams.append(self.distillAnalysisParams())
+      
+      # insert filename into table immediately
+      thisRow = self.ui.tableWidget.rowCount()
+      self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
+      self.ui.tableWidget.insertRow(thisRow)
+      for ii in range(self.ui.tableWidget.columnCount()):
+        self.ui.tableWidget.setItem(thisRow,ii,QTableWidgetItem())
+      fileName = os.path.basename(fullPaths[i])
+      
+      self.tableInsert(thisRow,'file', fileName, role=Qt.DisplayRole)
+      self.tableInsert(thisRow,'file', analysisParams[i]['uid'])
     
-    #self.tableInsert(thisRow,'file', fileName)
-    #self.ui.tableWidget.item(thisRow,self.getCol('file')).setData(Qt.UserRole,analysisParams['uid']) # uid for the row    
-    #thisItem.setText(fileName)
-    #thisItem.setData(Qt.UserRole, analysisParams['uid'])
-    #self.ui.tableWidget.setItem(thisRow,thisCol,thisItem)
-    #self.ui.tableWidget.item(thisRow,fileCol).setText(fileName)
-    #self.ui.tableWidget.item(thisRow,fileCol).setData(Qt.UserRole,analysisParams['uid']) # uid for the row
-    #self.ui.tableWidget.resizeColumnToContents(thisCol)
-    self.ui.tableWidget.setSortingEnabled(True) # fix strange sort behavior
-    self.fileNames.append(fileName)
+      #self.tableInsert(thisRow,'file', fileName)
+      #self.ui.tableWidget.item(thisRow,self.getCol('file')).setData(Qt.UserRole,analysisParams['uid']) # uid for the row    
+      #thisItem.setText(fileName)
+      #thisItem.setData(Qt.UserRole, analysisParams['uid'])
+      #self.ui.tableWidget.setItem(thisRow,thisCol,thisItem)
+      #self.ui.tableWidget.item(thisRow,fileCol).setText(fileName)
+      #self.ui.tableWidget.item(thisRow,fileCol).setData(Qt.UserRole,analysisParams['uid']) # uid for the row
+      #self.ui.tableWidget.resizeColumnToContents(thisCol)
+      self.ui.tableWidget.setSortingEnabled(True) # fix strange sort behavior
+      self.fileNames.append(fileName)
+      #if not self.multiprocess:
+      #  self.processFitResult(self.analyzer.processFile(fullPaths[i], analysisParams[i]))
     
-    self.analyzer.processFiles(fullPath, analysisParams, self.processFitResult)
-    
-    if self.multiprocess:
+    #if self.multiprocess:
+    self.analyzer.processFiles(fullPaths, analysisParams, self.processFitResult)
     #  submission = self.pool.submit(self.analyzer.processFile,fullPath,analysisParams)
     #  submission.add_done_callback(self.processFitResult)
-      self.updatePoolStatus()
+      #self.updatePoolStatus()
+      #print('Once')
     #else: # single thread case
-    #  self.processFitResult(self.analyzer.processFile(fullPath, analysisParams))    
+    #     
 
   def tableInsert(self,thisRow,colName,value,role=Qt.UserRole):    
     thisCol = self.getCol(colName)
@@ -2169,12 +2221,18 @@ class MainWindow(QMainWindow):
     
   def processFitResult(self,result):
     if type(result) is concurrent.futures._base.Future:
-      self.updatePoolStatus()
+      #
       if result.done() and result.exception(timeout=0) is None:
         result = result.result()
       else:
         print('Error during file processing:', result.exception(timeout=0))
         return
+    self.mySignals.newFitResult.emit(result)
+    #self._processFitResult(result)
+    
+  def _processFitResult(self,result):
+    if self.multiprocess:
+      self.updatePoolStatus()
     uid = result.params['uid']
     thisRow = self.getRowByUID(uid)
     #print('Got new fit result, UID:',result['params']['uid'])
@@ -2190,17 +2248,13 @@ class MainWindow(QMainWindow):
     rowData.vmax_spline = result.vmpp
     rowData.isc_spline = result.isc
     rowData.voc_spline = result.voc
-    rowData.SSE = result.sse
+    #rowData.SSE = result.sse
     rowData.area = result.area
     rowData.suns = result.suns
-    #rowData.suns = result.suns
-    
     rowData.n = thisRow
-    #obj.colName = 'pce_spline'
-    #obj.value = getattr(result, 'pce')
-    #obj.role = Qt.DisplayRole
-    #self.tableInsert(thisRow,'file', fileName)
-    self.mySignals.populateRow.emit(rowData)
+    #print('got new fit result:',uid)
+    self.populateRow(rowData)
+    #self.mySignals.populateRow.emit(rowData)
     
     
     #self.tableInsert(thisRow, 'pce_spline', getattr(result, 'pce'))
@@ -2242,9 +2296,13 @@ class MainWindow(QMainWindow):
     if len(fileNames[0])>0:#check if user clicked cancel
       self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
       self.settings.setValue('lastFolder',self.workingDirectory)
-      for fullPath in fileNames[0]:
-        self.newFile(str(fullPath))
-        
+      
+      fullPaths = fileNames[0]
+      self.newFiles(fullPaths)
+      
+      #for fullPath in fullPaths:
+      #  self.newFile(str(fullPath))
+      
       if self.ui.actionEnable_Watching.isChecked():
         watchedDirs = self.watcher.directories()
         self.watcher.removePaths(watchedDirs)
@@ -2313,7 +2371,7 @@ class MainWindow(QMainWindow):
     self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(255,0,0,255);color:black;font-weight:bold;}")
 
   # yanked from https://github.com/randlet/to-precision
-  def to_precision(self,x,p):
+  def to_precision(x,p):
     """
     returns a string representation of x formatted with a precision of p
   
