@@ -1,0 +1,1048 @@
+from batch_iv_analysis.batch_iv_analysis_UI import Ui_batch_iv_analysis
+from batch_iv_analysis.ivAnalyzer import ivAnalyzer
+from batch_iv_analysis import Object
+
+# needed for file watching
+import time
+
+# for performance tuning
+#import cProfile, pstats, io 
+#pr = cProfile.Profile()
+
+import math
+
+#TODO: make area editable
+
+from collections import OrderedDict
+
+import os, sys, inspect, csv
+
+from numpy import inf
+import numpy as np
+
+from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo, QObject, pyqtSignal, QRunnable
+from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QItemDelegate
+
+import matplotlib.pyplot as plt
+plt.switch_backend("Qt5Agg")
+
+class customSignals(QObject):
+  newFitResult = pyqtSignal(object)
+  #populateRow = pyqtSignal(object)
+  #analysisResult = pyqtSignal(dict)
+  #sloppy = pyqtSignal(bool)
+
+#mySignals = customSignals()
+
+def main(args=None):
+  """# a tool for analysing solar cell i-v curves
+  # written by Grey Christoforo <first name [at] last name [not] net>
+  # please cite our work if you can!
+  # DOI: 10.3390/photonics2041101
+  """
+
+  if args is None:
+    args = sys.argv[1:]
+
+  # Do argument parsing here (eg. with argparse)
+
+  app = QApplication(sys.argv)
+  analysis = MainWindow()
+  analysis.show()
+  ret = app.exec_()
+  sys.exit(ret)
+  
+class col:
+  header = ''
+  position = 0
+  tooltip = ''
+  
+class FloatDelegate(QItemDelegate):
+  def __init__(self, sigFigs, parent=None):
+    QItemDelegate.__init__(self, parent=parent)
+    self.sigFigs = sigFigs
+  def paint(self, painter, option, index):
+    value = index.model().data(index, Qt.DisplayRole)
+    try:
+      number = float(value)
+      painter.drawText(option.rect, Qt.AlignLeft|Qt.AlignVCenter, MainWindow.to_precision(value,self.sigFigs))
+    except :
+      QItemDelegate.paint(self, painter, option, index)  
+
+class MainWindow(QMainWindow):
+  workingDirectory = ''
+  fileNames = []
+  supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2','*.div1','*.div2']
+  bounds = {}
+  bounds['I0'] = [0, inf] 
+  bounds['Iph'] = [0, inf]
+  bounds['Rs'] = [0, inf]
+  bounds['Rsh'] = [0, inf]
+  bounds['n'] = [0, inf]
+  symbolCalcsNotDone = True
+  upperVLim = float('inf')
+  lowerVLim = float('-inf')
+  analyzer = None
+  uid = 0 # unique identifier associated with each file
+
+  # for table
+  #rows = 0 #this variable keepss track of how many rows there are in the results table
+  cols = OrderedDict()
+  #nextRow = 0
+  
+  def closeEvent(self, event):
+    pass
+    #self.pool.shutdown(wait=False)
+
+  def __init__(self):
+    QMainWindow.__init__(self)
+
+    self.settings = QSettings("greyltc", "batch-iv-analysis")
+
+
+    #how long status messages show for
+    self.messageDuration = 2500#ms
+
+    # Set up the user interface from Designer.
+    self.ui = Ui_batch_iv_analysis()
+    self.ui.setupUi(self)
+    self.ui.tableWidget.setItemDelegate(FloatDelegate(4))
+    
+    # populate column headers
+    thisKey = 'plotBtn'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Draw Plot'
+    self.cols[thisKey].tooltip = 'Click this button to draw a plot for that row'        
+  
+    thisKey = 'exportBtn'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Export'
+    self.cols[thisKey].tooltip = 'Click this button to export\ninterpolated data points from fits'        
+  
+    thisKey = 'file'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'File'
+    self.cols[thisKey].tooltip = 'File name\nHover to see header from data file'
+    
+    thisKey = 'pce_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'PCE\n[%]'
+    self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit'
+  
+    thisKey = 'jsc_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing'
+  
+    thisKey = 'voc_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_oc\n[mV]'
+    self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit I=0 crossing'
+  
+    thisKey = 'ff_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'FF\n[%]'
+    self.cols[thisKey].tooltip = 'Fill factor as found from spline fit'
+  
+    thisKey = 'area'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Area\n[cm^2]'
+    self.cols[thisKey].tooltip = 'Device area'
+  
+    thisKey = 'suns'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Suns\n'
+    self.cols[thisKey].tooltip = 'Illumination intensity'        
+  
+    thisKey = 'pmax_a_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'P_max\n[mW]'
+    self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
+  
+    thisKey = 'vmax_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_max\n[mV]'
+    self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from spline fit'
+  
+    thisKey = 'isc_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_sc\n[mA]'
+    self.cols[thisKey].tooltip = 'Short-circuit current as found from spline V=0 crossing'    
+  
+    thisKey = 'SSE'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'SSE\n[mA^2]'
+    self.cols[thisKey].tooltip = 'Sum of the square of the errors between the data points and the fit to the char. eqn. (a measure of fit goodness)'
+    
+    thisKey = 'n'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'n'
+    self.cols[thisKey].tooltip = 'Diode ideality factor as found from characteristic equation fit'
+  
+    thisKey = 'rs_a'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'R_s\n[ohm*cm^2]'
+    self.cols[thisKey].tooltip = 'Specific series resistance as found from characteristic equation fit'
+  
+    thisKey = 'rsh_a'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'R_sh\n[ohm*cm^2]'
+    self.cols[thisKey].tooltip = 'Specific shunt resistance as found from characteristic equation fit'
+  
+    thisKey = 'jph'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
+  
+    thisKey = 'j0'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
+    self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
+  
+    thisKey = 'pce_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'PCE_fit\n[%]'
+    self.cols[thisKey].tooltip = 'Power conversion efficiency as found from characteristic equation fit'
+  
+    thisKey = 'pmax_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'P_max_fit\n[mW]'
+    self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
+  
+    thisKey = 'pmax_a_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
+    self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
+  
+    thisKey = 'vmax_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_max_fit\n[mV]'
+    self.cols[thisKey].tooltip = 'Voltage at maximum power point as found from characteristic equation fit'
+  
+    thisKey = 'voc_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'V_oc_fit\n[mV]'
+    self.cols[thisKey].tooltip = 'Open-circuit voltage as found from characteristic equation fit I=0 crossing'
+  
+    thisKey = 'ff_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'FF_fit\n[%]'
+    self.cols[thisKey].tooltip = 'Fill factor as found from characteristic equation fit'        
+  
+    thisKey = 'isc_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_sc_fit\n[mA]'
+    self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit V=0 crossing'
+  
+    thisKey = 'jsc_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_sc_fit\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Short-circuit current density as found from characteristic equation fit V=0 crossing'        
+  
+    thisKey = 'iph'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_ph\n[mA]'
+    self.cols[thisKey].tooltip = 'Photogenerated current as found from characteristic equation fit'
+  
+    thisKey = 'jph'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_ph\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Photogenerated current density as found from characteristic equation fit'
+  
+    thisKey = 'i0'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_0\n[nA]'
+    self.cols[thisKey].tooltip = 'Reverse saturation current as found from characteristic equation fit'
+  
+    thisKey = 'j0'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_0\n[nA/cm^2]'
+    self.cols[thisKey].tooltip = 'Reverse saturation current density as found from characteristic equation fit'
+  
+    thisKey = 'rs'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'R_s\n[ohm]'
+    self.cols[thisKey].tooltip = 'Series resistance as found from characteristic equation fit'
+  
+    thisKey = 'rsh'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'R_sh\n[ohm]'
+    self.cols[thisKey].tooltip = 'Shunt resistance as found from characteristic equation fit'
+              
+    # load setting for lower voltage cuttoff
+    if not self.settings.contains('lowerVoltageCutoff'):
+      self.ui.lowerVoltageCutoffLineEdit.setText('-inf')
+      self.settings.setValue('lowerVoltageCutoff','-inf')
+    else:
+      self.ui.lowerVoltageCutoffLineEdit.setText(self.settings.value('lowerVoltageCutoff'))
+      self.lowerVLim=float(self.settings.value('lowerVoltageCutoff'))
+    self.ui.lowerVoltageCutoffLineEdit.editingFinished.connect(self.handleLowerLimChange)
+
+    # load setting for upper voltage cuttoff
+    if not self.settings.contains('upperVoltageCutoff'):
+      self.ui.upperVoltageCutoffLineEdit.setText('inf')
+      self.settings.setValue('upperVoltageCutoff','inf')
+    else:
+      self.ui.upperVoltageCutoffLineEdit.setText(self.settings.value('upperVoltageCutoff'))
+      self.upperVLim=float(self.settings.value('upperVoltageCutoff'))
+    self.ui.upperVoltageCutoffLineEdit.editingFinished.connect(self.handleUpperLimChange)
+
+    # load setting for fast vs accurate calculations
+    if not self.settings.contains('fastAndSloppy'):
+      self.ui.doFastAndSloppyMathCheckBox.setChecked(True)
+      self.settings.setValue('fastAndSloppy',True)
+    else:
+      self.ui.doFastAndSloppyMathCheckBox.setChecked(self.settings.value('fastAndSloppy') == 'true')
+    self.ui.doFastAndSloppyMathCheckBox.stateChanged.connect(self.handleMathChange)
+    
+    # load setting for multiprocessing
+    if not self.settings.contains('multiprocessing'):
+      self.ui.useMultithreadingModeCheckBox.setChecked(True)
+      self.settings.setValue('multiprocessing',True)
+    else:
+      value = self.settings.value('multiprocessing') == 'true'
+      self.ui.useMultithreadingModeCheckBox.setChecked(value)
+      self.ui.analysisThreadsSpinBox.setEnabled(value)
+    self.ui.useMultithreadingModeCheckBox.stateChanged.connect(self.handleMultiprocessingChange)
+    
+    # load setting for fitting eqn or not
+    if not self.settings.contains('fitToEqn'):
+      self.ui.attemptCharEqnFitCheckBox.setChecked(False)
+      self.settings.setValue('fitToEqn',False)
+    else:
+      self.ui.attemptCharEqnFitCheckBox.setChecked(self.settings.value('fitToEqn') == 'true')
+    self.ui.attemptCharEqnFitCheckBox.stateChanged.connect(self.handleEqnFitChange)
+
+    # set defaults
+    I0_lb_string = "0" if not self.settings.contains('I0_lb') else self.settings.value('I0_lb')
+    Iph_lb_string = "0" if not self.settings.contains('Iph_lb') else self.settings.value('Iph_lb')
+    Rs_lb_string = "0" if not self.settings.contains('Rs_lb') else self.settings.value('Rs_lb')
+    Rsh_lb_string = "0" if not self.settings.contains('Rsh_lb') else self.settings.value('Rsh_lb')
+    n_lb_string = "0" if not self.settings.contains('n_lb') else self.settings.value('n_lb')
+
+    I0_ub_string = "inf" if not self.settings.contains('I0_ub') else self.settings.value('I0_ub')
+    Iph_ub_string = "inf" if not self.settings.contains('Iph_ub') else self.settings.value('Iph_ub')
+    Rs_ub_string = "inf" if not self.settings.contains('Rs_ub') else self.settings.value('Rs_ub')
+    Rsh_ub_string = "inf" if not self.settings.contains('Rsh_ub') else self.settings.value('Rsh_ub')
+    n_ub_string = "inf" if not self.settings.contains('n_ub') else self.settings.value('n_ub')
+
+    if self.settings.contains('fitMethod'):
+      self.ui.fitMethodComboBox.setCurrentIndex(int(self.settings.value('fitMethod')))
+    else:
+      self.settings.setValue('fitMethod',self.ui.fitMethodComboBox.currentIndex())
+
+    if self.settings.contains('verbosity'):
+      self.ui.verbositySpinBox.setValue(int(self.settings.value('verbosity')))
+    else:
+      self.settings.setValue('verbosity',self.ui.verbositySpinBox.value())
+
+    if self.settings.contains('threads'):
+      self.ui.analysisThreadsSpinBox.setValue(int(self.settings.value('threads')))
+    else:
+      self.settings.setValue('threads',self.ui.analysisThreadsSpinBox.value())
+    self.ui.analysisThreadsSpinBox.valueChanged.connect(self.handleNThreadChange)
+
+    self.bounds['I0'][0] = np.float(I0_lb_string)
+    self.bounds['Iph'][0] = np.float(Iph_lb_string)
+    self.bounds['Rs'][0] = np.float(Rs_lb_string)
+    self.bounds['Rsh'][0] = np.float(Rsh_lb_string)
+    self.bounds['n'][0] = np.float(n_lb_string)
+
+    self.bounds['I0'][1] = np.float(I0_ub_string)
+    self.bounds['Iph'][1] = np.float(Iph_ub_string)
+    self.bounds['Rs'][1] = np.float(Rs_ub_string)
+    self.bounds['Rsh'][1] = np.float(Rsh_ub_string)
+    self.bounds['n'][1] = np.float(n_ub_string)
+
+    self.ui.I0_lb.setText(I0_lb_string)
+    self.ui.Iph_lb.setText(Iph_lb_string)
+    self.ui.Rs_lb.setText(Rs_lb_string)
+    self.ui.Rsh_lb.setText(Rsh_lb_string)
+    self.ui.n_lb.setText(n_lb_string)
+
+    self.ui.I0_ub.setText(I0_ub_string)
+    self.ui.Iph_ub.setText(Iph_ub_string)
+    self.ui.Rs_ub.setText(Rs_ub_string)
+    self.ui.Rsh_ub.setText(Rsh_ub_string)
+    self.ui.n_ub.setText(n_ub_string)
+
+    # connect the bounds change handler
+    self.ui.I0_lb.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Iph_lb.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Rs_lb.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Rsh_lb.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.n_lb.editingFinished.connect(self.handleConstraintsChange)
+
+    self.ui.I0_ub.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Iph_ub.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Rs_ub.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.Rsh_ub.editingFinished.connect(self.handleConstraintsChange)
+    self.ui.n_ub.editingFinished.connect(self.handleConstraintsChange)
+
+    self.ui.fitMethodComboBox.currentIndexChanged.connect(self.handleFitMethodChange)
+
+    self.ui.resetSettingsButton.clicked.connect(self.resetDefaults)
+
+    self.ui.verbositySpinBox.valueChanged.connect(self.handleVerbosityChange)
+
+    #insert cols
+    for item in self.cols:
+      blankItem = QTableWidgetItem()
+      thisCol = list(self.cols.keys()).index(item)
+      self.ui.tableWidget.insertColumn(thisCol)
+      blankItem.setToolTip(self.cols[item].tooltip)
+      blankItem.setText(self.cols[item].header)
+      self.ui.tableWidget.setHorizontalHeaderItem(thisCol,blankItem)
+
+    #file system watcher
+    self.watcher = QFileSystemWatcher(self)
+    self.watcher.directoryChanged.connect(self.handleWatchUpdate)
+
+    #connect signals generated by gui elements to proper functions 
+    self.ui.actionOpen.triggered.connect(self.openCall)
+    self.ui.actionEnable_Watching.triggered.connect(self.watchCall)
+    self.ui.actionSave.triggered.connect(self.handleSave)
+    self.ui.actionWatch_2.triggered.connect(self.handleWatchAction)
+    self.ui.statusbar.messageChanged.connect(self.statusChanged)
+
+    self.ui.actionClear_Table.triggered.connect(self.clearTableCall)
+
+    #override showMessage for the statusbar
+    self.oldShowMessage = self.ui.statusbar.showMessage
+    self.ui.statusbar.showMessage = self.myShowMessage
+    
+    self.mySignals = customSignals()
+    self.mySignals.newFitResult.connect(self._processFitResult)
+    #self.mySignals.populateRow.connect(self.populateRow)
+    #mySignals.sloppy.connect(self.handleMathFinished)
+    #mySignals.analysisResult.connect(self.processFitResult)
+     
+    poolWorkers = self.ui.analysisThreadsSpinBox.value()
+    beFastAndSloppy = self.ui.doFastAndSloppyMathCheckBox.isChecked()
+    multiprocess = self.ui.useMultithreadingModeCheckBox.isChecked()
+    self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=multiprocess, poolWorkers=poolWorkers)
+     
+    # do symbolic calcs now if needed
+    #if self.ui.attemptCharEqnFitCheckBox.isChecked():
+    #  if self.multiprocess:
+    #    submission = self.pool.submit(ivAnalyzer)
+    #    #submission = self.pool.submit(self.analyzer.doSymbolicManipulations,fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+    #    submission.add_done_callback(self.handleMathFinished)
+    #    #self.analyzer.doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+    #    #doSymbolicManipulations(fastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+    #  else:
+    #    self.handleMathFinished(ivAnalyzer())
+       
+  #def handleMathFinished(self,submission):
+  #def handleMathFinished(self,thing):
+    #self.symbolCalcsNotDone = False
+    #if self.multiprocess:
+    #  self.analyzer = thing.result()
+    #else:
+    #  self.analyzer = thing
+    #print("One-time symbolic manipulations done!")
+    #self.analyzer.numericalize(beFastAndSloppy=self.ui.doFastAndSloppyMathCheckBox.isChecked())
+    #print("Fast and sloppy mode =", self.analyzer.isFastAndSloppy)
+    #print(self.analyzer)
+    #self.analyzer.I_eqn = submission.result()['I_eqn']
+    #self.analyzer.P_prime = submission.result()['P_prime']
+    #self.analyzer.slns = submission.result()['slns']
+    #self.analyzer.electricalModelVarsOnly = submission.result()['electricalModelVarsOnly']
+    #print(self.analyzer.I_eqn)
+        
+  def distillAnalysisParams(self):
+    analysisParams = {}
+    analysisParams['lowerVLim'] = self.lowerVLim
+    analysisParams['upperVLim'] = self.upperVLim
+    analysisParams['doFit'] = self.ui.attemptCharEqnFitCheckBox.isChecked()
+    analysisParams['bounds'] = self.bounds
+    analysisParams['uid'] = self.uid # unique identifier
+    self.uid = self.uid + 1
+    
+    if self.ui.fitMethodComboBox.currentIndex() == 0:
+      analysisParams['method'] = 'trf'
+    elif self.ui.fitMethodComboBox.currentIndex() == 1:
+      analysisParams['method'] = 'dogbox'
+    elif self.ui.fitMethodComboBox.currentIndex() == 2:
+      analysisParams['method'] = 'lm'
+    
+    analysisParams['verbose'] = self.ui.verbositySpinBox.value()
+    
+    return analysisParams
+  
+  def updatePoolStatus(self):
+    self.myShowMessage(self.analyzer.getPoolStatusString())
+    
+  def resetDefaults(self):
+    self.ui.attemptCharEqnFitCheckBox.setChecked(True)
+    self.ui.doFastAndSloppyMathCheckBox.setChecked(True)
+    self.ui.lowerVoltageCutoffLineEdit.setText('-inf')
+    self.ui.lowerVoltageCutoffLineEdit.editingFinished.emit()
+    self.ui.upperVoltageCutoffLineEdit.setText('inf')
+    self.ui.upperVoltageCutoffLineEdit.editingFinished.emit()
+    self.ui.fitMethodComboBox.setCurrentIndex(2)
+    self.ui.verbositySpinBox.setValue(0)
+    self.ui.analysisThreadsSpinBox.setValue(8)
+    self.ui.analysisThreadsSpinBox.setEnabled(True)
+    self.ui.useMultithreadingModeCheckBox.setChecked(True)
+
+  # let's make sure to print messages for the statusbar also in the console    
+  def myShowMessage(*args, **kwargs):
+    print('Menubar Message:',args[1])
+    return args[0].oldShowMessage(*args[1:], **kwargs)
+
+  def exportInterp(self,row):
+    thisGraphData = self.ui.tableWidget.item(row,list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)
+    fitX = thisGraphData["fitX"]
+    modelY = thisGraphData["modelY"]
+    splineY = thisGraphData["splineY"]
+    a = np.asarray([fitX, modelY, splineY])
+    a = np.transpose(a).astype(float)
+    destinationFolder = os.path.join(self.workingDirectory,'exports')
+    QDestinationFolder = QDir(destinationFolder)
+    if not QDestinationFolder.exists():
+      QDir().mkdir(destinationFolder)
+    saveFile = os.path.join(destinationFolder,str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('file')).text())+'.csv')
+    header = 'Voltage [V],CharEqn Current [mA/cm^2],Spline Current [mA/cm^2]'
+    try:
+      np.savetxt(saveFile, a, delimiter=",",header=header)
+      self.goodMessage()
+      self.ui.statusbar.showMessage("Exported " + saveFile,5000)
+    except:
+      self.badMessage()
+      self.ui.statusbar.showMessage("Could not export " + saveFile,self.messageDuration)
+
+  def handleUpperLimChange(self):
+    lineEdit = self.sender()
+    try:
+      self.upperVLim = float(lineEdit.text())
+      self.settings.setValue('upperVoltageCutoff',lineEdit.text())
+    except:
+      pass
+
+  def handleFitMethodChange(self):
+    comboBox = self.sender()
+    self.settings.setValue('fitMethod',comboBox.currentIndex())
+
+  def handleVerbosityChange(self):
+    spinBox = self.sender()
+    self.settings.setValue('verbosity',spinBox.value())
+
+  def handleNThreadChange(self):
+    spinBox = self.sender()
+    value = spinBox.value()
+    self.settings.setValue('threads',value)
+    self.analyzer.poolWorkers = value
+
+  def handleConstraintsChange(self):
+    lineEdit = self.sender()
+    name = lineEdit.objectName()
+    nameSplit = name.split('_')
+
+    try:
+      text = lineEdit.text()
+      value = float(text)
+      if nameSplit[1] == 'lb':
+        self.bounds[nameSplit[0]][0] = value
+      else: # upper bound
+        self.bounds[nameSplit[0]][1] = value
+      self.settings.setValue(name,text)
+    except:
+      pass
+
+  def handleLowerLimChange(self):
+    lineEdit = self.sender()
+    try:
+      self.lowerVLim = float(lineEdit.text())
+      self.settings.setValue('lowerVoltageCutoff',lineEdit.text())
+    except:
+      pass    
+
+  def handleMathChange(self):
+    checkBox = self.sender()
+    self.settings.setValue('fastAndSloppy',checkBox.isChecked())
+    self.analyzer.isFastAndSloppy = checkBox.isChecked()
+    #self.analyzer.numericalize(beFastAndSloppy=checkBox.isChecked())
+    #print("Fast and sloppy mode =", self.analyzer.isFastAndSloppy)
+    
+  def handleEqnFitChange(self):
+    checkBox = self.sender()
+    self.settings.setValue('fitToEqn',checkBox.isChecked())
+    
+  def handleMultiprocessingChange(self):
+    checkBox = self.sender()
+    value = checkBox.isChecked()
+    self.settings.setValue('multiprocessing',value)
+    self.ui.analysisThreadsSpinBox.setEnabled(value)
+    self.analyzer.multiprocess = value
+
+  def handleButton(self):
+    btn = self.sender()
+    #kinda hacky:
+    row = self.ui.tableWidget.indexAt(btn.pos()).row()
+    col = self.ui.tableWidget.indexAt(btn.pos()).column()
+    if col == 0:
+      self.rowGraph(row)
+    if col == 1:
+      self.exportInterp(row)
+
+  def rowGraph(self,row):
+    thisGraphData = self.ui.tableWidget.item(row,list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)
+    filename = str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('file')).text())
+
+    v = thisGraphData["v"]
+    i = thisGraphData["i"]
+    if not thisGraphData["vsTime"]:
+      plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data')
+      plt.scatter(thisGraphData["Vmax"], thisGraphData["Imax"], c='g',marker='x',s=100)
+      plt.scatter(thisGraphData["Voc"], 0, c='g',marker='x',s=100)
+      plt.scatter(0, thisGraphData["Isc"], c='g',marker='x',s=100)
+      fitX = thisGraphData["fitX"]
+      modelY = thisGraphData["modelY"]
+      splineY = thisGraphData["splineY"]
+      if not mpmath.isnan(modelY[0]):
+        plt.plot(fitX, modelY.astype(complex),c='k', label='CharEqn Best Fit')
+      plt.plot(fitX, splineY,c='g', label='Spline Fit')
+      plt.autoscale(axis='x', tight=True)
+      plt.grid(b=True)
+      ax = plt.gca()
+      handles, labels = ax.get_legend_handles_labels()
+      ax.legend(handles, labels, loc=3)
+
+      plt.annotate(
+        thisGraphData["Voc"].__format__('0.4f')+ ' V', 
+              xy = (thisGraphData["Voc"], 0), xytext = (40, 20),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+
+      plt.annotate(
+        float(thisGraphData["Isc"]).__format__('0.4f') + ' mA/cm^2', 
+              xy = (0,thisGraphData["Isc"]), xytext = (40, 20),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+
+      plt.annotate(
+        float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + '% @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
+              xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
+
+      plt.ylabel('Current [mA/cm^2]')
+      plt.xlabel('Voltage [V]')
+    else: #vs time
+      tData = thisGraphData["time"]
+
+      fig, ax1 = plt.subplots()
+      ax1.plot(tData, v, 'b-',label='Voltage [V]')
+      ax1.set_xlabel('Time [s]')
+      # Make the y-axis label and tick labels match the line color.
+      ax1.set_ylabel('Voltage [V]', color='b')
+      for tl in ax1.get_yticklabels():
+        tl.set_color('b')
+      #fdsf
+      ax2 = ax1.twinx()
+      ax2.plot(tData, i, 'r-')
+      ax2.set_ylabel('Current [mA/cm^2]', color='r')
+      for tl in ax2.get_yticklabels():
+        tl.set_color('r')            
+
+    plt.title(filename)
+    plt.draw()
+    plt.show()       
+
+  # this is how we save the table data to a .csv or .mat file
+  def handleSave(self):
+    if self.settings.contains('lastFolder'):
+      saveDir = self.settings.value('lastFolder')
+    else:
+      saveDir = '.'
+    path = QFileDialog.getSaveFileName(self, caption='Set Export File',filter="Comma separated values (*.csv);;MATLAB formatted data (*.mat)", directory=saveDir)
+    if str(path[0]) == '':
+      return
+    elif '.csv' in str(path[1]): # let's write a .csv
+      fullPath = str(path[0])
+      if not fullPath.endswith('.csv'):
+        fullPath = fullPath + '.csv'            
+      with open(fullPath, 'w') as stream:
+        writer = csv.writer(stream)
+        rowdata = []
+        for column in range(self.ui.tableWidget.columnCount()):
+          item = self.ui.tableWidget.horizontalHeaderItem(column)
+          if item is not None:
+            rowdata.append(str(item.text()).replace('\n',' '))
+          else:
+            rowdata.append(b'')
+        writer.writerow(rowdata[2:])                
+        for row in range(self.ui.tableWidget.rowCount()):
+          rowdata = []
+          for column in range(self.ui.tableWidget.columnCount()):
+            item = self.ui.tableWidget.item(row, column)
+            if item is not None:
+              rowdata.append(str(item.text()))
+            else:
+              rowdata.append('')
+          writer.writerow(rowdata[2:])
+        stream.close()
+        print('Table data successfully written to', fullPath)
+    elif '.mat' in str(path[1]):# let's write a .mat file
+      fullPath = str(path[0])
+      if not fullPath.endswith('.mat'):
+        fullPath = fullPath + '.mat'
+      #let's make a dict out of the table:
+      tableDict = {}
+
+      fieldsToInclude= ('pce_spline','pmax_spline','voc_spline','isc_spline','ff_spline','vmax_spline','SSE','pce_fit','pmax_fit','voc_fit','isc_fit','ff_fit','vmax_fit','rs','rsh','iph','i0','n','area','suns')
+
+      #how many padding zeros should we use for the MATLAB variable names?
+      ndigits = str(len(str(self.ui.tableWidget.rowCount()))) 
+
+      for row in range(self.ui.tableWidget.rowCount()):
+        rowDict = {}
+        rowDict['file'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('file')).data(Qt.DisplayRole)
+        for field in fieldsToInclude:
+          rowDict[field] = self.ui.tableWidget.item(row, list(self.cols.keys()).index(field)).data(Qt.UserRole)
+        rowDict['i'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)['i']/1000*rowDict['area']
+        rowDict['v'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)['v']
+        tableDict['thing'+format(row, '0'+ndigits)] = rowDict
+
+      # save our dict as a .mat file
+      sio.savemat(fullPath, tableDict)
+      print('Table data successfully written to', fullPath)
+
+  def sanitizeRow(self,row):      
+    ignoreCols = ['plotBtn','exportBtn','file']
+    cols = list(self.cols.keys())
+    for coli in range(len(cols)):
+      thisCol = cols[coli]      
+      if thisCol not in ignoreCols:
+        thisTableItem = self.ui.tableWidget.item(row,coli)
+        if thisTableItem is not None:
+          value = thisTableItem.data(Qt.UserRole)
+          if value is not None:
+            saneValue = float(np.real(value))
+            if thisCol == 'SSE':
+              displayValue = saneValue*1000**2 # A^2 to mA^2
+            elif thisCol in ['ff_spline','ff_fit','pce_spline']:
+              displayValue = saneValue*100 # to percent
+            elif thisCol in ['isc_spline','voc_spline','voc_fit','isc','jph','iph','vmax_spline','vmax_fit','pmax_spline','pmax_fit','pmax_a_spline','pmax_a_fit']:
+              displayValue = saneValue*1e3 # to milli-
+            elif thisCol in ['jsc_spline','jsc']:
+              displayValue = saneValue*1e3*1e-4 # to milli- per cm^2
+            elif thisCol in ['area']:
+              displayValue = saneValue*1e2**2 # to centi-^4
+            elif thisCol in ['i0','j0']:
+              displayValue = saneValue*1e9 # to nano-
+            else:
+              displayValue = saneValue
+            displayValue = MainWindow.to_precision(displayValue,4)
+            self.ui.tableWidget.item(row,coli).setData(Qt.DisplayRole,float(displayValue))
+            self.ui.tableWidget.resizeColumnToContents(coli)
+            self.ui.tableWidget.viewport().update()
+
+  # returns table column number given name
+  def getCol(self,colName):
+    return list(self.cols.keys()).index(colName)
+  
+  # returns row number associated with a unique identifier
+  def getRowByUID(self,uid):
+    nRows = self.ui.tableWidget.rowCount()
+    fileCol = self.getCol('file')
+    row = None
+    for i in range(nRows):
+      thisCellItem = self.ui.tableWidget.item(i,fileCol)
+      if thisCellItem.data(Qt.UserRole) == uid:
+        row = i
+        break
+    return row
+  
+  def clearTableCall(self):
+    for ii in range(self.ui.tableWidget.rowCount()):
+      self.ui.tableWidget.removeRow(0)
+
+    
+    #self.ui.tableWidget.clear()
+    #self.ui.tableWidget.clearContents()
+    self.fileNames = []
+    
+  def newFiles(self,fullPaths):
+    analysisParams = []
+    
+    for i in range(len(fullPaths)):
+      # grab settings from gui
+      analysisParams.append(self.distillAnalysisParams())
+      
+      #wait here for the file to be completely written to disk and closed before trying to read it
+      fi = QFileInfo(fullPaths[i])
+      while (not fi.isWritable()):
+        time.sleep(0.01)
+        fi.refresh()
+      
+      # insert filename into table immediately
+      thisRow = self.ui.tableWidget.rowCount()
+      self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
+      self.ui.tableWidget.insertRow(thisRow)
+      for ii in range(self.ui.tableWidget.columnCount()):
+        self.ui.tableWidget.setItem(thisRow,ii,QTableWidgetItem())
+      fileName = os.path.basename(fullPaths[i])
+      
+      self.tableInsert(thisRow,'file', fileName, role=Qt.DisplayRole)
+      self.tableInsert(thisRow,'file', analysisParams[i]['uid'])
+    
+      #self.tableInsert(thisRow,'file', fileName)
+      #self.ui.tableWidget.item(thisRow,self.getCol('file')).setData(Qt.UserRole,analysisParams['uid']) # uid for the row    
+      #thisItem.setText(fileName)
+      #thisItem.setData(Qt.UserRole, analysisParams['uid'])
+      #self.ui.tableWidget.setItem(thisRow,thisCol,thisItem)
+      #self.ui.tableWidget.item(thisRow,fileCol).setText(fileName)
+      #self.ui.tableWidget.item(thisRow,fileCol).setData(Qt.UserRole,analysisParams['uid']) # uid for the row
+      #self.ui.tableWidget.resizeColumnToContents(thisCol)
+      self.ui.tableWidget.setSortingEnabled(True) # fix strange sort behavior
+      self.fileNames.append(fileName)
+      #if not self.multiprocess:
+      #  self.processFitResult(self.analyzer.processFile(fullPaths[i], analysisParams[i]))
+    
+    #if self.multiprocess:
+    self.analyzer.processFiles(fullPaths, analysisParams, self.processFitResult)
+    #  submission = self.pool.submit(self.analyzer.processFile,fullPath,analysisParams)
+    #  submission.add_done_callback(self.processFitResult)
+      #self.updatePoolStatus()
+      #print('Once')
+    #else: # single thread case
+    #     
+
+  def tableInsert(self,thisRow,colName,value,role=Qt.UserRole):    
+    thisCol = self.getCol(colName)
+    thisItem = self.ui.tableWidget.item(thisRow,thisCol)
+    thisItem.setData(role,value)
+    self.ui.tableWidget.resizeColumnToContents(thisCol)
+    
+  def processFitResult(self,result):
+    try:# this handles the multiprocessing case
+      if result.done():
+        exception = result.exception(timeout=0)
+        if exception is None:
+          result = result.result()
+        else:
+          print('Error during file processing:', result.exception(timeout=0))
+          return
+      else:
+        print("Somehow the future isn't 'done'")
+        return
+    except:
+      pass
+    
+    self.mySignals.newFitResult.emit(result)
+    #self._processFitResult(result)
+    
+  def _processFitResult(self,result):
+    if self.ui.useMultithreadingModeCheckBox.isChecked():
+      self.updatePoolStatus()
+    uid = result.params['uid']
+    thisRow = self.getRowByUID(uid)
+    #print('Got new fit result, UID:',result['params']['uid'])
+    #print(result['fitResult'])
+    
+    #
+    
+    #thisItem = QTableWidgetItem()
+    #thisItem.setData
+    
+    rowData = Object()
+    rowData.pmax_a_spline = result.pmpp
+    rowData.vmax_spline = result.vmpp
+    rowData.isc_spline = result.isc
+    rowData.voc_spline = result.voc
+    #rowData.SSE = result.sse
+    rowData.area = result.area
+    rowData.suns = result.suns
+    rowData.n = thisRow
+    #print('got new fit result:',uid)
+    self.populateRow(rowData)
+    #self.mySignals.populateRow.emit(rowData)
+    
+    
+    #self.tableInsert(thisRow, 'pce_spline', getattr(result, 'pce'))
+    #item = self.ui.tableWidget.item(thisRow,self.getCol(thisThing))
+    #thisItem = QTableWidgetItem()
+    #value = result['insert'][thisThing]
+    #role = Qt.UserRole
+    #item.setData(role,value)
+    
+    #insert = lambda colName,value: self.ui.tableWidget.item(thisRow,self.getCol(colName)).setData(Qt.UserRole,value)
+    #thisThing = 'pce_spline'
+    #insert(thisThing,result['insert'][thisThing])
+
+  def populateRow(self,rowData):
+    self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
+    
+    plotBtn = QPushButton(self.ui.tableWidget)
+    plotBtn.setText('Plot')
+    #plotBtn.clicked.connect(self.handleButton)
+    col = self.getCol('plotBtn')
+    self.ui.tableWidget.setCellWidget(rowData.n, col, plotBtn)
+    #self.ui.tableWidget.item(rowData.n, col).setData(Qt.UserRole,rowData.graphData)
+    
+    # derived row data values:
+    rowData.pce_spline = (rowData.pmax_a_spline/rowData.area)/(ivAnalyzer.stdIrridance*rowData.suns)
+    rowData.ff_spline = rowData.pmax_a_spline/(rowData.isc_spline*rowData.voc_spline)
+    rowData.jsc_spline = rowData.isc_spline/rowData.area
+    
+    for key,value in rowData.__dict__.items():
+      colName = key
+      if key not in ['n']:
+        self.tableInsert(rowData.n, key, value)
+    
+    self.sanitizeRow(rowData.n)
+    self.ui.tableWidget.setSortingEnabled(True)
+    
+  def openCall(self):
+    #remember the last path the user opened
+    if self.settings.contains('lastFolder'):
+      openDir = self.settings.value('lastFolder')
+    else:
+      openDir = '.'
+
+    fileNames = QFileDialog.getOpenFileNames(self, directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2 *.div1 *.div2);;Folders (*)')
+
+    if len(fileNames[0])>0:#check if user clicked cancel
+      self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
+      self.settings.setValue('lastFolder',self.workingDirectory)
+      
+      fullPaths = fileNames[0]
+      self.newFiles(fullPaths)
+      
+      if self.ui.actionEnable_Watching.isChecked():
+        watchedDirs = self.watcher.directories()
+        self.watcher.removePaths(watchedDirs)
+        self.watcher.addPath(self.workingDirectory)
+        self.handleWatchUpdate(self.workingDirectory)
+
+  #user chose file --> watch
+  def handleWatchAction(self):
+    #remember the last path th user opened
+    if self.settings.contains('lastFolder'):
+      openDir = self.settings.value('lastFolder')
+    else:
+      openDir = '.'
+
+    myDir = QFileDialog.getExistingDirectory(self,directory = openDir, caption="Select folder to watch")
+
+    if len(myDir)>0:#check if user clicked cancel
+      self.workingDirectory = str(myDir)
+      self.settings.setValue('lastFolder',self.workingDirectory)
+      self.ui.actionEnable_Watching.setChecked(True)
+      watchedDirs = self.watcher.directories()
+      self.watcher.removePaths(watchedDirs)
+      self.watcher.addPath(self.workingDirectory)
+      self.handleWatchUpdate(self.workingDirectory)
+
+  #user toggeled Tools --> Enable Watching
+  def watchCall(self):
+    watchedDirs = self.watcher.directories()
+    self.watcher.removePaths(watchedDirs)
+    if self.ui.actionEnable_Watching.isChecked():
+      if (self.workingDirectory != ''):
+        self.watcher.addPath(self.workingDirectory)
+        self.handleWatchUpdate(self.workingDirectory)
+
+  def handleWatchUpdate(self,path):
+    myDir = QDir(path)
+    myDir.setNameFilters(self.supportedExtensions)
+    allFilesNow = myDir.entryList()
+    allFilesNow = list(allFilesNow)
+    allFilesNow = [str(item) for item in allFilesNow]
+
+    differentFiles = list(set(allFilesNow) ^ set(self.fileNames))
+    if differentFiles != []:
+      for aFile in differentFiles:
+        if self.fileNames.__contains__(aFile):
+          #TODO: delete the file from the table
+          self.ui.statusbar.showMessage('Removed' + aFile,2500)
+        else:
+          #process the new file
+          fullPath = os.path.join(self.workingDirectory,aFile)
+          worker = Worker(self, fullPath)
+          tp = QThreadPool.globalInstance()
+          worker.setAutoDelete(True)
+          tp.start(worker)
+          #self.processFile(fullPath)
+
+  def statusChanged(self,args):
+    if not args:
+      # reset the statusbar background
+      self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(0,0,0,0);color:black;font-weight:bold;}")
+
+  def goodMessage(self):
+    self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(0,128,0,255);color:black;font-weight:bold;}")
+
+  def badMessage(self):
+    self.ui.statusbar.setStyleSheet("QStatusBar{padding-left:8px;background:rgba(255,0,0,255);color:black;font-weight:bold;}")
+
+  # yanked from https://github.com/randlet/to-precision
+  def to_precision(x,p):
+    """
+    returns a string representation of x formatted with a precision of p
+  
+    Based on the webkit javascript implementation taken from here:
+    https://code.google.com/p/webkit-mirror/source/browse/JavaScriptCore/kjs/number_object.cpp
+    """
+  
+    if x is None: # catch none
+      return str(x)
+  
+    if not np.isfinite(x): # catch nan and inf
+      return str(x)
+  
+    if x == 0.:
+      return "0." + "0"*(p-1)
+  
+    out = []
+  
+    if x < 0:
+      out.append("-")
+      x = -x
+  
+    e = int(math.log10(x))
+    tens = math.pow(10, e - p + 1)
+    n = math.floor(x/tens)
+  
+    if n < math.pow(10, p - 1):
+      e = e -1
+      tens = math.pow(10, e - p+1)
+      n = math.floor(x / tens)
+  
+    if abs((n + 1.) * tens - x) <= abs(n * tens -x):
+      n = n + 1
+  
+    if n >= math.pow(10,p):
+      n = n / 10.
+      e = e + 1
+  
+  
+    m = "%.*g" % (p, n)
+  
+    if e < -2 or e >= p:
+      out.append(m[0])
+      if p > 1:
+        out.append(".")
+        out.extend(m[1:p])
+      out.append('e')
+      if e > 0:
+        out.append("+")
+      out.append(str(e))
+    elif e == (p -1):
+      out.append(m)
+    elif e >= 0:
+      out.append(m[:e+1])
+      if e+1 < len(m):
+        out.append(".")
+        out.extend(m[e+1:])
+    else:
+      out.append("0.")
+      out.extend(["0"]*-(e+1))
+      out.append(m)
+  
+    return "".join(out)
