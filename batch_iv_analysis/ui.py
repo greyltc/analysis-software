@@ -209,10 +209,10 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].header = 'P_max_fit\n[mW]'
     self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
   
-    thisKey = 'pmax_a_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
-    self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
+    #thisKey = 'pmax_a_fit'
+    #self.cols[thisKey] = col()
+    #self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
+    #self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
   
     thisKey = 'vmax_fit'
     self.cols[thisKey] = col()
@@ -228,17 +228,17 @@ class MainWindow(QMainWindow):
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'FF_fit\n[%]'
     self.cols[thisKey].tooltip = 'Fill factor as found from characteristic equation fit'        
-  
-    thisKey = 'isc_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'I_sc_fit\n[mA]'
-    self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit V=0 crossing'
-  
+    
     thisKey = 'jsc_fit'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'J_sc_fit\n[mA/cm^2]'
     self.cols[thisKey].tooltip = 'Short-circuit current density as found from characteristic equation fit V=0 crossing'        
-  
+
+    thisKey = 'isc_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'I_sc_fit\n[mA]'
+    self.cols[thisKey].tooltip = 'Short-circuit current as found from characteristic equation fit V=0 crossing'
+
     thisKey = 'iph'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'I_ph\n[mA]'
@@ -600,7 +600,7 @@ class MainWindow(QMainWindow):
       fitX = thisGraphData["fitX"]
       modelY = thisGraphData["modelY"]
       splineY = thisGraphData["splineY"]
-      if not mpmath.isnan(modelY[0]):
+      if not np.isnan(modelY[0]):
         plt.plot(fitX, modelY.astype(complex),c='k', label='CharEqn Best Fit')
       plt.plot(fitX, splineY,c='g', label='Spline Fit')
       plt.autoscale(axis='x', tight=True)
@@ -624,7 +624,7 @@ class MainWindow(QMainWindow):
                 arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
       plt.annotate(
-        float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + '% @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
+        float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + 'mW/cm^2 @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
               xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
                 textcoords = 'offset points', ha = 'right', va = 'bottom',
                 bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
@@ -647,11 +647,11 @@ class MainWindow(QMainWindow):
       ax2.plot(tData, i, 'r-')
       ax2.set_ylabel('Current [mA/cm^2]', color='r')
       for tl in ax2.get_yticklabels():
-        tl.set_color('r')            
+        tl.set_color('r')
 
     plt.title(filename)
     plt.draw()
-    plt.show()       
+    plt.show()
 
   # this is how we save the table data to a .csv or .mat file
   def handleSave(self):
@@ -665,7 +665,7 @@ class MainWindow(QMainWindow):
     elif '.csv' in str(path[1]): # let's write a .csv
       fullPath = str(path[0])
       if not fullPath.endswith('.csv'):
-        fullPath = fullPath + '.csv'            
+        fullPath = fullPath + '.csv'
       with open(fullPath, 'w') as stream:
         writer = csv.writer(stream)
         rowdata = []
@@ -675,7 +675,7 @@ class MainWindow(QMainWindow):
             rowdata.append(str(item.text()).replace('\n',' '))
           else:
             rowdata.append(b'')
-        writer.writerow(rowdata[2:])                
+        writer.writerow(rowdata[2:])
         for row in range(self.ui.tableWidget.rowCount()):
           rowdata = []
           for column in range(self.ui.tableWidget.columnCount()):
@@ -721,7 +721,7 @@ class MainWindow(QMainWindow):
         thisTableItem = self.ui.tableWidget.item(row,coli)
         if thisTableItem is not None:
           value = thisTableItem.data(Qt.UserRole)
-          if value is not None:
+          if value is not None and not np.isnan(value):
             saneValue = float(np.real(value))
             if thisCol == 'SSE':
               displayValue = saneValue*1000**2 # A^2 to mA^2
@@ -855,10 +855,26 @@ class MainWindow(QMainWindow):
     rowData.vmax_spline = result.vmpp
     rowData.isc_spline = result.isc
     rowData.voc_spline = result.voc
-    #rowData.SSE = result.sse
-    rowData.area = result.area
+    rowData.area = result.area 
     rowData.suns = result.suns
-    rowData.n = thisRow
+    rowData.row = thisRow
+    rowData.v = result.v
+    rowData.i = result.i
+    rowData.x = result.x
+    rowData.splineCurrent = result.splineCurrent
+    
+    rowData.SSE = result.sse if hasattr(result,'sse') else np.nan
+    rowData.eqnCurrent = result.eqnCurrent if hasattr(result,'eqnCurrent') else np.array([np.nan])
+    rowData.n = result.n if hasattr(result,'n') else np.nan
+    rowData.rs = result.rs if hasattr(result,'rs') else np.nan
+    rowData.rsh = result.rsh if hasattr(result,'rsh') else np.nan
+    rowData.i0 = result.i0 if hasattr(result,'i0') else np.nan
+    rowData.iph = result.iph if hasattr(result,'iph') else np.nan
+    rowData.pmax_fit = result.pmax_fit if hasattr(result,'pmax_fit') else np.nan
+    rowData.isc_fit = result.isc_fit if hasattr(result,'isc_fit') else np.nan
+    rowData.voc_fit = result.voc_fit if hasattr(result,'voc_fit') else np.nan
+    rowData.vmax_fit = result.vmax_fit if hasattr(result,'vmax_fit') else np.nan
+    
     #print('got new fit result:',uid)
     self.populateRow(rowData)
     #self.mySignals.populateRow.emit(rowData)
@@ -878,24 +894,53 @@ class MainWindow(QMainWindow):
   def populateRow(self,rowData):
     self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
     
+    # add in the export button
+    exportBtn = QPushButton(self.ui.tableWidget)
+    exportBtn.setText('Export')
+    exportBtn.clicked.connect(self.handleButton)
+    exportCol = self.getCol('exportBtn')
+    self.ui.tableWidget.setCellWidget(rowData.row, exportCol, exportBtn)
+    
+    # add in the plot button
     plotBtn = QPushButton(self.ui.tableWidget)
     plotBtn.setText('Plot')
-    #plotBtn.clicked.connect(self.handleButton)
-    col = self.getCol('plotBtn')
-    self.ui.tableWidget.setCellWidget(rowData.n, col, plotBtn)
-    #self.ui.tableWidget.item(rowData.n, col).setData(Qt.UserRole,rowData.graphData)
+    plotBtn.clicked.connect(self.handleButton)
+    plotCol = self.getCol('plotBtn')
+    self.ui.tableWidget.setCellWidget(rowData.row, plotCol, plotBtn)
     
     # derived row data values:
     rowData.pce_spline = (rowData.pmax_a_spline/rowData.area)/(ivAnalyzer.stdIrridance*rowData.suns)
     rowData.ff_spline = rowData.pmax_a_spline/(rowData.isc_spline*rowData.voc_spline)
     rowData.jsc_spline = rowData.isc_spline/rowData.area
+    rowData.rs_a = rowData.rs*rowData.area
+    rowData.rsh_a = rowData.rsh/rowData.area
+    rowData.jph = rowData.iph/rowData.area
+    rowData.j0 = rowData.i0/rowData.area
+    rowData.pce_fit = (rowData.pmax_fit/rowData.area)/(ivAnalyzer.stdIrridance*rowData.suns)
+    rowData.ff_fit = rowData.pmax_fit/(rowData.isc_fit*rowData.voc_fit)
+    rowData.jsc_fit = rowData.isc_fit/rowData.area
+    
+    
+    
+    graphData = {}
+    graphData["v"] = rowData.v
+    graphData["i"] = rowData.i/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
+    graphData["vsTime"] = False
+    graphData["Vmax"] = rowData.vmax_spline
+    graphData["Imax"] = rowData.pmax_a_spline/rowData.vmax_spline/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
+    graphData["Voc"] = rowData.voc_spline
+    graphData["Isc"] = rowData.isc_spline/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
+    graphData["fitX"] = rowData.x
+    graphData["modelY"] = rowData.eqnCurrent/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
+    graphData["splineY"] = rowData.splineCurrent/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
+    self.ui.tableWidget.item(rowData.row, plotCol).setData(Qt.UserRole,graphData)
     
     for key,value in rowData.__dict__.items():
       colName = key
-      if key not in ['n']:
-        self.tableInsert(rowData.n, key, value)
+      if key not in ['row','i','v','vsTime','x','splineCurrent','eqnCurrent']:
+        self.tableInsert(rowData.row, key, value)
     
-    self.sanitizeRow(rowData.n)
+    self.sanitizeRow(rowData.row)
     self.ui.tableWidget.setSortingEnabled(True)
     
   def openCall(self):

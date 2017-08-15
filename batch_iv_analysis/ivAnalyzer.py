@@ -863,20 +863,33 @@ class ivAnalyzer:
           except:
             Voc_charEqn = nan
           
-          jScaleFactor = 1000/fileData.area #for converstion to current density[mA/cm^2]
+          #jScaleFactor = 1000/fileData.area #for converstion to current density[mA/cm^2]
           
           #Isc_charEqn = self.slns['']
           Isc_charEqn = np.real_if_close(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=0))
           
-          FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
-          result['graphData'] = {}
-          result['graphData']['modelY'] = np.array([np.real_if_close(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=x)) for x in vv])*jScaleFactor
+          #FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
+          
+          ret.eqnCurrent = np.array([np.real_if_close(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=x)) for x in vv])
+          ret.sse = SSE
+          ret.n = p['n']
+          ret.rs = p['Rs']
+          ret.rsh = p['Rsh']
+          ret.i0 = p['I0']
+          ret.iph = p['Iph']
+          ret.pmax_fit = Pmpp_charEqn
+          ret.isc_fit = Isc_charEqn
+          ret.voc_fit = Voc_charEqn
+          ret.vmax_fit = Vmpp_charEqn
+          
+          #result['graphData'] = {}
+          #result['graphData']['modelY'] = *jScaleFactor
           
           #result['graphData']['modelY'] = np.array([slns['I'](I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],n=p['n'],V=x) for x in vv])*jScaleFactor
   
           result['insert'] = {}
           result['insert']['SSE'] = SSE
-          ret.sse = SSE
+          
           result['insert']['rs_a'] = p['Rs']*area
           result['insert']['rs'] = p['Rs']
           result['insert']['rsh_a'] = p['Rsh']*area
@@ -891,7 +904,7 @@ class ivAnalyzer:
           result['insert']['pmax_a_fit'] = Pmpp_charEqn/area
           result['insert']['pce_fit'] = (Pmpp_charEqn/area)/(ivAnalyzer.stdIrridance*suns/ivAnalyzer.sqcmpersqm)*100
           result['insert']['voc_fit'] = Voc_charEqn
-          result['insert']['ff_fit'] = FF_charEqn
+          #result['insert']['ff_fit'] = FF_charEqn
           result['insert']['isc_fit'] = Isc_charEqn
           result['insert']['jsc_fit'] = Isc_charEqn/area
   
