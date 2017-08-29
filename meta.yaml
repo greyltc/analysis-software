@@ -20,6 +20,7 @@ requirements:
     - matplotlib
     - mpmath
     - gmpy2
+    - dill
     - python.app  # [osx]
 
 
