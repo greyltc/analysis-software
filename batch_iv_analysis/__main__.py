@@ -1,2 +1,3 @@
-from batch_iv_analysis import main
-main()
+from __init__ import main
+from __init__ import parseTehArgs
+main(args=parseTehArgs())

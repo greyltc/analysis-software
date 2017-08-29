@@ -1,4 +1,3 @@
 #!/usr/bin/env python
-
-import batch_iv_analysis
-batch_iv_analysis.main()
+import runpy
+runpy.run_module("batch_iv_analysis")

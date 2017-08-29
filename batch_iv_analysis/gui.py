@@ -1,6 +1,5 @@
-from batch_iv_analysis.batch_iv_analysis_UI import Ui_batch_iv_analysis
-from batch_iv_analysis.ivAnalyzer import ivAnalyzer
-from batch_iv_analysis import Object
+from batch_iv_analysis_UI import Ui_batch_iv_analysis
+from ivAnalyzer import ivAnalyzer
 
 # needed for file watching
 import time
@@ -26,6 +25,16 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTa
 import matplotlib.pyplot as plt
 plt.switch_backend("Qt5Agg")
 
+class Object(object):
+  pass
+
+def runGUI(analyzer):
+  app = QApplication(sys.argv)
+  analysis = MainWindow(analyzer)
+  analysis.show()
+  ret = app.exec_()
+  sys.exit(ret)
+
 class customSignals(QObject):
   newFitResult = pyqtSignal(object)
   #populateRow = pyqtSignal(object)
@@ -33,24 +42,6 @@ class customSignals(QObject):
   #sloppy = pyqtSignal(bool)
 
 #mySignals = customSignals()
-
-def main(args=None):
-  """# a tool for analysing solar cell i-v curves
-  # written by Grey Christoforo <first name [at] last name [not] net>
-  # please cite our work if you can!
-  # DOI: 10.3390/photonics2041101
-  """
-
-  if args is None:
-    args = sys.argv[1:]
-
-  # Do argument parsing here (eg. with argparse)
-
-  app = QApplication(sys.argv)
-  analysis = MainWindow()
-  analysis.show()
-  ret = app.exec_()
-  sys.exit(ret)
   
 class col:
   header = ''
@@ -94,10 +85,11 @@ class MainWindow(QMainWindow):
     pass
     #self.pool.shutdown(wait=False)
 
-  def __init__(self):
+  def __init__(self, analyzer):
     QMainWindow.__init__(self)
 
     self.settings = QSettings("greyltc", "batch-iv-analysis")
+    self.analyzer = analyzer
 
 
     #how long status messages show for
@@ -420,7 +412,8 @@ class MainWindow(QMainWindow):
     poolWorkers = self.ui.analysisThreadsSpinBox.value()
     beFastAndSloppy = self.ui.doFastAndSloppyMathCheckBox.isChecked()
     multiprocess = self.ui.useMultithreadingModeCheckBox.isChecked()
-    self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=multiprocess, poolWorkers=poolWorkers)
+    self.analyzer.setup()
+    #self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=multiprocess, poolWorkers=poolWorkers)
      
     # do symbolic calcs now if needed
     #if self.ui.attemptCharEqnFitCheckBox.isChecked():

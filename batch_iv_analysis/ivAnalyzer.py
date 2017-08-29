@@ -1,5 +1,3 @@
-from batch_iv_analysis import Object
-
 # needed for waiting for initial setup
 import time
 
@@ -36,6 +34,9 @@ from scipy import special
 from scipy.stats.distributions import t #needed for confidence interval calculation #TODO: remove this in favor of uncertainties
 #from uncertainties import ufloat #TODO: switch to using this for the error calcs
 
+class Object(object):
+  pass
+
 class ivAnalyzer:
   isFastAndSloppy = None # is number crunching faster and less accurate
   symSolutions = None # symbolic solutions for solar cell parameters
@@ -56,14 +57,8 @@ class ivAnalyzer:
     
   def __init__(self,beFastAndSloppy=True, multiprocess=True, poolWorkers=8):
     self.__dict__['multiprocess'] = multiprocess
-    self.poolWorkers = poolWorkers
-    if self.multiprocess:
-      self.buildAPool()
-      submission = self.pool.submit(ivAnalyzer.doSymbolicManipulations,beFastAndSloppy)
-      submission.add_done_callback(self.symbolsDone)
-    else:
-      results = ivAnalyzer.doSymbolicManipulations(beFastAndSloppy)
-      self.symbolsDone(results)
+    self.__dict__['poolWorkers'] = poolWorkers
+    self.__dict__['isFastAndSloppy'] = beFastAndSloppy
   
   def __setattr__(self, attr, value):
     if attr == 'isFastAndSloppy':
@@ -90,6 +85,16 @@ class ivAnalyzer:
         self.pool = None
     else:
       self.__dict__[attr] = value
+      
+  def setup(self):
+    print("Multiprocess mode = ",self.multiprocess)
+    if self.multiprocess:
+      self.buildAPool()
+      submission = self.pool.submit(ivAnalyzer.doSymbolicManipulations,self.isFastAndSloppy)
+      submission.add_done_callback(self.symbolsDone)
+    else:
+      results = ivAnalyzer.doSymbolicManipulations(self.isFastAndSloppy)
+      self.symbolsDone(results)
       
   def buildAPool(self):
     if self.pool is not None:
@@ -133,7 +138,7 @@ class ivAnalyzer:
     T = 273.15 + cellTemp #cell temp in K
     K = 1.3806488e-23 #boltzman constant
     q = 1.60217657e-19 #electron charge
-    thermalVoltage = np.float128(K*T/q) #thermal voltage ~26mv
+    thermalVoltage = K*T/q #thermal voltage ~26mv
     valuesForConstants = (thermalVoltage,)
   
     # define cell circuit model here
@@ -1471,3 +1476,8 @@ class ivAnalyzer:
     plt.draw()
     plt.show()
     plt.pause(1)
+
+
+if __name__ == '__main__':
+  # execute only if run as a script
+  main()
