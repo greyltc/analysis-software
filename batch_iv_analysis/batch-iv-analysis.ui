@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>783</width>
-    <height>641</height>
+    <width>847</width>
+    <height>809</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -109,7 +109,11 @@
              </widget>
             </item>
             <item row="1" column="1">
-             <widget class="QCheckBox" name="doFastAndSloppyMathCheckBox"/>
+             <widget class="QCheckBox" name="doFastAndSloppyMathCheckBox">
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
             </item>
             <item row="2" column="0">
              <widget class="QLabel" name="lowerVoltageCutoffLabel">
@@ -188,6 +192,9 @@
             </item>
             <item row="5" column="0">
              <widget class="QLabel" name="verbosityLabel">
+              <property name="toolTip">
+               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Higher verbosity will generate more output status messages which can be helpful for debugging&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+              </property>
               <property name="text">
                <string>Verbosity</string>
               </property>
@@ -197,6 +204,40 @@
              <widget class="QSpinBox" name="verbositySpinBox">
               <property name="maximum">
                <number>2</number>
+              </property>
+             </widget>
+            </item>
+            <item row="7" column="0">
+             <widget class="QLabel" name="analysisThreadsLabel">
+              <property name="text">
+               <string>Analysis Threads</string>
+              </property>
+             </widget>
+            </item>
+            <item row="7" column="1">
+             <widget class="QSpinBox" name="analysisThreadsSpinBox">
+              <property name="minimum">
+               <number>1</number>
+              </property>
+              <property name="value">
+               <number>8</number>
+              </property>
+             </widget>
+            </item>
+            <item row="6" column="0">
+             <widget class="QLabel" name="useMultithreadingModeLabel">
+              <property name="toolTip">
+               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Speeds up analysis by analyzing multiple files in parallel&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+              </property>
+              <property name="text">
+               <string>Use Multiprocessing Mode</string>
+              </property>
+             </widget>
+            </item>
+            <item row="6" column="1">
+             <widget class="QCheckBox" name="useMultithreadingModeCheckBox">
+              <property name="checked">
+               <bool>true</bool>
               </property>
              </widget>
             </item>
@@ -526,7 +567,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>783</width>
+     <width>847</width>
      <height>25</height>
     </rect>
    </property>

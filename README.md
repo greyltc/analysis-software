@@ -89,7 +89,11 @@ cd batch-iv-analysis
 ```
 conda update conda
 conda update --all
+<<<<<<< HEAD
 conda config --append channels conda-forge
+=======
+conda config --add channels conda-forge
+>>>>>>> multiprocessing
 conda update --all
 conda install git conda-build
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
