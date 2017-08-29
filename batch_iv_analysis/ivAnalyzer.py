@@ -4,6 +4,7 @@ from batch_iv_analysis import Object
 import time
 
 import os
+import sys
 
 # to speed this up, we'll use a process pool from here
 import concurrent.futures
@@ -119,7 +120,6 @@ class ivAnalyzer:
     self.isFastAndSloppy = results['beFastAndSloppy']
     
   def doSymbolicManipulations(beFastAndSloppy):
-    results = {}
     print("Hang tight, we're doing the one-time symbolic manipulations now...")
     
     # let's define some variables we'll use to do some symbolic equaiton manipulation
@@ -133,7 +133,7 @@ class ivAnalyzer:
     T = 273.15 + cellTemp #cell temp in K
     K = 1.3806488e-23 #boltzman constant
     q = 1.60217657e-19 #electron charge
-    thermalVoltage = K*T/q #thermal voltage ~26mv
+    thermalVoltage = np.float128(K*T/q) #thermal voltage ~26mv
     valuesForConstants = (thermalVoltage,)
   
     # define cell circuit model here
@@ -148,24 +148,29 @@ class ivAnalyzer:
     # NOTE: this is actually pretty computationally intense;
     # some solutions might contain the Lambert W "function"
     symSolutionsNoSubs = {} # all the symbols preserved
-    symSolutions = {}
     
-    for symbol in modelSymbols:
+    
+    solveForThese = [I, I0, V]
+    for symbol in solveForThese:
       symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
       #symSolutionsNoSubs[str(symbol)] = sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0] #solveset doesn't work here (yet)
-      symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
+      #symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
       ##remainingVariables = list(set(modelVariables)-set([symbol]))
       ##slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions,dummify=False)
     
     # now we'll solve for some useful device parameters
     #self.symSolutions = symSolutions # analytical solution for all variables
-    Voc_eqn = symSolutions['V'].subs(I,0) # analytical solution for Voc
+    Voc_eqn = symSolutionsNoSubs['V'].subs(I,0) # analytical solution for Voc
+    #Voc_eqn = Voc_eqn.subs(zip(modelConstants,valuesForConstants))
     ##Voc_eqn = sympy.lambdify((I0,Rsh,Iph,n),Voc_eqn,functionSubstitutions,dummify=False)
-    Isc_eqn = symSolutions['I'].subs(V,0) # analytical solution for Isc
+    Isc_eqn = symSolutionsNoSubs['I'].subs(V,0) # analytical solution for Isc
+    #Isc_eqn = Isc_eqn.subs(zip(modelConstants,valuesForConstants))
     ##self.Isc_eqn = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc_eqn,functionSubstitutions,dummify=False)
-    P = symSolutions['I']*V # analytical solution for power
-    ##P_prime = sympy.diff(P,V) # analytical solution for Pmax
-    #V_max = sympy.solve(P_prime,V,check=False,implicit=True)
+    #PA = symSolutionsNoSubs['I']*V # analytical solution for power (voltage as independant variable)
+    PB = symSolutionsNoSubs['V']*I # analytical solution for power (current as independant variable)
+    P_primeB = sympy.diff(PB,I) # first derivative of power (WRT I)
+    #V_max = sympy.solve(P_prime,V,check=False,implicit=True)[0] # analytical solution for voltage at max power
+    
     #V_max = sympy.solveset(P_prime, V, domain=sympy.S.Reals) #TODO: this is not working, but it would be cool...
     #P_max = P.subs(V,V_max)
     #P_max = sympy.lambdify((I0,Rsh,Rs,Iph,n),P_max,functionSubstitutions,dummify=False)
@@ -178,8 +183,17 @@ class ivAnalyzer:
     #I_eqn = autowrap(slns['I'])
     ##I_eqn = lambda x,a,b,c,d,e: np.array([slns['I'](I0=a, Iph=b, Rs=c, Rsh=d, n=e, V=v) for v in x]).astype(complex)
     
-    ##return True
-    symSolutions['Voc'] = Voc_eqn
+    symSolutions = {}
+    symSolutions['Isc'] = Isc_eqn.subs(zip(modelConstants,valuesForConstants))
+    symSolutions['Voc'] = Voc_eqn.subs(zip(modelConstants,valuesForConstants))
+    symSolutions['P_prime'] = P_primeB.subs(zip(modelConstants,valuesForConstants))
+    #symSolutions['V_max'] = V_max.subs(zip(modelConstants,valuesForConstants))
+    #symSolutions['P_max'] = P_max.subs(zip(modelConstants,valuesForConstants))
+    symSolutions['I'] = symSolutionsNoSubs['I'].subs(zip(modelConstants,valuesForConstants))
+    symSolutions['I0'] = symSolutionsNoSubs['I0'].subs(zip(modelConstants,valuesForConstants))
+    symSolutions['V'] = symSolutionsNoSubs['V'].subs(zip(modelConstants,valuesForConstants))
+    
+    results = {}
     results['symSolutions'] = symSolutions
     results['modelSymbols'] = modelSymbols
     results['modelVariables'] = modelVariables
@@ -194,20 +208,27 @@ class ivAnalyzer:
     if self.isFastAndSloppy:
       # for fast and inaccurate math
       functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp}
+      #functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : bigfloat.exp}
     else:
       # this is a massive slowdown (forces a ton of operations into mpmath)
       # but gives _much_ better accuracy and aviods overflow warnings/errors...
       functionSubstitutions = {"LambertW" : mpmath.lambertw, "exp" : mpmath.exp}
     
     slns = {}
-    for symbol in self.modelSymbols:
-      if symbol is not Vth: # no reason to solve for thermal voltage
+    solveForThese = [I, I0, V]
+    for symbol in solveForThese:
         remainingVariables = list(set(self.modelVariables)-set([symbol]))
         slns[str(symbol)] = sympy.lambdify(remainingVariables,self.symSolutions[str(symbol)],functionSubstitutions,dummify=False)
         #slns[str(symbol)] = ufuncify(remainingVariables,self.symSolutions[str(symbol)],helpers=[['LambertW', sympy.LambertW(x), [x]]])  
         #slns[str(symbol)] = functools.partial(tmp) 
     
     slns['Voc'] = sympy.lambdify([I0,Rsh,Iph,n],self.symSolutions['Voc'],functionSubstitutions,dummify=False)
+    slns['P_prime'] = sympy.lambdify([I0,Rsh,Iph,n,Rs,I],self.symSolutions['P_prime'],functionSubstitutions,dummify=False)
+    slns['Isc'] = sympy.lambdify([I0,Rsh,Iph,n,Rs],self.symSolutions['Isc'],functionSubstitutions,dummify=False)
+    
+    #if not self.isFastAndSloppy:
+    #  for key, value in slns.items():
+    #    slns[key] = lambda **kw: np.float(value(**kw))
     
     #self.slns = {}
     #self.slns['I'] = functools.partial(tmp['I'],V=V,Iph=Iph,I0=I0,Rsh=Rsh,Rs=Rs,n=n)
@@ -829,32 +850,12 @@ class ivAnalyzer:
   
           # force parameter
           #p['Iph'] = 0.00192071
-  
-          # find mpp
-          VmppGuess = VV[np.array(VV*II).argmax()]
-          mppFound = False
-          try:
-            Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[p['I0'],p['Iph'],p['Rsh'],p['Rs'],p['n']])), VmppGuess))
-            mppFound = True
-          except:
-            try: # try again with a differnt starting point
-              Vmpp_guess = Vmpp_guess-0.1
-              Vmpp_charEqn = np.complex(sympy.nsolve(P_prime.subs(zip([I0,Iph,Rsh,Rs,n],[p['I0'],p['Iph'],p['Rsh'],p['Rs'],p['n']])), VmppGuess))
-              mppFound = True
-            except: # two failures means we're done
-              Vmpp_charEqn = nan
-          if mppFound:
-            Impp_charEqn = s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=Vmpp_charEqn)
-            Pmpp_charEqn = Impp_charEqn*Vmpp_charEqn
-          else:
-            Impp_charEqn = nan
-            Pmpp_charEqn = nan
-  
+          
           # find Voc
           try:
-            Voc_charEqn = s['Voc'](I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],n=p['n'])
+            Voc_charEqn = np.real_if_close(np.float(s['Voc'](I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],n=p['n'])))
             if not np.isfinite(Voc_charEqn):
-              Inew = lambda V: float(np.real(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=V)))
+              Inew = lambda V: np.float(np.real(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=V)))
               sol = scipy.optimize.root(Inew,1)
               if sol.success:
                 Voc_charEqn = sol.x[0]
@@ -862,13 +863,49 @@ class ivAnalyzer:
                 Voc_charEqn = nan
           except:
             Voc_charEqn = nan
+            
+          # find Isc
+          try:
+            Isc_charEqn = np.real_if_close(np.float(s['Isc'](I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],n=p['n'])))
+            if not np.isfinite(Isc_charEqn):
+              Vnew = lambda I: np.float(np.real(s['V'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],I=I)))
+              sol = scipy.optimize.root(Vnew,1e-3)
+              if sol.success:
+                Isc_charEqn = sol.x[0]
+              else:
+                Isc_charEqn = nan
+          except:
+            Isc_charEqn = nan
+            
+          def findMPP(ImppGuess,P_prime,p):
+            try:
+              Pnew = lambda I: np.float(np.real(P_prime(n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],I=I)))
+              sol = scipy.optimize.root(Pnew,ImppGuess)            
+              if sol.success:
+                Impp = sol.x[0]
+              else:
+                Impp = nan
+            except:
+              Impp = nan
+            
+            return(Impp)
+              
+            
+  
+          # find mpp
+          ImppGuess = II[np.array(VV*II).argmax()]
+          Impp_charEqn = findMPP(ImppGuess, s['P_prime'], p)
+          if np.isnan(Impp_charEqn):
+            Impp_charEqn = findMPP(ImppGuess-1e-4, s['P_prime'], p)
           
-          #jScaleFactor = 1000/fileData.area #for converstion to current density[mA/cm^2]
-          
-          #Isc_charEqn = self.slns['']
-          Isc_charEqn = np.real_if_close(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=0))
-          
-          #FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
+          if not np.isnan(Impp_charEqn):
+            Vmpp_charEqn = np.float(np.real_if_close(s['V'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],I=Impp_charEqn)))
+            Pmpp_charEqn = Impp_charEqn*Vmpp_charEqn
+          else:
+            Vmpp_charEqn = nan
+            Pmpp_charEqn = nan            
+
+          FF_charEqn = Pmpp_charEqn/(Voc_charEqn*Isc_charEqn)
           
           ret.eqnCurrent = np.array([np.real_if_close(s['I'](n=p['n'],I0=p['I0'],Iph=p['Iph'],Rsh=p['Rsh'],Rs=p['Rs'],V=x)) for x in vv])
           ret.sse = SSE
@@ -904,7 +941,7 @@ class ivAnalyzer:
           result['insert']['pmax_a_fit'] = Pmpp_charEqn/area
           result['insert']['pce_fit'] = (Pmpp_charEqn/area)/(ivAnalyzer.stdIrridance*suns/ivAnalyzer.sqcmpersqm)*100
           result['insert']['voc_fit'] = Voc_charEqn
-          #result['insert']['ff_fit'] = FF_charEqn
+          result['insert']['ff_fit'] = FF_charEqn
           result['insert']['isc_fit'] = Isc_charEqn
           result['insert']['jsc_fit'] = Isc_charEqn/area
   
@@ -1237,7 +1274,7 @@ class ivAnalyzer:
     x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
     #x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
     #residuals = lambda x,T,Y: [-y + float(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t).real) for t,y in zip(T,Y)]
-    residuals = lambda x,T,Y: np.abs([np.real_if_close(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t)) - y for t,y in zip(T,Y)])
+    residuals = lambda x,T,Y: np.abs([np.real_if_close(np.float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t))) - y for t,y in zip(T,Y)])
     #residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
     fitArgs = (residuals,x0)
     fitKwargs = {}
