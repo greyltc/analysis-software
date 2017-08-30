@@ -10,8 +10,8 @@ where `R_S` is the series resistance
 `I_D` is the diode current,  
 `I_L` is the light current,  
 `n` is the diode's ideality factor,  
-`I` is the current out of the positive terminal of the cell (given)  
-and `V` is the voltage across the cell (given)  
+`I` is the current out of the positive terminal of the cell (measured)  
+and `V` is the voltage across the cell (measured)  
 which is described by
 
 ![Equation](http://upload.wikimedia.org/math/4/7/d/47d17d3c2fe8840d0b3181860bd22f0a.png)
