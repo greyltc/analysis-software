@@ -659,8 +659,8 @@ class MainWindow(QMainWindow):
       fullPath = str(path[0])
       if not fullPath.endswith('.csv'):
         fullPath = fullPath + '.csv'
-      with open(fullPath, 'w') as stream:
-        writer = csv.writer(stream)
+      with open(fullPath, 'w',newline='') as stream:
+        writer = csv.writer(stream, dialect="excel")
         rowdata = []
         for column in range(self.ui.tableWidget.columnCount()):
           item = self.ui.tableWidget.horizontalHeaderItem(column)
