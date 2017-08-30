@@ -993,21 +993,14 @@ class MainWindow(QMainWindow):
     allFilesNow = list(allFilesNow)
     allFilesNow = [str(item) for item in allFilesNow]
 
-    differentFiles = list(set(allFilesNow) ^ set(self.fileNames))
-    if differentFiles != []:
-      for aFile in differentFiles:
-        if self.fileNames.__contains__(aFile):
-          #TODO: delete the file from the table
-          self.ui.statusbar.showMessage('Removed' + aFile,2500)
-        else:
-          #process the new file
-          fullPath = os.path.join(self.workingDirectory,aFile)
-          worker = Worker(self, fullPath)
-          tp = QThreadPool.globalInstance()
-          worker.setAutoDelete(True)
-          tp.start(worker)
-          #self.processFile(fullPath)
-
+    newFiles = list(set(allFilesNow) - set(self.fileNames))
+    if newFiles != []:
+      # prepend full path
+      for i in range(len(newFiles)):
+        newFiles[i] = os.path.join(self.workingDirectory,newFiles[i])
+      # process all the new files
+      self.newFiles(newFiles)
+      
   def statusChanged(self,args):
     if not args:
       # reset the statusbar background
