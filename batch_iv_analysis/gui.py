@@ -28,7 +28,7 @@ plt.switch_backend("Qt5Agg")
 class Object(object):
   pass
 
-def runGUI(analyzer):
+def runGUI(analyzer,args):
   app = QApplication(sys.argv)
   analysis = MainWindow(analyzer)
   analysis.show()
@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
 
   def __init__(self, analyzer):
     QMainWindow.__init__(self)
-
+    
     self.settings = QSettings("greyltc", "batch-iv-analysis")
     self.analyzer = analyzer
 
@@ -592,9 +592,10 @@ class MainWindow(QMainWindow):
       plt.scatter(0, thisGraphData["Isc"], c='g',marker='x',s=100)
       fitX = thisGraphData["fitX"]
       modelY = thisGraphData["modelY"]
+      modelY = np.array(thisGraphData["modelY"]).astype(complex)
       splineY = thisGraphData["splineY"]
       if not np.isnan(modelY[0]):
-        plt.plot(fitX, modelY.astype(complex),c='k', label='CharEqn Best Fit')
+        plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
       plt.plot(fitX, splineY,c='g', label='Spline Fit')
       plt.autoscale(axis='x', tight=True)
       plt.grid(b=True)

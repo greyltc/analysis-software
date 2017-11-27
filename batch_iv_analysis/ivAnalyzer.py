@@ -17,12 +17,17 @@ from numpy import nan
 from numpy import exp
 from numpy import inf
 
+import warnings
+
 #sys.setrecursionlimit(10000000)
 import dill
 #import pickle
 #import cloudpickle
 
 import scipy
+
+#to visualize guess
+import matplotlib.pyplot as plt
 
 import scipy.io as sio
 from io import StringIO
@@ -155,7 +160,7 @@ class ivAnalyzer:
     symSolutionsNoSubs = {} # all the symbols preserved
     
     
-    solveForThese = [I, I0, V]
+    solveForThese = [I, I0, V, n]
     for symbol in solveForThese:
       symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
       #symSolutionsNoSubs[str(symbol)] = sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0] #solveset doesn't work here (yet)
@@ -196,6 +201,7 @@ class ivAnalyzer:
     #symSolutions['P_max'] = P_max.subs(zip(modelConstants,valuesForConstants))
     symSolutions['I'] = symSolutionsNoSubs['I'].subs(zip(modelConstants,valuesForConstants))
     symSolutions['I0'] = symSolutionsNoSubs['I0'].subs(zip(modelConstants,valuesForConstants))
+    symSolutions['n'] = symSolutionsNoSubs['n'].subs(zip(modelConstants,valuesForConstants))
     symSolutions['V'] = symSolutionsNoSubs['V'].subs(zip(modelConstants,valuesForConstants))
     
     results = {}
@@ -212,15 +218,15 @@ class ivAnalyzer:
     # here we define any function substitutions we'll need for lambdification later
     if self.isFastAndSloppy:
       # for fast and inaccurate math
-      functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp}
+      functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : np.exp, "log" : np.log}
       #functionSubstitutions = {"LambertW" : scipy.special.lambertw, "exp" : bigfloat.exp}
     else:
       # this is a massive slowdown (forces a ton of operations into mpmath)
       # but gives _much_ better accuracy and aviods overflow warnings/errors...
-      functionSubstitutions = {"LambertW" : mpmath.lambertw, "exp" : mpmath.exp}
+      functionSubstitutions = {"LambertW" : mpmath.lambertw, "exp" : mpmath.exp, "log" : mpmath.log}
     
     slns = {}
-    solveForThese = [I, I0, V]
+    solveForThese = [I, I0, V, n]
     for symbol in solveForThese:
         remainingVariables = list(set(self.modelVariables)-set([symbol]))
         slns[str(symbol)] = sympy.lambdify(remainingVariables,self.symSolutions[str(symbol)],functionSubstitutions,dummify=False)
@@ -721,7 +727,7 @@ class ivAnalyzer:
           s = dill.loads(s) # multiprocess case
           
         try:
-          guess = ivAnalyzer.makeAReallySmartGuess(VV, II, isDarkCurve, s['I'], s['I0'])
+          guess = ivAnalyzer.makeAReallySmartGuess(VV, II, isDarkCurve, s['I'], s['I0'], s['n'])
         except:
           print("Warning: makeAReallySmartGuess() function failed!", file = logMessages)
           guess = {'I0':1e-9, 'Iph':II[0], 'Rs':5, 'Rsh':1e6, 'n':1.0}
@@ -1122,11 +1128,56 @@ class ivAnalyzer:
   
     return coefs, x
   
+  def lineFit (xData, yData, mGuess, bGuess):
+    lineResiduals = lambda p,dataX,dataY: np.square([p[0]*x + p[1] - y for x,y in zip(dataX,dataY)])
+    p0 = [mGuess, bGuess]
+    fitArgs = (lineResiduals,p0)
+    fitKwargs = {}
+    #fitKwargs['jac'] = '3-point'
+    fitKwargs['jac'] = '2-point'
+    #fitKwargs['jac'] = 'cs'
+    fitKwargs['ftol'] = np.finfo(float).eps
+    fitKwargs['xtol'] = np.finfo(float).eps
+    fitKwargs['gtol'] = np.finfo(float).eps
+    #fitKwargs['x_scale'] = list(map(lambda x: x/10, x0))
+    #fitKwargs['x_scale'] = list(map(lambda x: x/100, x0))
+    #fitKwargs['x_scale'] = list(map(lambda x: x*1000, x0))
+    #fitKwargs['x_scale'] = x0
+    #fitKwargs['x_scale'] = 'jac'
+    fitKwargs['loss'] = 'soft_l1'
+    #fitKwargs['loss'] = 'arctan'
+    #fitKwargs['loss'] = 'linear'
+    #fitKwargs['f_scale'] = 100000.0
+    #fitKwargs['diff_step'] = list(map(lambda x: x/1000000, x0))
+    #fitKwargs['diff_step'] = None
+    #fitKwargs['tr_solver'] = 'lsmr'
+    fitKwargs['tr_solver'] = None
+    #fitKwargs['tr_options'] = {'regularize':True}
+    #fitKwargs['jac_sparsity'] = None
+    fitKwargs['max_nfev'] = 20000
+    fitKwargs['verbose'] = 0
+    #fitKwargs['method'] = method
+    fitKwargs['method'] = 'trf'
+    if fitKwargs['method'] == 'lm':
+      fitKwargs['loss'] = 'linear' # loss must be linear for lm method
+    fitKwargs['args'] = (xData,yData)
+    fitKwargs['kwargs'] = {}
+  
+    # do the fit
+    optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
+    
+    result={}
+    if optimizeResult.success:
+      return optimizeResult.x
+    else:
+      print('Warning: Line fit fail!')
+      return p0
+  
   # this function makes ultra-super-intelligent guesses for all the parameters
   # of the equation that w're about to attempt to fit so that
   # the (relatively dumb and fragile) final optimization/curve fitting routine
   # has the best chance of giving good results
-  def makeAReallySmartGuess(VV, II, isDarkCurve, fI, fI0):
+  def makeAReallySmartGuess(VV, II, isDarkCurve, fI, fI0, fn):
     #data point selection:
     #lowest voltage (might be same as Isc)
     nPoints = len(VV)
@@ -1146,9 +1197,11 @@ class ivAnalyzer:
     try:
       # interpolate to find short circuit current estimate
       iFit = interpolate.interp1d(VV,II)
-      guess['Iph'] = iFit(0).item()
+      vZeroCurrent = iFit(0).item()
     except:
       print("Warning. You really should have some negative voltages in your data...")
+      vZeroCurrent = I_start_n
+    guess['Iph'] = vZeroCurrent      
   
     # find the curve "knee"
     if isDarkCurve:
@@ -1175,7 +1228,6 @@ class ivAnalyzer:
     V_vp_n = VV[vp_i]
     I_vp_n = II[vp_i]
   
-  
     #key point Ip: half way in current between vMPP and the end of the dataset:
     try:
       I_ip_n = (I_vmpp_n+I_end_n)/4
@@ -1201,73 +1253,59 @@ class ivAnalyzer:
     #guess['Rsh'] = -1*(V_start_n-V_vmpp_n)/(I_start_n-I_vmpp_n)      
   
     # try to further refine guesses for Iph and Rsh
-    aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
-    x0 = np.array([guess['Rsh'],guess['Iph']]) # initial guess vector
-    optimizeResult = scipy.optimize.least_squares(aLine, x0, jac='2-point', bounds=(u'-inf', u'inf'), 
-                                                  method='trf', 
-                                                    ftol=1e-08, 
-                              xtol=1e-08, 
-                              gtol=1e-08, 
-                              x_scale=1.0, 
-                              loss='linear', 
-                              f_scale=1.0, 
-                              diff_step=None, 
-                              tr_solver=None, 
-                              tr_options={}, 
-                              jac_sparsity=None, 
-                              max_nfev=None, 
-                              verbose=0, args=(VV[start_i:vp_i],II[start_i:vp_i]), 
-                              kwargs={})
-    if optimizeResult.success:
-      guess['Rsh'] = optimizeResult.x[0]
-      guess['Iph'] = optimizeResult.x[1]
+    xData = VV[start_i:vp_i]
+    yData = II[start_i:vp_i]
+    result = ivAnalyzer.lineFit(xData, yData, -1/guess['Rsh'], guess['Iph'])
+    guess['Rsh'] = -1/result[0]
+    guess['Iph'] = result[1]
   
-    # try to further refine guesses for I0 and Rs
-    aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
-    x0 = np.array([guess['Rs'],V_end_n/guess['Rs']]) # initial guess vector
-    optimizeResult = scipy.optimize.least_squares(aLine, x0,
-                                                  jac='2-point',
-      bounds=(u'-inf', u'inf'), 
-      method='trf', 
-      ftol=1e-08, 
-      xtol=1e-08, 
-      gtol=1e-08, 
-      x_scale=1.0, 
-      loss='linear', 
-      f_scale=1.0, 
-      diff_step=None, 
-      tr_solver=None, 
-      tr_options={}, 
-      jac_sparsity=None, 
-      max_nfev=None, 
-      verbose=0, args=(VV[ip_i:end_i],II[ip_i:end_i]), 
-      kwargs={})
-    if optimizeResult.success:
-      guess['Rs'] = optimizeResult.x[0]
-      RsYInter = optimizeResult.x[1]
+    # try to further refine guess for Rs
+    xData = VV[ip_i:end_i]
+    yData = II[ip_i:end_i]
+    result = ivAnalyzer.lineFit(xData, yData, -1/guess['Rs'], V_end_n/guess['Rs'])
+    guess['Rs'] = -1/result[0]
+    RsYInter = result[1]
+      
+    # try to refine guess for n
+    #starti = ip_i
+    starti = int(round((vp_i+knee_i)/2))
+    endi = int(round((ip_i+knee_i)/2))
+    yData = np.log(np.abs(II[starti:endi]-vZeroCurrent))
+    xData = VV[starti:endi]
+    goodis = np.isfinite(yData)
+    yData = yData[goodis]
+    xData = xData[goodis]
+    result = ivAnalyzer.lineFit(xData, yData, 1/guess['n'], 1)
+    guess['n'] = 1/result[0]    
   
+    # take a stab at a guess for I0
     guess['I0'] = float(np.real_if_close(fI0(n=guess['n'],V=V_ip_n,Iph=guess['Iph'],I=I_ip_n,Rs=guess['Rs'],Rsh=guess['Rsh'])))
     
-    #ivAnalyzer.visualizeGuess(VV,II,guess,fI,RsYInter,V_ip_n,I_ip_n,V_vp_n,I_vp_n,V_vmpp_n,I_vmpp_n)
+    # now reevaluate n at mpp:
+    guess['n'] = float(np.real_if_close(fn(I0=guess['I0'],V=V_vmpp_n,Iph=guess['Iph'],I=I_vmpp_n,Rs=guess['Rs'],Rsh=guess['Rsh'])))
+    
+    ivAnalyzer.visualizeGuess(VV,II,guess,fI,RsYInter,V_ip_n,I_ip_n,V_vp_n,I_vp_n,V_vmpp_n,I_vmpp_n)
     return guess
   
   # so you'd like to see how smart/dumb our really smart guess was...
   def visualizeGuess(VV,II,guess,fI,RsYInter,V_ip_n,I_ip_n,V_vp_n,I_vp_n,V_vmpp_n,I_vmpp_n):
-    vv = np.linspace(min(VV),max(VV),1000)
+    tehRange = max(VV)-min(VV)
+    vv = np.linspace(min(VV)-0.1*tehRange,max(VV)+0.1*tehRange,1000)
     aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
     print("My guesses are",guess)
-    ii=np.array([fI(n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v) for v in vv])
+    ii=np.array([fI(n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v) for v in vv]).astype(float)
     ii2=np.array(aLine([guess['Rs'],RsYInter],vv,np.zeros(len(vv)))) # Rs fit line
     ii3=np.array(aLine([guess['Rsh'],guess['Iph']],vv,np.zeros(len(vv)))) # Rsh fit line
     plt.title('Guess and raw data')
-    plt.plot(vv,ii) # char eqn
-    plt.plot(vv,ii2) # Rs fit line
-    plt.plot(vv,ii3) # Rsh fit line
-    plt.plot(V_ip_n,I_ip_n,'+r',markersize=10)
-    plt.plot(V_vp_n,I_vp_n,'+r',markersize=10)
-    plt.plot(V_vmpp_n,I_vmpp_n,'+r',markersize=10)
-    plt.scatter(VV,II)
+    plt.plot(vv,ii,'k',label='Char. Eqn.') # char eqn
+    plt.plot(vv,ii2,'g',label='R_s') # Rs fit line
+    plt.plot(vv,ii3,'r',label='R_sh') # Rsh fit line
+    plt.plot(V_ip_n,I_ip_n,'Xc',markersize=10,label='ip')
+    plt.plot(V_vp_n,I_vp_n,'Dc',markersize=10,label='vp')
+    plt.plot(V_vmpp_n,I_vmpp_n,'+c',markersize=10,label='mpp')
+    plt.scatter(VV,II,label='Data')
     plt.grid(b=True)
+    plt.legend()
     yRange = max(II) - min(II)
     plt.ylim(min(II)-yRange*.1,max(II)+yRange*.1)
     plt.draw()
@@ -1278,8 +1316,11 @@ class ivAnalyzer:
   def doTheFit(VV, II, fI, guess, bounds, method = 'trf',verbose = 0):
     x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
     #x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
-    #residuals = lambda x,T,Y: [-y + float(slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t).real) for t,y in zip(T,Y)]
-    residuals = lambda x,T,Y: np.abs([np.real_if_close(np.float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t))) - y for t,y in zip(T,Y)])
+    residuals = lambda x,T,Y: np.array([-y + fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t) for t,y in zip(T,Y)]).astype(complex).real
+    #residuals = lambda x,T,Y: np.abs([np.real_if_close(np.float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t))) - y for t,y in zip(T,Y)])
+    
+    #residuals = lambda x,T,Y: np.abs([np.float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t).real) - y for t,y in zip(T,Y)])
+    
     #residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
     fitArgs = (residuals,x0)
     fitKwargs = {}
@@ -1294,7 +1335,7 @@ class ivAnalyzer:
     #fitKwargs['x_scale'] = list(map(lambda x: x*1000, x0))
     #fitKwargs['x_scale'] = x0
     fitKwargs['x_scale'] = 'jac'
-    fitKwargs['loss'] = 'cauchy'
+    fitKwargs['loss'] = 'soft_l1'
     #fitKwargs['loss'] = 'arctan'
     #fitKwargs['loss'] = 'linear'
     #fitKwargs['f_scale'] = 100000.0
@@ -1307,6 +1348,7 @@ class ivAnalyzer:
     fitKwargs['max_nfev'] = 20000
     fitKwargs['verbose'] = verbose
     fitKwargs['method'] = method
+    fitKwargs['method'] = 'trf'
     if method == 'lm':
       fitKwargs['loss'] = 'linear' # loss must be linear for lm method
     fitKwargs['args'] = (VV,II)
@@ -1327,8 +1369,8 @@ class ivAnalyzer:
     optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
   
     # do the fit with curve_fit
-    #tehf = lambda XX,m_I0,m_Iph,m_Rs,m_Rsh,m_n: np.real_if_close(slns['I'](I0=m_I0, Iph=m_Iph, Rs=m_Rs, Rsh=m_Rsh, n=m_n, V=XX))
-    #fit_result = scipy.optimize.curve_fit(tehf,VV,II,p0=x0,method='trf',verbose=2,x_scale= list(map(lambda x: x/1000, x0)))
+    tehf =  lambda XX,m_I0,m_Iph,m_Rs,m_Rsh,m_n: np.array([fI(I0=m_I0, Iph=m_Iph, Rs=m_Rs, Rsh=m_Rsh, n=m_n, V=t) for t in XX]).astype(complex).real
+    popt, pcov = scipy.optimize.curve_fit(tehf,VV,II,p0=x0,method='trf',verbose=2,xtol=np.finfo(float).eps)
   
   
   

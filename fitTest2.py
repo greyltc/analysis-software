@@ -10,7 +10,10 @@ from numpy import nan
 from numpy import inf
 from numpy import exp
 
+
+
 from scipy.io import savemat
+#from mpmath import lambertw
 from scipy.special import lambertw
 from scipy import optimize
 from scipy import interpolate
@@ -48,7 +51,7 @@ i = [ 0.00631131,  0.00633053,  0.0062757 ,  0.00631208,  0.00625346,
         0.00608415,  0.00577381,  0.0052973 ,  0.00453748,  0.00347691,
         0.00208499,  0.00020583, -0.00227922, -0.00524322, -0.00856056]
 #v = [1e3*x for x in v]
-i = [1e3*x for x in i]
+#i = [1e3*x for x in i]
 
 #savemat("mat.mat",{'v':v,'i':i,'p0':guess})
 
@@ -210,19 +213,22 @@ def sse(fun,params,x,y):
     
 # the 0th branch of the lambertW function
 def w(x):
-    return np.real_if_close(lambertw(x, k=0, tol=1e-15))
+    return np.real(lambertw(x, k=0, tol=np.finfo(float).eps))
+    #return lambertw(x, k=0, tol=1e-15)
 
 # here's the function we want to fit to
 def optimizeThis (x, I0, Iph, Rs, Rsh, n):
+    #return np.real((Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh)))
     return (Rs*(I0*Rsh + Iph*Rsh - x) - thermalVoltage*n*(Rs + Rsh)*w(I0*Rs*Rsh*exp((Rs*(I0*Rsh + Iph*Rsh - x) + x*(Rs + Rsh))/(thermalVoltage*n*(Rs + Rsh)))/(thermalVoltage*n*(Rs + Rsh))))/(Rs*(Rs + Rsh))
 
-def make_dictionary(max_length=10, **entries):
-    return dict([(key, entries[key]) for i, key in enumerate(entries.keys()) if i < max_length])
+#def make_dictionary(max_length=10, **entries):
+#    return dict([(key, entries[key]) for i, key in enumerate(entries.keys()) if i < max_length])
 
 # my guess for the fit parameters
 # [I0, I_L, R_s, R_sh, n]
-#guess = [7.974383037191594e-11, 0.00627619846736794, 12.743239329693433, 5694.842341863068, 2.0]
-guess = makeAGuess(v,i)
+guess = [7.974383037191594e-11, 0.00627619846736794, 12.743239329693433, 5694.842341863068, 2.0]
+#guess = {'I0': 1e-15, 'Iph': 8.6889261535882785, 'Rs': 0.5155903798902628, 'Rsh': 788.22883822837741, 'n': 40.0}
+#guess = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
 
 #guess = [np.complex128(x) for x in guess]
 
@@ -231,18 +237,19 @@ I0_bounds = [0, inf]
 I_L_bounds = [0, inf]
 R_s_bounds = [0, inf]
 R_sh_bounds = [0, inf]
-n_bounds = [0, 30]
+n_bounds = [0, 40]
 myBounds=([I0_bounds[0], I_L_bounds[0], R_s_bounds[0], R_sh_bounds[0], n_bounds[0]], [I0_bounds[1], I_L_bounds[1], R_s_bounds[1], R_sh_bounds[1], n_bounds[1]])
 
 # the best I can do with unconstrained, 'lm' fit method is SSE=7.00172395151e-08
-#fitReturn = optimize.curve_fit(optimizeThis, v, i, p0=guess, method="lm", full_output=True)
+fitReturn = optimize.curve_fit(optimizeThis, v, i, p0=guess, xtol=np.finfo(float).eps, method="lm", full_output=True, check_finite=False)
 
 # the best I can do with constrained 'trf' method is SSE=7.001723218560001e-08 :-)
-fitReturn = optimize.curve_fit(optimizeThis, v, i, p0=guess, bounds=myBounds, method="trf", x_scale="jac", jac ='cs', verbose=2, max_nfev=1200000)
+#fitReturn = optimize.curve_fit(optimizeThis, v, i, p0=guess, xtol=np.finfo(float).eps, bounds=myBounds, method="trf", x_scale="jac", jac ='cs', verbose=2, max_nfev=1200000)
 
 fitParams = fitReturn[0]
 SSE = sse(optimizeThis, fitParams, v, i)
 
-print(fitReturn)
+finalOnes = guess = {'I0': fitParams[0], 'Iph': fitParams[1], 'Rs': fitParams[2], 'Rsh': fitParams[3], 'n': fitParams[4]}
+print(finalOnes)
 print("The sum of the square of the errors (SSE) is:")
 print(SSE)
