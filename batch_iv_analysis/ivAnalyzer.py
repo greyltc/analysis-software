@@ -1276,13 +1276,48 @@ class ivAnalyzer:
     yData = yData[goodis]
     xData = xData[goodis]
     result = ivAnalyzer.lineFit(xData, yData, 1/guess['n'], 1)
-    guess['n'] = 1/result[0]    
+    guess['n'] = 1/result[0]
   
     # take a stab at a guess for I0
     guess['I0'] = float(np.real_if_close(fI0(n=guess['n'],V=V_ip_n,Iph=guess['Iph'],I=I_ip_n,Rs=guess['Rs'],Rsh=guess['Rsh'])))
     
+    modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
+    I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
+    modelConstants = (Vth,)
+    modelVariables = tuple(set(modelSymbols)-set(modelConstants))    
+  
+    # calculate values for our model's constants now
+    cellTemp = 29 #degC all analysis is done assuming the cell is at 29 degC
+    T = 273.15 + cellTemp #cell temp in K
+    K = 1.3806488e-23 #boltzman constant
+    q = 1.60217657e-19 #electron charge
+    thermalVoltage = K*T/q #thermal voltage ~26mv
+    valuesForConstants = (thermalVoltage,)
+  
+    # define cell circuit model here
+    lhs = I
+    rhs = Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1)
+    
+    zero = rhs - I
+    
+    #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
+    eqnSys1 = zero.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_vmpp_n),(I,I_vmpp_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    eqnSys2 = zero.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_ip_n),(I,I_ip_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    eqnSys = (eqnSys1,eqnSys2)
+    
+    
+    
+  
+    try:
+      sln = sympy.nsolve(eqnSys,(I0,n),(guess['I0'],guess['n']),maxsteps=10000)
+    except:
+      return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+  
+    guess['I0'] = sln[0]
+    guess['n'] = sln[1]    
+    
     # now reevaluate n at mpp:
-    guess['n'] = float(np.real_if_close(fn(I0=guess['I0'],V=V_vmpp_n,Iph=guess['Iph'],I=I_vmpp_n,Rs=guess['Rs'],Rsh=guess['Rsh'])))
+    #guess['n'] = float(np.real_if_close(fn(I0=guess['I0'],V=V_vmpp_n,Iph=guess['Iph'],I=I_vmpp_n,Rs=guess['Rs'],Rsh=guess['Rsh'])))
     
     ivAnalyzer.visualizeGuess(VV,II,guess,fI,RsYInter,V_ip_n,I_ip_n,V_vp_n,I_vp_n,V_vmpp_n,I_vmpp_n)
     return guess

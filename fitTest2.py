@@ -230,6 +230,19 @@ guess = [7.974383037191594e-11, 0.00627619846736794, 12.743239329693433, 5694.84
 #guess = {'I0': 1e-15, 'Iph': 8.6889261535882785, 'Rs': 0.5155903798902628, 'Rsh': 788.22883822837741, 'n': 40.0}
 #guess = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
 
+
+eqnSys1 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_ip_n),(I,I_ip_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
+eqnSys2 = newRhs.subs([(Vth,thermalVoltage),(Iph,I_L_guess),(V,V_end_n),(I,I_end_n),(n,n_initial_guess),(Rsh,R_sh_guess)])
+eqnSys = (eqnSys1,eqnSys2)
+
+try:
+    nGuessSln = sympy.nsolve(eqnSys,(I0,Rs),(I0_initial_guess,R_s_guess),maxsteps=10000)
+except:
+    return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+
+I0_guess = nGuessSln[0]
+R_s_guess = nGuessSln[1]
+
 #guess = [np.complex128(x) for x in guess]
 
 # bounds on parameters
