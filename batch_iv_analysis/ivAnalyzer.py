@@ -329,6 +329,7 @@ class ivAnalyzer:
   
     isMcFile = False #true if this is a McGehee iv file format
     isSnaithFile = False # true if this is a Snaith iv file format
+    isMyFile = False # true if this is a custom solar sim iv file format
     #mcFile test:
     if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
       nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
@@ -350,6 +351,8 @@ class ivAnalyzer:
       fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
       fileBuffer = fileBuffer[::-1] # un-reverse the buffer
       fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
+    elif first10.__contains__('i-v file'):
+      isMyFile = True
   
     splitBuffer = fileBuffer.splitlines(True)
   
@@ -387,8 +390,12 @@ class ivAnalyzer:
     except:
       print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
       return
-    VV = data[:,0]
-    II = data[:,1]
+    if isMyFile:
+      VV = data[:,2]
+      II = data[:,3]
+    else:
+      VV = data[:,0]
+      II = data[:,1]
     if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
       II = II/jScaleFactor
   
@@ -1298,28 +1305,63 @@ class ivAnalyzer:
     lhs = I
     rhs = Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1)
     
-    zero = rhs - I
+    moreSyms = sympy.symbols('i1 i2 v1 v2', real=True)
+    i1, i2, v1, v2 = moreSyms
+    
+    
+    ceqn = sympy.Eq(lhs,rhs)
+    
+    
+    I0_alone = sympy.solve(ceqn,I0)[0]
+    n_alone = sympy.solve(ceqn,n)[0]
+    
+    n_alone_1 = n_alone.subs([(I,i1),(V,v1)])
+    I0_alone_2 = I0_alone.subs([(I,i2),(V,v2)])
+
     
     #refine guesses for I0 and Rs by forcing the curve through several data points and numerically solving the resulting system of eqns
-    eqnSys1 = zero.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_vmpp_n),(I,I_vmpp_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
-    eqnSys2 = zero.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_ip_n),(I,I_ip_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
-    eqnSys = (eqnSys1,eqnSys2)
+    #eqnSys1 = zero.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_vmpp_n),(I,I_vmpp_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    #eqnSys2 = zero.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_ip_n),(I,I_ip_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    I0_zero = I0_alone_2.subs(n,n_alone_1) - I0
     
+    I0_zero_subs = I0_zero.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(v1,V_vmpp_n),(i1,I_vmpp_n),(v2,V_ip_n),(i2,I_ip_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    
+    guess['I0'] = float(sympy.nsolve(I0_zero_subs,1e-9))
+    guess['n'] = float(n_alone.subs([(Vth,thermalVoltage),(V,V_vmpp_n),(I,I_vmpp_n),(Rs,guess['Rs']),(Rsh,guess['Rsh']),(Iph,guess['Iph']),(I0,guess['I0'])]))
+    
+    #eqnSys2 = n_alone - n
+    
+    #eqnSys1n = eqnSys1.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_vmpp_n),(I,I_vmpp_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    #eqnSys2n = eqnSys2.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_ip_n),(I,I_ip_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    
+    
+    #ceqn1 = ceqn.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_vmpp_n),(I,I_vmpp_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    #ceqn2 = ceqn.subs([(Vth,thermalVoltage),(Iph,guess['Iph']),(V,V_ip_n),(I,I_ip_n),(Rs,guess['Rs']),(Rsh,guess['Rsh'])])
+    
+    #ceqn1 = ceqn1.rhs - ceqn1.lhs
+    #ceqn2 = ceqn2.rhs - ceqn2.lhs
+    
+    #eqnSysn = (eqnSys1n,eqnSys2n)
+    #eqnSys = (eqnSys1,eqnSys2)
+    
+    #n_collect = n_alone.subs(I0,I0_alone) - n
+    #I0_collect = I0_alone.subs(n,n_alone) - I0
+    
+    #sympy.nsolve(eqnSys,(I0,n),(guess['I0'],guess['n']),maxsteps=10000)
     
     
   
-    try:
-      sln = sympy.nsolve(eqnSys,(I0,n),(guess['I0'],guess['n']),maxsteps=10000)
-    except:
-      return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
+    #try:
+    #  sln = sympy.nsolve(eqnSys,(I0,n),(guess['I0'],guess['n']),maxsteps=10000)
+    #except:
+    #  return([[nan,nan,nan,nan,nan], [nan,nan,nan,nan,nan], nan, "hard fail", 10])
   
-    guess['I0'] = sln[0]
-    guess['n'] = sln[1]    
-    
+    #guess['I0'] = 0.0000000000010296906156466855596021832205111
+    #guess['n'] = 48.353157516330718582509891126366
     # now reevaluate n at mpp:
     #guess['n'] = float(np.real_if_close(fn(I0=guess['I0'],V=V_vmpp_n,Iph=guess['Iph'],I=I_vmpp_n,Rs=guess['Rs'],Rsh=guess['Rsh'])))
     
-    ivAnalyzer.visualizeGuess(VV,II,guess,fI,RsYInter,V_ip_n,I_ip_n,V_vp_n,I_vp_n,V_vmpp_n,I_vmpp_n)
+    #ivAnalyzer.visualizeGuess(VV,II,guess,fI,RsYInter,V_ip_n,I_ip_n,V_vp_n,I_vp_n,V_vmpp_n,I_vmpp_n)
     return guess
   
   # so you'd like to see how smart/dumb our really smart guess was...
@@ -1328,7 +1370,7 @@ class ivAnalyzer:
     vv = np.linspace(min(VV)-0.1*tehRange,max(VV)+0.1*tehRange,1000)
     aLine = lambda x,T,Y: [-y + -1/x[0]*t + x[1] for t,y in zip(T,Y)]
     print("My guesses are",guess)
-    ii=np.array([fI(n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v) for v in vv]).astype(float)
+    ii=np.real_if_close(np.array([fI(n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v) for v in vv]))
     ii2=np.array(aLine([guess['Rs'],RsYInter],vv,np.zeros(len(vv)))) # Rs fit line
     ii3=np.array(aLine([guess['Rsh'],guess['Iph']],vv,np.zeros(len(vv)))) # Rsh fit line
     plt.title('Guess and raw data')
@@ -1351,7 +1393,7 @@ class ivAnalyzer:
   def doTheFit(VV, II, fI, guess, bounds, method = 'trf',verbose = 0):
     x0 = [guess['I0'],guess['Iph'],guess['Rs'],guess['Rsh'],guess['n']]
     #x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
-    residuals = lambda x,T,Y: np.array([-y + fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t) for t,y in zip(T,Y)]).astype(complex).real
+    residuals = lambda x,T,Y: np.real(np.array([-y + fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t) for t,y in zip(T,Y)]))
     #residuals = lambda x,T,Y: np.abs([np.real_if_close(np.float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t))) - y for t,y in zip(T,Y)])
     
     #residuals = lambda x,T,Y: np.abs([np.float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t).real) - y for t,y in zip(T,Y)])
@@ -1368,9 +1410,9 @@ class ivAnalyzer:
     #fitKwargs['x_scale'] = list(map(lambda x: x/10, x0))
     #fitKwargs['x_scale'] = list(map(lambda x: x/100, x0))
     #fitKwargs['x_scale'] = list(map(lambda x: x*1000, x0))
-    #fitKwargs['x_scale'] = x0
-    fitKwargs['x_scale'] = 'jac'
-    fitKwargs['loss'] = 'soft_l1'
+    fitKwargs['x_scale'] = x0
+    #fitKwargs['x_scale'] = 'jac'
+    #fitKwargs['loss'] = 'soft_l1'
     #fitKwargs['loss'] = 'arctan'
     #fitKwargs['loss'] = 'linear'
     #fitKwargs['f_scale'] = 100000.0
@@ -1382,9 +1424,10 @@ class ivAnalyzer:
     #fitKwargs['jac_sparsity'] = None
     fitKwargs['max_nfev'] = 20000
     fitKwargs['verbose'] = verbose
+    #fitKwargs['verbose'] = 2
     fitKwargs['method'] = method
-    fitKwargs['method'] = 'trf'
-    if method == 'lm':
+    #fitKwargs['method'] = 'lm'
+    if fitKwargs['method'] == 'lm':
       fitKwargs['loss'] = 'linear' # loss must be linear for lm method
     fitKwargs['args'] = (VV,II)
     fitKwargs['kwargs'] = {}
@@ -1404,9 +1447,10 @@ class ivAnalyzer:
     optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
   
     # do the fit with curve_fit
-    tehf =  lambda XX,m_I0,m_Iph,m_Rs,m_Rsh,m_n: np.array([fI(I0=m_I0, Iph=m_Iph, Rs=m_Rs, Rsh=m_Rsh, n=m_n, V=t) for t in XX]).astype(complex).real
-    popt, pcov = scipy.optimize.curve_fit(tehf,VV,II,p0=x0,method='trf',verbose=2,xtol=np.finfo(float).eps)
-  
+    #tehf =  lambda XX,m_I0,m_Iph,m_Rs,m_Rsh,m_n: np.real_if_close(np.array([fI(I0=m_I0, Iph=m_Iph, Rs=m_Rs, Rsh=m_Rsh, n=m_n, V=t) for t in XX]))
+    #popt, pcov = scipy.optimize.curve_fit(tehf,VV,II,p0=x0,method='trf',verbose=2,xtol=np.finfo(float).eps)
+    #ivAnalyzer.analyzeGoodness(VV, II, fI, {'I0':popt[0],'Iph':popt[1],'Rs':popt[2],'Rsh':popt[3],'n':popt[4]}, guess, 'tool')
+    
   
   
     #optimizeResult.success = False
@@ -1539,8 +1583,8 @@ class ivAnalyzer:
     print(msg)
   
     vv=np.linspace(VV[0],VV[-1],1000)
-    ii=np.array([fI(n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v).real for v in vv])
-    ii2=np.array([fI(n=params['n'],I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],V=v).real for v in vv])
+    ii=np.real_if_close(np.array([fI(n=guess['n'],I0=guess['I0'],Iph=guess['Iph'],Rsh=guess['Rsh'],Rs=guess['Rs'],V=v) for v in vv]))
+    ii2=np.real_if_close(np.array([fI(n=params['n'],I0=params['I0'],Iph=params['Iph'],Rsh=params['Rsh'],Rs=params['Rs'],V=v) for v in vv]))
     plt.title('Fit analysis')
     p1, = plt.plot(vv,ii, label='Guess',ls='--')
     p2, = plt.plot(vv,ii2, label='Fit')

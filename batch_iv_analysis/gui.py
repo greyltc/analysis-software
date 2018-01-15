@@ -408,10 +408,14 @@ class MainWindow(QMainWindow):
     #self.mySignals.populateRow.connect(self.populateRow)
     #mySignals.sloppy.connect(self.handleMathFinished)
     #mySignals.analysisResult.connect(self.processFitResult)
-     
-    poolWorkers = self.ui.analysisThreadsSpinBox.value()
-    beFastAndSloppy = self.ui.doFastAndSloppyMathCheckBox.isChecked()
-    multiprocess = self.ui.useMultithreadingModeCheckBox.isChecked()
+    
+    if self.analyzer.isFastAndSloppy is None:
+      self.analyzer.__dict__['isFastAndSloppy'] = self.ui.doFastAndSloppyMathCheckBox.isChecked()
+    if self.analyzer.poolWorkers is None:
+      self.analyzer.__dict__['poolWorkers'] = self.ui.analysisThreadsSpinBox.value()
+    if self.analyzer.multiprocess is None:
+      self.analyzer.__dict__['multiprocess'] = self.ui.useMultithreadingModeCheckBox.isChecked()
+      
     self.analyzer.setup()
     #self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=multiprocess, poolWorkers=poolWorkers)
      
