@@ -1,6 +1,7 @@
 batch-iv-analysis
 =================
 
+![screenshot](/screenshot.png) 
 This project is a GUI program written in python, intended to make it easy for solar cell researchers to characterize the electrical properties of the solar cells they make. It's meant to be robust enough to throw all your IV data files at it in one go (hence the "batch"). The code here takes IV (current-voltage sweep) data files (of various formats, new format additions welcome!) and uses it to find values for the components of the following solar cell circuit model:
 
 ![Circuit](https://upload.wikimedia.org/wikipedia/commons/c/c4/Solar_cell_equivalent_circuit.svg)
