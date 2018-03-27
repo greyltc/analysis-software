@@ -1452,7 +1452,7 @@ class ivAnalyzer:
     cellParams['Rs'].set(guess['Rs'])
     cellParams['Iph'].set(guess['Iph'])
     cellParams['I0'].set(guess['I0'])
-    fitResult = cellModel.fit(II,cellParams, V=VV, method='nelder',fit_kws={'reduce_fcn':'neglogcauchy'})
+    fitResult = cellModel.fit(II,cellParams, V=VV)
     print(fitResult.fit_report())
     
     #cellParams['Rsh'].set(min=0)
