@@ -39,6 +39,8 @@ from scipy import special
 from scipy.stats.distributions import t #needed for confidence interval calculation #TODO: remove this in favor of uncertainties
 #from uncertainties import ufloat #TODO: switch to using this for the error calcs
 
+from lmfit import Model
+
 class Object(object):
   pass
 
@@ -785,9 +787,9 @@ class ivAnalyzer:
           guess['n'] = localBounds['n'][1]
   
         # scale the current up so that the curve fit algorithm doesn't run into machine precision issues
-        currentScaleFactor = 1/abs(II.mean())
+        #currentScaleFactor = 1/abs(II.mean())
         #currentScaleFactor = 1e5
-        #currentScaleFactor = 1
+        currentScaleFactor = 1
         guess['I0'] = guess['I0']*currentScaleFactor
         guess['Iph'] = guess['Iph']*currentScaleFactor
         guess['Rs'] = guess['Rs']/currentScaleFactor
@@ -822,12 +824,12 @@ class ivAnalyzer:
           print("Good fit because: " + result['fitResult']['message'], file = logMessages)
   
           p = {}
-          p['I0'] = result['fitResult']['optParams'][0]/currentScaleFactor
-          p['Iph'] = result['fitResult']['optParams'][1]/currentScaleFactor
-          p['Rs'] = result['fitResult']['optParams'][2]*currentScaleFactor
-          p['Rsh'] = result['fitResult']['optParams'][3]*currentScaleFactor
-          p['n'] = result['fitResult']['optParams'][4]
-          SSE = result['fitResult']['SSE']/currentScaleFactor**2
+          p['I0'] = result['fitResult']['optParams']['I0']/currentScaleFactor
+          p['Iph'] = result['fitResult']['optParams']['Iph']/currentScaleFactor
+          p['Rs'] = result['fitResult']['optParams']['Rs']*currentScaleFactor
+          p['Rsh'] = result['fitResult']['optParams']['Rsh']*currentScaleFactor
+          p['n'] = result['fitResult']['optParams']['n']
+          SSE = result['fitResult']['chi-square']
   
   
           # TODO: the sigmas are messed up (by scaling?) when doing a l-m fit
@@ -1442,9 +1444,36 @@ class ivAnalyzer:
     #    sqrtEPS = np.finfo(float).eps**(1/2)
     #    fitKwargs['diff_step'] = [x0[0]/10, sqrtEPS, sqrtEPS, sqrtEPS, sqrtEPS]
     #    fitKwargs['max_nfev'] = 1200
+    
+    cellModel = Model(fI, nan_policy='omit',independent_vars=['V'])
+    cellParams = cellModel.make_params()
+    cellParams['Rsh'].set(guess['Rsh'])
+    cellParams['n'].set(guess['n'])
+    cellParams['Rs'].set(guess['Rs'])
+    cellParams['Iph'].set(guess['Iph'])
+    cellParams['I0'].set(guess['I0'])
+    fitResult = cellModel.fit(II,cellParams, V=VV, method='nelder',fit_kws={'reduce_fcn':'neglogcauchy'})
+    print(fitResult.fit_report())
+    
+    #cellParams['Rsh'].set(min=0)
+    #cellParams['n'].set(min=0)
+    #cellParams['Rs'].set(min=0)
+    #cellParams['Iph'].set(min=0)
+    #cellParams['I0'].set(min=0)
+    
+    #cellParams['Rsh'].set(max=1e12)
+    #cellParams['n'].set(max=1e5)
+    #cellParams['Rs'].set(max=1e5)
+    #cellParams['Iph'].set(max=2e4)
+    #cellParams['I0'].set(max=1)    
+    #fitResult = cellModel.fit(II,cellParams, V=VV)
+    #print("FIT2")
+    #print(fitResult.fit_report())
+    
+    #fitResult = cellModel.fit(II,cellParams, V=VV, method='least_squares')
   
     # do the fit
-    optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
+    #optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
   
     # do the fit with curve_fit
     #tehf =  lambda XX,m_I0,m_Iph,m_Rs,m_Rsh,m_n: np.real_if_close(np.array([fI(I0=m_I0, Iph=m_Iph, Rs=m_Rs, Rsh=m_Rsh, n=m_n, V=t) for t in XX]))
@@ -1456,29 +1485,9 @@ class ivAnalyzer:
     #optimizeResult.success = False
     #optimize.curve_fit(I_eqn, VV, II, p0=x0, bounds=fitKwargs['bounds'], diff_step=fitKwargs['diff_step'], method="trf", x_scale="jac", jac ='cs', verbose=1, max_nfev=1200000)
     #scipy.optimize.least_squares(residuals, np.array([  1.20347834e-13,   6.28639109e+02,   1.83005279e-04, 6.49757268e-02,   1.00000000e+00]), jac='cs', bounds=[('-inf', '-inf', '-inf', '-inf', 0), ('inf', 'inf', 'inf', 'inf', 'inf')], method='trf', max_nfev=12000, x_scale='jac', verbose=1,diff_step=[1.203478342631369e-14, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08, 1.4901161193847656e-08])
-    if optimizeResult.success:
-      #print(optimizeResult)
-      if np.any(np.isnan(optimizeResult.jac)):
-        sigmas = np.empty(len(optimizeResult.x))
-        sigmas[:] = nan
-      else:
-        # calculate covariance matrix
-        # Do Moore-Penrose inverse discarding zero singular values.
-        _, s, VT = scipy.linalg.svd(optimizeResult.jac, full_matrices=False)
-        threshold = np.finfo(float).eps * max(optimizeResult.jac.shape) * s[0]
-        s = s[s > threshold]
-        VT = VT[:s.size]
-        pcov = np.dot(VT.T / s**2, VT)
-        # now find sigmas from covariance matrix
-        error = [] 
-        for i in range(len(optimizeResult.x)):
-          try:
-            error.append(np.absolute(pcov[i][i])**0.5)
-          except:
-            error.append( 0.00 )
-        sigmas = np.array(error)
-  
-      return {'success':True,'optParams':optimizeResult.x,'sigmas':sigmas,'message':optimizeResult.message,'SSE':optimizeResult.cost*2}
+    if fitResult.success:
+     
+      return {'success':True,'optParams':fitResult.best_values,'message':fitResult.message,'chi-square':fitResult.chisqr}
     else:
       return {'success':False,'message':optimizeResult.message}
   
