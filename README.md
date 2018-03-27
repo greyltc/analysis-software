@@ -11,6 +11,7 @@ where `R_S` is the series resistance
 `R_SH` is the shunt resistance,  
 `I_D` is the diode current,  
 `I_L` is the light current,  
+`I_0` is the reverse saturation current,  
 `n` is the diode's ideality factor,  
 `I` is the current out of the positive terminal of the cell (measured)  
 and `V` is the voltage across the cell (measured)  
