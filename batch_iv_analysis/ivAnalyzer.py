@@ -703,17 +703,17 @@ class ivAnalyzer:
     vsTime = fileData.vsTime
     suns = fileData.suns
     area = fileData.area
-  
-    # trim data to voltage range
-    vMask = (VV > params['lowerVLim']) & (VV < params['upperVLim'])
-    VV = VV[vMask]
-    II = II[vMask]
     
     splineData = ivAnalyzer._doSplineStuff(VV, II)
     VV = splineData.voltageData
     II = splineData.currentData
     vv = splineData.analyticalVoltage
     isDarkCurve = splineData.isDarkCurve
+    
+    # trim data to voltage range
+    vMask = (VV > params['lowerVLim']) & (VV < params['upperVLim'])
+    VV = VV[vMask]
+    II = II[vMask]    
 
     if not vsTime:
       if not params['doFit']:
@@ -1445,15 +1445,18 @@ class ivAnalyzer:
     #    fitKwargs['diff_step'] = [x0[0]/10, sqrtEPS, sqrtEPS, sqrtEPS, sqrtEPS]
     #    fitKwargs['max_nfev'] = 1200
     
-    cellModel = Model(fI, nan_policy='omit',independent_vars=['V'])
-    cellParams = cellModel.make_params()
-    cellParams['Rsh'].set(guess['Rsh'])
-    cellParams['n'].set(guess['n'])
-    cellParams['Rs'].set(guess['Rs'])
-    cellParams['Iph'].set(guess['Iph'])
-    cellParams['I0'].set(guess['I0'])
-    fitResult = cellModel.fit(II,cellParams, V=VV)
-    print(fitResult.fit_report())
+    cellModel = Model(fI, nan_policy='raise', independent_vars=['V'])
+    cellModel.set_param_hint('Rsh',value=guess['Rsh'])
+    cellModel.set_param_hint('n',value=guess['n'])
+    cellModel.set_param_hint('Rs',value=guess['Rs'])
+    cellModel.set_param_hint('Iph',value=guess['Iph'])
+    cellModel.set_param_hint('I0',value=guess['I0'])
+    
+    cellModel.set_param_hint('Rsh',min=0)
+    cellModel.set_param_hint('Rs',min=0)
+    
+    #fitResult = cellModel.fit(II,cellParams, V=VV)
+    #print(fitResult.fit_report())
     
     #cellParams['Rsh'].set(min=0)
     #cellParams['n'].set(min=0)
@@ -1461,6 +1464,8 @@ class ivAnalyzer:
     #cellParams['Iph'].set(min=0)
     #cellParams['I0'].set(min=0)
     
+    #cellParams['Rsh'].set(expr='Rsh>=0')
+    #cellParams['Rs'].set(expr='Rs>=0')
     #cellParams['Rsh'].set(max=1e12)
     #cellParams['n'].set(max=1e5)
     #cellParams['Rs'].set(max=1e5)
@@ -1470,7 +1475,10 @@ class ivAnalyzer:
     #print("FIT2")
     #print(fitResult.fit_report())
     
-    #fitResult = cellModel.fit(II,cellParams, V=VV, method='least_squares')
+    #fitResult = cellModel.fit(II, V=VV, method='powell',fit_kws={'options':{'xtol':1e-6,'ftol':1e-6}})
+    fitResult = cellModel.fit(II, V=VV,fit_kws={'maxfev':24000})
+    print(fitResult.fit_report())
+    
   
     # do the fit
     #optimizeResult = scipy.optimize.least_squares(*fitArgs,**fitKwargs)
