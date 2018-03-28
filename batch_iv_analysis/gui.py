@@ -28,7 +28,7 @@ plt.switch_backend("Qt5Agg")
 class Object(object):
   pass
 
-def runGUI(analyzer):
+def runGUI(analyzer,args):
   app = QApplication(sys.argv)
   analysis = MainWindow(analyzer)
   analysis.show()
@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
 
   def __init__(self, analyzer):
     QMainWindow.__init__(self)
-
+    
     self.settings = QSettings("greyltc", "batch-iv-analysis")
     self.analyzer = analyzer
 
@@ -408,10 +408,14 @@ class MainWindow(QMainWindow):
     #self.mySignals.populateRow.connect(self.populateRow)
     #mySignals.sloppy.connect(self.handleMathFinished)
     #mySignals.analysisResult.connect(self.processFitResult)
-     
-    poolWorkers = self.ui.analysisThreadsSpinBox.value()
-    beFastAndSloppy = self.ui.doFastAndSloppyMathCheckBox.isChecked()
-    multiprocess = self.ui.useMultithreadingModeCheckBox.isChecked()
+    
+    if self.analyzer.isFastAndSloppy is None:
+      self.analyzer.__dict__['isFastAndSloppy'] = self.ui.doFastAndSloppyMathCheckBox.isChecked()
+    if self.analyzer.poolWorkers is None:
+      self.analyzer.__dict__['poolWorkers'] = self.ui.analysisThreadsSpinBox.value()
+    if self.analyzer.multiprocess is None:
+      self.analyzer.__dict__['multiprocess'] = self.ui.useMultithreadingModeCheckBox.isChecked()
+      
     self.analyzer.setup()
     #self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=multiprocess, poolWorkers=poolWorkers)
      
@@ -592,9 +596,10 @@ class MainWindow(QMainWindow):
       plt.scatter(0, thisGraphData["Isc"], c='g',marker='x',s=100)
       fitX = thisGraphData["fitX"]
       modelY = thisGraphData["modelY"]
+      modelY = np.array(thisGraphData["modelY"]).astype(complex)
       splineY = thisGraphData["splineY"]
       if not np.isnan(modelY[0]):
-        plt.plot(fitX, modelY.astype(complex),c='k', label='CharEqn Best Fit')
+        plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
       plt.plot(fitX, splineY,c='g', label='Spline Fit')
       plt.autoscale(axis='x', tight=True)
       plt.grid(b=True)
