@@ -23,7 +23,7 @@ requirements:
     - dill
     - python.app  # [osx]
     - hdf5
-
+    - lmfit
 
 build:
   number: 0
