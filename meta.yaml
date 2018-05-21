@@ -22,6 +22,7 @@ requirements:
     - gmpy2
     - dill
     - python.app  # [osx]
+    - hdf5
 
 
 build:
