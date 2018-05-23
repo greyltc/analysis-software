@@ -1,10 +1,10 @@
 package:
   name: batch-iv-analysis
-  version: "2.9.1"
+  version: "2.9.1" # make sure this matches github build tag when doing release
 
 source:
-  #path: .
-  git_rev: v2.9.1
+  path: .
+  #git_rev: v2.9.1  # use this for relesase build from github tag
   git_url: https://github.com/greysAcademicCode/batch-iv-analysis.git
 
 requirements:
