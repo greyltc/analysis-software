@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'batch-iv-analysis.ui'
+# Form implementation generated from reading ui file 'batch_iv_analysis/batch-iv-analysis.ui'
 #
 # Created by: PyQt5 UI code generator 5.8
 #

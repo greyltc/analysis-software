@@ -4,6 +4,8 @@ import time
 import os
 import sys
 
+import h5py
+
 # to speed this up, we'll use a process pool from here
 import concurrent.futures
 
@@ -310,96 +312,125 @@ class ivAnalyzer:
     logMessages = StringIO()
     fileName, fileExtension = os.path.splitext(fullPath)
     
-    isSnaithFile = False
-    if fileExtension == '.csv':
-      delimiter = ','
-    elif fileExtension == '.tsv':
-      delimiter = '\t'
-    else:
-      delimiter = None
-    
     print("Processing:", fileName, file = logMessages)
-  
-    fp = open(fullPath, mode='r')
-    fileBuffer = fp.read()
-    fp.close()
-    if len(fileBuffer) < 25:
-      print('Could not read' + fileName +'. This file is less than 25 characters long.', file = logMessages)
-      return
-    first10 = fileBuffer[0:10]
-    last25 = fileBuffer[-26:-1]
-  
-    isMcFile = False #true if this is a McGehee iv file format
-    isSnaithFile = False # true if this is a Snaith iv file format
-    isMyFile = False # true if this is a custom solar sim iv file format
-    #mcFile test:
-    if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
-      nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
-      #the first 8 chars do not contain comment symbol and do contain / and a tab, it's safe to assume mcgehee iv file format
-      isMcFile = True
-      #comment out the first 25 rows here
-      fileBuffer = '#'+fileBuffer
-      fileBuffer = fileBuffer.replace('\n', '\n#',nMcHeaderLines-1)
-    #snaithFile test:
-    elif last25.__contains__('suns:\t'):
-      nSnaithFooterLines = 11 #number of footer lines in snaith IV file format
-      isSnaithFile = True
-      delimiter = '\t'
-      if (fileExtension == '.liv1') or (fileExtension == '.div1'):
-        snaithReverse = True
-      if (fileExtension == '.liv2') or (fileExtension == '.div2'):
-        snaithReverse = False
-      fileBuffer = fileBuffer[::-1] # reverse the buffer
-      fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
-      fileBuffer = fileBuffer[::-1] # un-reverse the buffer
-      fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
-    elif first10.__contains__('i-v file'):
-      isMyFile = True
-  
-    splitBuffer = fileBuffer.splitlines(True)
-  
-    suns = 1
-    area = 1 # in cm^2
-    noArea = True
-    noIntensity = True
-    vsTime = False #this is not an i,v vs t data file
-    #extract comments lines and search for area and intensity
-    comments = []
-    for line in splitBuffer:
-      if line.startswith('#'):
-        comments.append(line)
-        if line.__contains__('Area'):
-          numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
-          if len(numbersHere) is 1:
-            area = numbersHere[0]
-            noArea = False
-        elif line.__contains__('I&V vs t'):
-          if float(line.split(' ')[5]) == 1:
-            vsTime = True
-        elif line.__contains__('Number of suns:'):
-          numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
-          if len(numbersHere) is 1:
-            suns = numbersHere[0]
-            noIntensity = False
-  
-    jScaleFactor = 1000/area #for converstion to current density[mA/cm^2]
-  
-    c = StringIO(fileBuffer) # makes string look like a file 
-  
-    #read in data
-    try:
-      data = np.loadtxt(c,delimiter=delimiter)
-    except:
-      print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
-      return
-    if isMyFile:
-      VV = data[:,2]
-      II = data[:,3]
-    else:
-      VV = data[:,0]
-      II = data[:,1]
-    if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
-      II = II/jScaleFactor
+    if h5py.is_hdf5(fullPath):
+      h5 = h5py.File(fullPath, 'r')
+      h5rev = h5.attrs['Format Revision']
+      suns = h5.attrs['Intensity [suns]']
+      print("Found HDF5 format revision {:d} data file".format(h5rev))
+      area = 1 # in cm^2
+      noArea = False
+      noIntensity = False
+      vsTime = False  # TODO: fix to read in the whole file
+      
+      # TODO: take the first substrate for now
+      substrate_str = list(h5.keys())[0]
+      substrate = h5['/'+substrate_str]
+      
+      # TODO: take the first pixel for now
+      pixel_str = list(substrate.keys())[0]
+      pixel = substrate[pixel_str]
+      area = pixel.attrs['area']
+      
+      # this is all the i-v data
+      iv_data = pixel['all_measurements']
+      
+      # now we pick out regions of interest from the big i-v data set
+      snaith_region = iv_data[iv_data.attrs['Snaith']]  # I_sc --> V_oc sweep
+      sweep_region = iv_data[iv_data.attrs['Sweep']]  #  V_ov --> I_sc sweep
+      # TODO: let's just take the I_sc --> V_oc scan for now
+      VV = np.array([e[0] for e in snaith_region])
+      II = np.array([e[1] for e in snaith_region])
+      
+    else:  # (legacy) non-h5py file
+      if fileExtension == '.csv':
+        delimiter = ','
+      elif fileExtension == '.tsv':
+        delimiter = '\t'
+      else:
+        delimiter = None
+
+      fp = open(fullPath, mode='r')
+      fileBuffer = fp.read()
+      fp.close()
+      if len(fileBuffer) < 25:
+        print('Could not read' + fileName +'. This file is less than 25 characters long.', file = logMessages)
+        return
+      first10 = fileBuffer[0:10]
+      last25 = fileBuffer[-26:-1]
+    
+      isMcFile = False #true if this is a McGehee iv file format
+      isSnaithFile = False # true if this is a Snaith iv file format
+      isMyFile = False # true if this is a custom solar sim iv file format
+      #mcFile test:
+      if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
+        nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
+        #the first 8 chars do not contain comment symbol and do contain / and a tab, it's safe to assume mcgehee iv file format
+        isMcFile = True
+        #comment out the first 25 rows here
+        fileBuffer = '#'+fileBuffer
+        fileBuffer = fileBuffer.replace('\n', '\n#',nMcHeaderLines-1)
+      #snaithFile test:
+      elif last25.__contains__('suns:\t'):
+        nSnaithFooterLines = 11 #number of footer lines in snaith IV file format
+        isSnaithFile = True
+        delimiter = '\t'
+        if (fileExtension == '.liv1') or (fileExtension == '.div1'):
+          snaithReverse = True
+        if (fileExtension == '.liv2') or (fileExtension == '.div2'):
+          snaithReverse = False
+        fileBuffer = fileBuffer[::-1] # reverse the buffer
+        fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
+        fileBuffer = fileBuffer[::-1] # un-reverse the buffer
+        fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
+      elif first10.__contains__('i-v file'):
+        isMyFile = True
+    
+      splitBuffer = fileBuffer.splitlines(True)
+    
+      suns = 1
+      area = 1 # in cm^2
+      noArea = True
+      noIntensity = True
+      vsTime = False #this is not an i,v vs t data file
+      #extract comments lines and search for area and intensity
+      comments = []
+      for line in splitBuffer:
+        if line.startswith('#'):
+          comments.append(line)
+          if line.__contains__('Area'):
+            numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
+            if len(numbersHere) is 1:
+              area = numbersHere[0]
+              noArea = False
+          elif line.__contains__('I&V vs t'):
+            if float(line.split(' ')[5]) == 1:
+              vsTime = True
+          elif line.__contains__('Number of suns:'):
+            numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
+            if len(numbersHere) is 1:
+              suns = numbersHere[0]
+              noIntensity = False
+    
+      jScaleFactor = 1000/area #for converstion to current density[mA/cm^2]
+    
+      c = StringIO(fileBuffer) # makes string look like a file 
+    
+      #read in data
+      try:
+        data = np.loadtxt(c,delimiter=delimiter)
+      except:
+        print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
+        return
+      if isMyFile:
+        VV = data[:,2]
+        II = data[:,3]
+      else:
+        VV = data[:,0]
+        II = data[:,1]
+      if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
+        II = II/jScaleFactor
+    
   
     if vsTime:
       tData = data[:,2]
@@ -1477,6 +1508,9 @@ class ivAnalyzer:
     
     #fitResult = cellModel.fit(II, V=VV, method='powell',fit_kws={'options':{'xtol':1e-6,'ftol':1e-6}})
     fitResult = cellModel.fit(II, V=VV,fit_kws={'maxfev':24000})
+    cellModel.set_param_hint('Rsh',min=-np.inf)
+    cellModel.set_param_hint('Rs',min=-np.inf)
+    fitResult = cellModel.fit(II, V=VV, method='nelder',fit_kws={'reduce_fcn':'neglogcauchy','options':{'xatol':1e-14,'maxfev':44000,'fatol':1e-14,'disp':True}})
     print(fitResult.fit_report())
     
   
