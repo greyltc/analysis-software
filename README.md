@@ -76,15 +76,15 @@ conda update --all
 
 ### Hacking
 ---
-#### Arch Linux
+#### Hack natively in Arch Linux
 ```
-pacaur --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5  python-matplotlib python-dill python-scikit-umfpack python-lmfit
+yay --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5  python-matplotlib python-dill python-scikit-umfpack python-lmfit python-h5py
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
 ./batch-iv-analysis.py
 ```
 
-#### Windows and MacOS
+#### Hack with Anaconda in Windows and MacOS
 1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the "Anaconda Prompt" program that was installed in step #1 (on a Mac just run these commands in your terminal) and type the following in:
 ```
@@ -95,12 +95,11 @@ conda update --all
 conda install git conda-build
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
 cd batch-iv-analysis
-conda build .
 conda install --use-local batch-iv-analysis
 batch-iv-analysis
 ```
 
-#### Ubuntu Linux
+#### Hack natively in Ubuntu Linux
 ```
 # TODO: install deps
 git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
