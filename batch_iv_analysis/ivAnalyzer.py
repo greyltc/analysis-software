@@ -336,8 +336,10 @@ class ivAnalyzer:
       iv_data = pixel['all_measurements']
       
       # now we pick out regions of interest from the big i-v data set
-      snaith_region = iv_data[iv_data.attrs['Snaith']]  # I_sc --> V_oc sweep
-      sweep_region = iv_data[iv_data.attrs['Sweep']]  #  V_ov --> I_sc sweep
+      if 'Snaith' in iv_data.attrs:
+        snaith_region = iv_data[iv_data.attrs['Snaith']]  # I_sc --> V_oc sweep
+      if 'Sweep' in iv_data.attrs:
+        sweep_region = iv_data[iv_data.attrs['Sweep']]  #  V_ov --> I_sc sweep
       # TODO: let's just take the I_sc --> V_oc scan for now
       VV = np.array([e[0] for e in snaith_region])
       II = np.array([e[1] for e in snaith_region])
