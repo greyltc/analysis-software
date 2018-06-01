@@ -765,29 +765,34 @@ class MainWindow(QMainWindow):
     #self.ui.tableWidget.clearContents()
     self.fileNames = []
     
-  def newFiles(self,fullPaths):
-    analysisParams = []
+  def newFiles(self, fullPaths):
+    self.analyzer.processFiles(fullPaths, self.processFitResult, self.primeRow)
+
+  def primeRow(self, fullPath):
+    """primes a new row in the table"""
+    #analysisParams = []
     
-    for i in range(len(fullPaths)):
+    #for i in range(len(fullPaths)):
       # grab settings from gui
-      analysisParams.append(self.distillAnalysisParams())
+      #analysisParams.append(self.distillAnalysisParams())
+    params = self.distillAnalysisParams()
       
-      #wait here for the file to be completely written to disk and closed before trying to read it
-      fi = QFileInfo(fullPaths[i])
-      while (not fi.isWritable()):
-        time.sleep(0.01)
-        fi.refresh()
+    #wait here for the file to be completely written to disk and closed before trying to read it
+    fi = QFileInfo(fullPath)
+    while (not fi.isWritable()):
+      time.sleep(0.01)
+      fi.refresh()
       
-      # insert filename into table immediately
-      thisRow = self.ui.tableWidget.rowCount()
-      self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
-      self.ui.tableWidget.insertRow(thisRow)
-      for ii in range(self.ui.tableWidget.columnCount()):
-        self.ui.tableWidget.setItem(thisRow,ii,QTableWidgetItem())
-      fileName = os.path.basename(fullPaths[i])
+    # insert filename into table immediately
+    thisRow = self.ui.tableWidget.rowCount()
+    self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
+    self.ui.tableWidget.insertRow(thisRow)
+    for ii in range(self.ui.tableWidget.columnCount()):
+      self.ui.tableWidget.setItem(thisRow,ii,QTableWidgetItem())
+    fileName = os.path.basename(fullPath)
       
-      self.tableInsert(thisRow,'file', fileName, role=Qt.DisplayRole)
-      self.tableInsert(thisRow,'file', analysisParams[i]['uid'])
+    self.tableInsert(thisRow,'file', fileName, role=Qt.DisplayRole)
+    self.tableInsert(thisRow,'file', params['uid'])
     
       #self.tableInsert(thisRow,'file', fileName)
       #self.ui.tableWidget.item(thisRow,self.getCol('file')).setData(Qt.UserRole,analysisParams['uid']) # uid for the row    
@@ -797,21 +802,16 @@ class MainWindow(QMainWindow):
       #self.ui.tableWidget.item(thisRow,fileCol).setText(fileName)
       #self.ui.tableWidget.item(thisRow,fileCol).setData(Qt.UserRole,analysisParams['uid']) # uid for the row
       #self.ui.tableWidget.resizeColumnToContents(thisCol)
-      self.ui.tableWidget.setSortingEnabled(True) # fix strange sort behavior
-      self.fileNames.append(fileName)
+    self.ui.tableWidget.setSortingEnabled(True) # fix strange sort behavior
+    self.fileNames.append(fileName)
       #if not self.multiprocess:
       #  self.processFitResult(self.analyzer.processFile(fullPaths[i], analysisParams[i]))
+      
+    return params
     
-    #if self.multiprocess:
-    self.analyzer.processFiles(fullPaths, analysisParams, self.processFitResult)
-    #  submission = self.pool.submit(self.analyzer.processFile,fullPath,analysisParams)
-    #  submission.add_done_callback(self.processFitResult)
-      #self.updatePoolStatus()
-      #print('Once')
-    #else: # single thread case
-    #     
+    
 
-  def tableInsert(self,thisRow,colName,value,role=Qt.UserRole):    
+  def tableInsert(self,thisRow,colName,value,role=Qt.UserRole):
     thisCol = self.getCol(colName)
     thisItem = self.ui.tableWidget.item(thisRow,thisCol)
     thisItem.setData(role,value)

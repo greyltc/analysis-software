@@ -21,6 +21,8 @@ from numpy import inf
 
 import warnings
 
+import copy
+
 #sys.setrecursionlimit(10000000)
 import dill
 #import pickle
@@ -287,10 +289,9 @@ class ivAnalyzer:
   # this function should be ready to be passed one argument
   # that argument could bethe analysis result dict
   # or a future object where the analysis result dict can be recovered with .result()
-  def processFiles(self, paths, params, returnCall):
+  def processFiles(self, paths, returnCall, prepCall):
     if type(paths) is not list:
       paths = [paths]
-      params = [params]
       
     tic = time.time()
     while not self.readyForAnalysis:
@@ -300,51 +301,80 @@ class ivAnalyzer:
         return
     
     futures = []
-    for fullPath, thisParams in zip(paths,params):
-      if self.multiprocess:
-        futures.append(self.pool.submit(ivAnalyzer.processFile,fullPath,thisParams,self.dillPickle))
-        futures[-1].add_done_callback(returnCall)
-      else:
-        result = ivAnalyzer.processFile(fullPath, thisParams, self.slns)
-        returnCall(result)
+    for fullPath in paths:
+      fileDatas = ivAnalyzer._loadFile(fullPath)
+      
+      #TODO: possibly load multiple curves per file here
+      
+      for fileData in fileDatas:
+        VV = fileData.VV
+        II = fileData.II
+        vsTime = fileData.vsTime
+        suns = fileData.suns
+        area = fileData.area
+        pixel = fileData.pixel
+        substrate = fileData.substrate
+        reverseSweep = fileData.reverseSweep
+        thisParams =  prepCall(fullPath)
+        
+        if self.multiprocess:
+          futures.append(self.pool.submit(ivAnalyzer.processCurve, VV, II, vsTime, suns, area, thisParams, self.dillPickle, fullPath))
+          futures[-1].add_done_callback(returnCall)
+        else:
+          result = ivAnalyzer.processCurve(VV, II, vsTime, suns, area, thisParams, self.slns, fullPath)
+          returnCall(result)
     
   def _loadFile(fullPath):
     logMessages = StringIO()
     fileName, fileExtension = os.path.splitext(fullPath)
     
+    # what we'll return
+    ret_list = []
+    ret = Object()
+    
+    isMcFile = False #true if this is a McGehee iv file format
+    isSnaithFile = False # true if this is a Snaith iv file format
+    isMyFile = False # true if this is a custom solar sim iv file format
+    isH5 = False  #true when this is an hdf5 file
+    
     print("Processing:", fileName, file = logMessages)
-    if h5py.is_hdf5(fullPath):
+    if h5py.is_hdf5(fullPath): # (legacy) non-h5py file
+      isH5 = True
       h5 = h5py.File(fullPath, 'r')
       h5rev = h5.attrs['Format Revision']
-      suns = h5.attrs['Intensity [suns]']
       print("Found HDF5 format revision {:d} data file".format(h5rev))
-      area = 1 # in cm^2
-      noArea = False
-      noIntensity = False
-      vsTime = False  # TODO: fix to read in the whole file
       
-      # TODO: take the first substrate for now
-      substrate_str = list(h5.keys())[0]
-      substrate = h5['/'+substrate_str]
-      
-      # TODO: take the first pixel for now
-      pixel_str = list(substrate.keys())[0]
-      pixel = substrate[pixel_str]
-      area = pixel.attrs['area']
-      
-      # this is all the i-v data
-      iv_data = pixel['all_measurements']
-      
-      # now we pick out regions of interest from the big i-v data set
-      if 'Snaith' in iv_data.attrs:
-        snaith_region = iv_data[iv_data.attrs['Snaith']]  # I_sc --> V_oc sweep
-      if 'Sweep' in iv_data.attrs:
-        sweep_region = iv_data[iv_data.attrs['Sweep']]  #  V_ov --> I_sc sweep
-      # TODO: let's just take the I_sc --> V_oc scan for now
-      VV = np.array([e[0] for e in snaith_region])
-      II = np.array([e[1] for e in snaith_region])
+      for substrate_str in list(h5.keys()):
+        substrate = h5['/'+substrate_str]
+        for pixel_str in list(substrate.keys()):
+          ret = Object()
+          pixel = substrate[pixel_str]
+          
+          ret.substrate = substrate_str
+          ret.pixel = pixel_str
+          ret.suns =  h5.attrs['Intensity [suns]']
+          ret.area = pixel.attrs['area']
+          ret.vsTime = False
+
+          # this is all the i-v data
+          iv_data = pixel['all_measurements']
+
+          # now we pick out regions of interest from the big i-v data set
+          if 'Snaith' in iv_data.attrs:
+            snaith_region = iv_data[iv_data.attrs['Snaith']]  # I_sc --> V_oc sweep
+            ret.VV = np.array([e[0] for e in snaith_region])
+            ret.II = np.array([e[1] for e in snaith_region])
+            ret.reverseSweep = False
+            ret_list.append(copy.deepcopy(ret))
+          if 'Sweep' in iv_data.attrs:
+            sweep_region = iv_data[iv_data.attrs['Sweep']]  #  V_ov --> I_sc sweep
+            ret_list.append(copy.deepcopy(ret_list[-1]))
+            ret_list[-1].VV = np.array([e[0] for e in sweep_region])
+            ret_list[-1].II = np.array([e[1] for e in sweep_region])
+            ret_list[-1].reverseSweep = True
       
     else:  # (legacy) non-h5py file
+      ret.reverseSweep = False
       if fileExtension == '.csv':
         delimiter = ','
       elif fileExtension == '.tsv':
@@ -361,9 +391,6 @@ class ivAnalyzer:
       first10 = fileBuffer[0:10]
       last25 = fileBuffer[-26:-1]
     
-      isMcFile = False #true if this is a McGehee iv file format
-      isSnaithFile = False # true if this is a Snaith iv file format
-      isMyFile = False # true if this is a custom solar sim iv file format
       #mcFile test:
       if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
         nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
@@ -378,9 +405,9 @@ class ivAnalyzer:
         isSnaithFile = True
         delimiter = '\t'
         if (fileExtension == '.liv1') or (fileExtension == '.div1'):
-          snaithReverse = True
+          ret.reverseSweep = True
         if (fileExtension == '.liv2') or (fileExtension == '.div2'):
-          snaithReverse = False
+          ret.reverseSweep = False
         fileBuffer = fileBuffer[::-1] # reverse the buffer
         fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
         fileBuffer = fileBuffer[::-1] # un-reverse the buffer
@@ -390,11 +417,9 @@ class ivAnalyzer:
     
       splitBuffer = fileBuffer.splitlines(True)
     
-      suns = 1
-      area = 1 # in cm^2
-      noArea = True
-      noIntensity = True
-      vsTime = False #this is not an i,v vs t data file
+      ret.suns = 1
+      ret.area = 1 # in cm^2
+      ret.vsTime = False #this is not an i,v vs t data file
       #extract comments lines and search for area and intensity
       comments = []
       for line in splitBuffer:
@@ -403,18 +428,17 @@ class ivAnalyzer:
           if line.__contains__('Area'):
             numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
             if len(numbersHere) is 1:
-              area = numbersHere[0]
-              noArea = False
+              ret.area = numbersHere[0]
           elif line.__contains__('I&V vs t'):
             if float(line.split(' ')[5]) == 1:
-              vsTime = True
+              ret.vsTime = True
           elif line.__contains__('Number of suns:'):
             numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
             if len(numbersHere) is 1:
-              suns = numbersHere[0]
-              noIntensity = False
+              ret.suns = numbersHere[0]
+
     
-      jScaleFactor = 1000/area #for converstion to current density[mA/cm^2]
+      jScaleFactor = 1000/ret.area #for converstion to current density[mA/cm^2]
     
       c = StringIO(fileBuffer) # makes string look like a file 
     
@@ -425,46 +449,43 @@ class ivAnalyzer:
         print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
         return
       if isMyFile:
-        VV = data[:,2]
-        II = data[:,3]
+        ret.VV = data[:,2]
+        ret.II = data[:,3]
       else:
-        VV = data[:,0]
-        II = data[:,1]
+        ret.VV = data[:,0]
+        ret.II = data[:,1]
       if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
-        II = II/jScaleFactor
+        ret.II = ret.II/jScaleFactor
+        
+      ret.substrate = 'n/a'
+      ret.pixel = 'n/a'
+
+      if vsTime:
+        tData = data[:,2]
+        # store off the time data in special vectors
+        VVt = VV
+        IIt = II
+        newOrder = tData.argsort()
+        VVt=VVt[newOrder]
+        IIt=IIt[newOrder]
+        tData=tData[newOrder]
+        tData=tData-tData[0]  # start time at t=0
+        
+      ret_list.append(ret)
+      
     
-  
-    if vsTime:
-      tData = data[:,2]
-      # store off the time data in special vectors
-      VVt = VV
-      IIt = II
-      newOrder = tData.argsort()
-      VVt=VVt[newOrder]
-      IIt=IIt[newOrder]
-      tData=tData[newOrder]
-      tData=tData-tData[0]#start time at t=0            
-  
-    # prune data points that share the same voltage
-    u, indices = np.unique(VV, return_index=True)
-    VV = VV[indices]
-    II = II[indices]
-  
-    # sort data by ascending voltage
-    newOrder = VV.argsort()
-    VV=VV[newOrder]
-    II=II[newOrder]
+    for i in range(len(ret_list)):
+      # prune data points that share the same voltage
+      u, indices = np.unique(ret_list[i].VV, return_index=True)
+      ret_list[i].VV = ret_list[i].VV[indices]
+      ret_list[i].II = ret_list[i].II[indices]
     
-    ret = Object()
-    ret.VV = VV
-    ret.II = II
-    ret.vsTime = vsTime
-    logMessages.seek(0)
-    ret.logMessages = logMessages.read()
-    ret.suns = suns
-    ret.area = area*1e-4 # in sq m
+      # sort data by ascending voltage
+      newOrder = ret_list[i].VV.argsort()
+      ret_list[i].VV=ret_list[i].VV[newOrder]
+      ret_list[i].II=ret_list[i].II[newOrder]
     
-    return ret
+    return ret_list
   
   def _doSplineStuff(VV,II):
     logMessages = StringIO()    
@@ -718,25 +739,30 @@ class ivAnalyzer:
     ret.logMessages = logMessages.read() 
     return ret
   
-  def processFile(fullPath, params, s):
+  #def processFile(fullPath, params, s):    
+    #fileData = ivAnalyzer._loadFile(fullPath)
+    
+    #VV = fileData.VV
+    #II = fileData.II
+    #vsTime = fileData.vsTime
+    #suns = fileData.suns
+    #area = fileData.area
+    
+    #return ivAnalyzer.processCurve(VV, II, vsTime, suns, area, params, s, fullPath)
+    
+  def processCurve(VV, II, vsTime, suns, area, params, s, fullPath):
     result = {}
     ret = Object()
     logMessages = StringIO()
     result['fullPath'] = fullPath
-    #result['params'] = params # copy fit parameters over to result
+    ret.area = area
+    ret.suns = suns
+    ret.params = params
     
     fileName, fileExtension = os.path.splitext(fullPath)
     fileName = os.path.basename(fullPath)
-    result['fileName'] = fileName
-    
-    fileData = ivAnalyzer._loadFile(fullPath)
-    
-    VV = fileData.VV
-    II = fileData.II
-    vsTime = fileData.vsTime
-    suns = fileData.suns
-    area = fileData.area
-    
+    result['fileName'] = fileName    
+
     splineData = ivAnalyzer._doSplineStuff(VV, II)
     VV = splineData.voltageData
     II = splineData.currentData
@@ -1050,9 +1076,7 @@ class ivAnalyzer:
     ret.isc = splineData.Isc
     ret.voc = splineData.Voc
     
-    ret.area = fileData.area
-    ret.suns = fileData.suns
-    ret.params = params
+
     ret.v = splineData.voltageData
     ret.i = splineData.currentData
     ret.x = splineData.analyticalVoltage
