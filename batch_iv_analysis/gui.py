@@ -109,12 +109,27 @@ class MainWindow(QMainWindow):
     thisKey = 'exportBtn'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'Export'
-    self.cols[thisKey].tooltip = 'Click this button to export\ninterpolated data points from fits'        
+    self.cols[thisKey].tooltip = 'Click this button to export\ninterpolated data points from fits'
   
     thisKey = 'file'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'File'
     self.cols[thisKey].tooltip = 'File name\nHover to see header from data file'
+    
+    thisKey = 'substrate'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Subs'
+    self.cols[thisKey].tooltip = 'Substrate position'    
+    
+    thisKey = 'pixel'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Pix'
+    self.cols[thisKey].tooltip = 'Pixel number'
+    
+    thisKey = 'direction'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'Dir'
+    self.cols[thisKey].tooltip = 'Scan direction'    
     
     thisKey = 'pce_spline'
     self.cols[thisKey] = col()
@@ -768,7 +783,7 @@ class MainWindow(QMainWindow):
   def newFiles(self, fullPaths):
     self.analyzer.processFiles(fullPaths, self.processFitResult, self.primeRow)
 
-  def primeRow(self, fullPath):
+  def primeRow(self, fullPath, fileData):
     """primes a new row in the table"""
     #analysisParams = []
     
@@ -793,6 +808,12 @@ class MainWindow(QMainWindow):
       
     self.tableInsert(thisRow,'file', fileName, role=Qt.DisplayRole)
     self.tableInsert(thisRow,'file', params['uid'])
+    
+    self.tableInsert(thisRow,'substrate', fileData.substrate, role=Qt.DisplayRole)
+    self.tableInsert(thisRow,'pixel', fileData.pixel, role=Qt.DisplayRole)
+    self.tableInsert(thisRow,'direction', 'Rev.' if fileData.reverseSweep else 'Fwd.', role=Qt.DisplayRole)
+    self.tableInsert(thisRow,'suns', fileData.suns, role=Qt.DisplayRole)
+    self.tableInsert(thisRow,'area', fileData.area, role=Qt.DisplayRole)
     
       #self.tableInsert(thisRow,'file', fileName)
       #self.ui.tableWidget.item(thisRow,self.getCol('file')).setData(Qt.UserRole,analysisParams['uid']) # uid for the row    
@@ -935,7 +956,7 @@ class MainWindow(QMainWindow):
     
     for key,value in rowData.__dict__.items():
       colName = key
-      if key not in ['row','i','v','vsTime','x','splineCurrent','eqnCurrent']:
+      if key not in ['row','i','v','vsTime','x','splineCurrent','eqnCurrent', 'area', 'suns']:
         self.tableInsert(rowData.row, key, value)
     
     self.sanitizeRow(rowData.row)

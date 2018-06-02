@@ -315,7 +315,7 @@ class ivAnalyzer:
         pixel = fileData.pixel
         substrate = fileData.substrate
         reverseSweep = fileData.reverseSweep
-        thisParams =  prepCall(fullPath)
+        thisParams =  prepCall(fullPath, fileData)
         
         if self.multiprocess:
           futures.append(self.pool.submit(ivAnalyzer.processCurve, VV, II, vsTime, suns, area, thisParams, self.dillPickle, fullPath))
