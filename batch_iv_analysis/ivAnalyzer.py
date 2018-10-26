@@ -368,7 +368,10 @@ class ivAnalyzer:
             ret_list.append(copy.deepcopy(ret))
           if 'Sweep' in iv_data.attrs:
             sweep_region = iv_data[iv_data.attrs['Sweep']]  #  V_ov --> I_sc sweep
-            ret_list.append(copy.deepcopy(ret_list[-1]))
+            if ret_list != []:
+              ret_list.append(copy.deepcopy(ret_list[-1]))
+            else:
+              ret_list.append(copy.deepcopy(ret))
             ret_list[-1].VV = np.array([e[0] for e in sweep_region])
             ret_list[-1].II = np.array([e[1] for e in sweep_region])
             ret_list[-1].reverseSweep = True
