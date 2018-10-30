@@ -6,9 +6,7 @@ import argparse
 
 def main():
   """# a tool for analyzing solar cell i-v curves
-  # written by Grey Christoforo <first name [at] last name [not] net>
-  # please cite our work if you can!
-  # DOI: 10.3390/photonics2041101
+  # written by Grey Christoforo <grey@mutovis.com>
   """
   
   parser = argparse.ArgumentParser(description='Process some iv data.')
