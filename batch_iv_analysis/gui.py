@@ -717,7 +717,7 @@ class MainWindow(QMainWindow):
         rowDict['file'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('file')).data(Qt.DisplayRole)
         for field in fieldsToInclude:
           rowDict[field] = self.ui.tableWidget.item(row, list(self.cols.keys()).index(field)).data(Qt.UserRole)
-        rowDict['i'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)['i']/1000*rowDict['area']
+        rowDict['i'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)['i']/rowDict['area']
         rowDict['v'] = self.ui.tableWidget.item(row, list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)['v']
         tableDict['thing'+format(row, '0'+ndigits)] = rowDict
 
@@ -725,6 +725,7 @@ class MainWindow(QMainWindow):
       sio.savemat(fullPath, tableDict)
       print('Table data successfully written to', fullPath)
 
+  # takes cell data and modifies it for display
   def sanitizeRow(self,row):      
     ignoreCols = ['plotBtn','exportBtn','file']
     cols = list(self.cols.keys())
@@ -813,7 +814,7 @@ class MainWindow(QMainWindow):
     self.tableInsert(thisRow,'pixel', fileData.pixel, role=Qt.DisplayRole)
     self.tableInsert(thisRow,'direction', 'Rev.' if fileData.reverseSweep else 'Fwd.', role=Qt.DisplayRole)
     self.tableInsert(thisRow,'suns', fileData.suns, role=Qt.DisplayRole)
-    self.tableInsert(thisRow,'area', fileData.area, role=Qt.DisplayRole)
+    self.tableInsert(thisRow,'area', fileData.area, role=Qt.UserRole)
     
       #self.tableInsert(thisRow,'file', fileName)
       #self.ui.tableWidget.item(thisRow,self.getCol('file')).setData(Qt.UserRole,analysisParams['uid']) # uid for the row    

@@ -341,8 +341,8 @@ class ivAnalyzer:
     if h5py.is_hdf5(fullPath): # (legacy) non-h5py file
       isH5 = True
       h5 = h5py.File(fullPath, 'r')
-      h5rev = h5.attrs['Format Revision']
-      print("Found HDF5 format revision {:d} data file".format(h5rev))
+      h5rev = h5.attrs['Format Revision'].decode()
+      print("Found HDF5 solar sim data format revision {:s} data file".format(h5rev))
       
       for substrate_str in list(h5.keys()):
         substrate = h5['/'+substrate_str]
@@ -352,8 +352,10 @@ class ivAnalyzer:
           
           ret.substrate = substrate_str
           ret.pixel = pixel_str
-          ret.suns =  h5.attrs['Intensity [suns]']
-          ret.area = pixel.attrs['area']
+          ret.sunsA = h5.attrs['Diode 1 intensity [suns]']
+          ret.sunsB = h5.attrs['Diode 2 intensity [suns]']
+          ret.suns =  (ret.sunsA + ret.sunsB)/2 # TODO: use the correct diode intensity for specific pixels instead of averaging the two diodes
+          ret.area = pixel.attrs['area']/1e4 # in m^2
           ret.vsTime = False
 
           # this is all the i-v data
