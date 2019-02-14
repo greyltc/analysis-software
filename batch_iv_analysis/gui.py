@@ -1080,7 +1080,7 @@ class MainWindow(QMainWindow):
     if 'ssVoc' in thisGraphData:
       vocBtn = QPushButton(self.ui.tableWidget)
       vocCol = self.getCol('ssVoc')
-      voc = self.ui.tableWidget.item(fitData.row, vocCol).data(Qt.UserRole)
+      voc = abs(self.ui.tableWidget.item(fitData.row, vocCol).data(Qt.UserRole))
       vocBtn.setText("{:}".format(MainWindow.to_precision(voc*1000,4)))
       vocBtn.clicked.connect(self.handleButton)
       self.ui.tableWidget.setCellWidget(rowData.row, vocCol, vocBtn)
@@ -1089,7 +1089,7 @@ class MainWindow(QMainWindow):
     if 'ssIsc' in thisGraphData:
       jscBtn = QPushButton(self.ui.tableWidget)
       jscCol = self.getCol('ssJsc')
-      jsc = self.ui.tableWidget.item(fitData.row, jscCol).data(Qt.UserRole)
+      jsc = abs(self.ui.tableWidget.item(fitData.row, jscCol).data(Qt.UserRole))
       jscBtn.setText("{:}".format(MainWindow.to_precision(jsc*1000*1e-4,4)))
       jscBtn.clicked.connect(self.handleButton)
       
@@ -1100,7 +1100,7 @@ class MainWindow(QMainWindow):
       pceBtn = QPushButton(self.ui.tableWidget)
       pceCol = self.getCol('ssPCE')
       pce = self.ui.tableWidget.item(fitData.row, pceCol).data(Qt.UserRole)
-      pceBtn.setText("{:}".format(MainWindow.to_precision(pce*1000*1e-4,4)))
+      pceBtn.setText("{:}".format(MainWindow.to_precision(pce*100,4)))
       pceBtn.clicked.connect(self.handleButton)
       self.ui.tableWidget.setCellWidget(rowData.row, pceCol, pceBtn)      
     
