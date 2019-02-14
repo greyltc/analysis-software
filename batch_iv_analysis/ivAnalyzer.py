@@ -310,18 +310,13 @@ class ivAnalyzer:
         VV = fileData.VV
         II = fileData.II
         vsTime = fileData.vsTime
-        suns = fileData.suns
-        area = fileData.area
-        pixel = fileData.pixel
-        substrate = fileData.substrate
-        reverseSweep = fileData.reverseSweep
         thisParams =  prepCall(fullPath, fileData)
         
         if self.multiprocess:
-          futures.append(self.pool.submit(ivAnalyzer.processCurve, VV, II, vsTime, suns, area, thisParams, self.dillPickle, fullPath))
+          futures.append(self.pool.submit(ivAnalyzer.processCurve, VV, II, vsTime, thisParams, self.dillPickle, fullPath))
           futures[-1].add_done_callback(returnCall)
         else:
-          result = ivAnalyzer.processCurve(VV, II, vsTime, suns, area, thisParams, self.slns, fullPath)
+          result = ivAnalyzer.processCurve(VV, II, vsTime, thisParams, self.slns, fullPath)
           returnCall(result)
     
   def _loadFile(fullPath):
@@ -355,11 +350,32 @@ class ivAnalyzer:
           ret.sunsA = h5.attrs['Diode 1 intensity [suns]']
           ret.sunsB = h5.attrs['Diode 2 intensity [suns]']
           ret.suns =  (ret.sunsA + ret.sunsB)/2 # TODO: use the correct diode intensity for specific pixels instead of averaging the two diodes
-          ret.area = pixel.attrs['area']/1e4 # in m^2
+          ret.area = pixel.attrs['area'] # in m^2
           ret.vsTime = False
+          
+          if 'ssPmax' in pixel.attrs:
+            ret.ssPmax = pixel.attrs['ssPmax']
+          
+          if 'Voc' in pixel.attrs:
+            ret.Voc = pixel.attrs['Voc']
 
+          if 'Isc' in pixel.attrs:
+            ret.Isc = pixel.attrs['Isc']     
+          
+          if 'Vmpp' in pixel.attrs:
+            ret.Vmpp = pixel.attrs['Vmpp']
+            
           # this is all the i-v data
-          iv_data = pixel['all_measurements']
+          iv_data = pixel['all_measurements']          
+          
+          if 'V_oc dwell' in iv_data.attrs:
+            ret.ssVoc = iv_data[iv_data.attrs['V_oc dwell']]
+
+          if 'I_sc dwell' in iv_data.attrs:
+            ret.ssIsc = iv_data[iv_data.attrs['I_sc dwell']]
+            
+          if 'MPPT' in iv_data.attrs:
+            ret.mppt = iv_data[iv_data.attrs['MPPT']]       
 
           # now we pick out regions of interest from the big i-v data set
           if 'Snaith' in iv_data.attrs:
@@ -369,7 +385,7 @@ class ivAnalyzer:
             ret.reverseSweep = False
             ret_list.append(copy.deepcopy(ret))
           if 'Sweep' in iv_data.attrs:
-            sweep_region = iv_data[iv_data.attrs['Sweep']]  #  V_ov --> I_sc sweep
+            sweep_region = iv_data[iv_data.attrs['Sweep']]  #  V_oc --> I_sc sweep
             if ret_list != []:
               ret_list.append(copy.deepcopy(ret_list[-1]))
             else:
@@ -423,7 +439,7 @@ class ivAnalyzer:
       splitBuffer = fileBuffer.splitlines(True)
     
       ret.suns = 1
-      ret.area = 1 # in cm^2
+      ret.area = 1 * 1e-4 # in m^2
       ret.vsTime = False #this is not an i,v vs t data file
       #extract comments lines and search for area and intensity
       comments = []
@@ -433,7 +449,7 @@ class ivAnalyzer:
           if line.__contains__('Area'):
             numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
             if len(numbersHere) is 1:
-              ret.area = numbersHere[0]
+              ret.area = numbersHere[0] * 1e-4
           elif line.__contains__('I&V vs t'):
             if float(line.split(' ')[5]) == 1:
               ret.vsTime = True
@@ -443,7 +459,7 @@ class ivAnalyzer:
               ret.suns = numbersHere[0]
 
     
-      jScaleFactor = 1000/ret.area #for converstion to current density[mA/cm^2]
+      jScaleFactor = 1000/ (ret.area*1e4) #for converstion to current density[mA/cm^2]
     
       c = StringIO(fileBuffer) # makes string look like a file 
     
@@ -755,13 +771,11 @@ class ivAnalyzer:
     
     #return ivAnalyzer.processCurve(VV, II, vsTime, suns, area, params, s, fullPath)
     
-  def processCurve(VV, II, vsTime, suns, area, params, s, fullPath):
+  def processCurve(VV, II, vsTime, params, s, fullPath):
     result = {}
     ret = Object()
     logMessages = StringIO()
     result['fullPath'] = fullPath
-    ret.area = area
-    ret.suns = suns
     ret.params = params
     
     fileName, fileExtension = os.path.splitext(fullPath)
@@ -1011,23 +1025,16 @@ class ivAnalyzer:
           result['insert'] = {}
           result['insert']['SSE'] = SSE
           
-          result['insert']['rs_a'] = p['Rs']*area
           result['insert']['rs'] = p['Rs']
-          result['insert']['rsh_a'] = p['Rsh']*area
           result['insert']['rsh'] = p['Rsh']
-          result['insert']['jph'] = p['Iph']/area
           result['insert']['iph'] = p['Iph']
-          result['insert']['j0'] = p['I0']/area
           result['insert']['i0'] = p['I0']
           result['insert']['n'] = p['n']
           result['insert']['vmax_fit'] = Vmpp_charEqn
           result['insert']['pmax_fit'] = Pmpp_charEqn
-          result['insert']['pmax_a_fit'] = Pmpp_charEqn/area
-          result['insert']['pce_fit'] = (Pmpp_charEqn/area)/(ivAnalyzer.stdIrridance*suns/ivAnalyzer.sqcmpersqm)*100
           result['insert']['voc_fit'] = Voc_charEqn
           result['insert']['ff_fit'] = FF_charEqn
           result['insert']['isc_fit'] = Isc_charEqn
-          result['insert']['jsc_fit'] = Isc_charEqn/area
   
           #insert('SSE',SSE)
           #insert('rs_a',p['Rs']*area)
@@ -1054,7 +1061,7 @@ class ivAnalyzer:
   
     else:#vs time
       print('This file contains time data.')
-      result['fitResult']['graphData'] = {'vsTime':vsTime,'time':tData,'i':IIt*jScaleFactor,'v':VVt}
+      result['fitResult']['graphData'] = {'vsTime':vsTime,'time':tData,'i':IIt,'v':VVt}
   
     ###export button
     ##exportBtn = QPushButton(self.ui.tableWidget)

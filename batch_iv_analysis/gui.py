@@ -126,25 +126,50 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].header = 'Pix'
     self.cols[thisKey].tooltip = 'Pixel number'
     
+    thisKey = 'ssPCE'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'ssPCE\n[%]'
+    self.cols[thisKey].tooltip = 'Final value taken during max power point tracking stage'
+    
+    thisKey = 'ssVoc'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'ssV_oc\n[mV]'
+    self.cols[thisKey].tooltip = 'Final value taken during V_oc dwell stage'
+    
+    thisKey = 'ssJsc'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'ssJ_sc\n[mV]'
+    self.cols[thisKey].tooltip = 'Final value taken during J_sc dwell stage'
+    
+    thisKey = 'ssff'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'ssFF\n[%]'
+    self.cols[thisKey].tooltip = 'Fill factor as found from the "steady state" Mpp, V_oc and I_sc'
+
     thisKey = 'direction'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'Dir'
-    self.cols[thisKey].tooltip = 'Scan direction'    
+    self.cols[thisKey].tooltip = 'Scan direction'
     
     thisKey = 'pce_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'PCE\n[%]'
     self.cols[thisKey].tooltip = 'Power conversion efficiency as found from spline fit'
-  
-    thisKey = 'jsc_spline'
+    
+    thisKey = 'pmax_a_spline'
     self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
-    self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing'
-  
+    self.cols[thisKey].header = 'P_max\n[mW/cm^2]'
+    self.cols[thisKey].tooltip = 'Maximum power density as found from spline fit'
+
     thisKey = 'voc_spline'
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'V_oc\n[mV]'
     self.cols[thisKey].tooltip = 'Open-circuit voltage as found from spline fit I=0 crossing'
+    
+    thisKey = 'jsc_spline'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'J_sc\n[mA/cm^2]'
+    self.cols[thisKey].tooltip = 'Short-circuit current density as found from spline spline fit V=0 crossing'
   
     thisKey = 'ff_spline'
     self.cols[thisKey] = col()
@@ -160,11 +185,6 @@ class MainWindow(QMainWindow):
     self.cols[thisKey] = col()
     self.cols[thisKey].header = 'Suns\n'
     self.cols[thisKey].tooltip = 'Illumination intensity'        
-  
-    thisKey = 'pmax_a_spline'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'P_max\n[mW]'
-    self.cols[thisKey].tooltip = 'Maximum power as found from spline fit'
   
     thisKey = 'vmax_spline'
     self.cols[thisKey] = col()
@@ -211,15 +231,15 @@ class MainWindow(QMainWindow):
     self.cols[thisKey].header = 'PCE_fit\n[%]'
     self.cols[thisKey].tooltip = 'Power conversion efficiency as found from characteristic equation fit'
   
-    thisKey = 'pmax_fit'
-    self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'P_max_fit\n[mW]'
-    self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
+    # thisKey = 'pmax_fit'
+    # self.cols[thisKey] = col()
+    # self.cols[thisKey].header = 'P_max_fit\n[mW]'
+    # self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
   
-    #thisKey = 'pmax_a_fit'
-    #self.cols[thisKey] = col()
-    #self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
-    #self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
+    thisKey = 'pmax_a_fit'
+    self.cols[thisKey] = col()
+    self.cols[thisKey].header = 'P_max_fit\n[mW/cm^2]'
+    self.cols[thisKey].tooltip = 'Maximum power density as found from characteristic equation fit'
   
     thisKey = 'vmax_fit'
     self.cols[thisKey] = col()
@@ -595,74 +615,145 @@ class MainWindow(QMainWindow):
     col = self.ui.tableWidget.indexAt(btn.pos()).column()
     if col == 0:
       self.rowGraph(row)
-    if col == 1:
+    elif col == 1:
       self.exportInterp(row)
+    elif col == self.getCol('ssVoc'):
+      self.ssVocGraph(row)
+    elif col == self.getCol('ssJsc'):
+      self.ssJscGraph(row)
+    elif col == self.getCol('ssPCE'):
+      self.mpptGraph(row)
+      
+  def ssVocGraph(self, row):
+    thisGraphData = self.ui.tableWidget.item(row, self.getCol('plotBtn')).data(Qt.UserRole)
+    filename = str(self.ui.tableWidget.item(row, self.getCol('file')).text())
+    substrate = str(self.ui.tableWidget.item(row, self.getCol('substrate')).text())
+    pixel = str(self.ui.tableWidget.item(row, self.getCol('pixel')).text())
+    
+    measurements =  thisGraphData['ssVoc']
+    v = np.array([e[0] for e in measurements])
+    i = np.array([e[1] for e in measurements])
+    t = np.array([e[2] for e in measurements])
+    s = np.array([int(e[3]) for e in measurements])
+    
+    x = t - t[0]
+    y = abs(v * 1000)
+    
+    plt.plot(x, y, c='b', marker='o', ls="None",label='Voc')
+    
+    plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
+    plt.ylabel('Open-circuit voltage [mV]')
+    plt.xlabel('Time [s]')
+    plt.grid()
+    plt.show()
+    
+  def ssJscGraph(self, row):
+    thisGraphData = self.ui.tableWidget.item(row, self.getCol('plotBtn')).data(Qt.UserRole)
+    filename = str(self.ui.tableWidget.item(row, self.getCol('file')).text())
+    substrate = str(self.ui.tableWidget.item(row, self.getCol('substrate')).text())
+    pixel = str(self.ui.tableWidget.item(row, self.getCol('pixel')).text())
+    area = self.ui.tableWidget.item(row, self.getCol('area')).data(Qt.UserRole)
+    areacm = area * 1e4
+    
+    measurements =  thisGraphData['ssIsc']
+    v = np.array([e[0] for e in measurements])
+    i = np.array([e[1] for e in measurements])
+    t = np.array([e[2] for e in measurements])
+    s = np.array([int(e[3]) for e in measurements])
+    
+    x = t - t[0]
+    y = abs(i * 1000) / areacm
+    
+    plt.plot(x, y, c='b', marker='o', ls="None",label='Jsc')
+    
+    plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
+    plt.ylabel('Short-circuit current density [mA/cm^2]')
+    plt.xlabel('Time [s]')
+    plt.grid()
+    plt.show()
+    
+  def mpptGraph(self, row):
+    thisGraphData = self.ui.tableWidget.item(row, self.getCol('plotBtn')).data(Qt.UserRole)
+    filename = str(self.ui.tableWidget.item(row, self.getCol('file')).text())
+    substrate = str(self.ui.tableWidget.item(row, self.getCol('substrate')).text())
+    pixel = str(self.ui.tableWidget.item(row, self.getCol('pixel')).text())
+    area = self.ui.tableWidget.item(row, self.getCol('area')).data(Qt.UserRole)
+    areacm = area * 1e4
+    
+    measurements =  thisGraphData['mppt']
+    v = np.array([e[0] for e in measurements])
+    i = np.array([e[1] for e in measurements])
+    t = np.array([e[2] for e in measurements])
+    s = np.array([int(e[3]) for e in measurements])
+    
+    x = t - t[0]
+    y = abs(i*v * 1000) / areacm
+    
+    plt.plot(x, y, c='b', marker='o', ls="None",label='mppt')
+    
+    plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
+    plt.ylabel('Power Density [mW/cm^2]')
+    plt.xlabel('Time [s]')
+    plt.grid()
+    plt.show()
+    
 
   def rowGraph(self,row):
-    thisGraphData = self.ui.tableWidget.item(row,list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)
-    filename = str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('file')).text())
+    thisGraphData = self.ui.tableWidget.item(row, self.getCol('plotBtn')).data(Qt.UserRole)
+    filename = str(self.ui.tableWidget.item(row, self.getCol('file')).text())
+    substrate = str(self.ui.tableWidget.item(row, self.getCol('substrate')).text())
+    pixel = str(self.ui.tableWidget.item(row, self.getCol('pixel')).text())
+    direction = str(self.ui.tableWidget.item(row, self.getCol('direction')).text())
 
     v = thisGraphData["v"]
     i = thisGraphData["i"]
-    if not thisGraphData["vsTime"]:
-      plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data')
-      plt.scatter(thisGraphData["Vmax"], thisGraphData["Imax"], c='g',marker='x',s=100)
-      plt.scatter(thisGraphData["Voc"], 0, c='g',marker='x',s=100)
-      plt.scatter(0, thisGraphData["Isc"], c='g',marker='x',s=100)
-      fitX = thisGraphData["fitX"]
-      modelY = thisGraphData["modelY"]
-      modelY = np.array(thisGraphData["modelY"]).astype(complex)
-      splineY = thisGraphData["splineY"]
-      if not np.isnan(modelY[0]):
-        plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
-      plt.plot(fitX, splineY,c='g', label='Spline Fit')
-      plt.autoscale(axis='x', tight=True)
-      plt.grid(b=True)
-      ax = plt.gca()
-      handles, labels = ax.get_legend_handles_labels()
-      ax.legend(handles, labels, loc=3)
 
-      plt.annotate(
-        thisGraphData["Voc"].__format__('0.4f')+ ' V', 
-              xy = (thisGraphData["Voc"], 0), xytext = (40, 20),
-                textcoords = 'offset points', ha = 'right', va = 'bottom',
-                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+    if direction == 'Fwd.':
+      plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data (Fwd.)')
+    else:
+      plt.plot(v, i, c='r', marker='o', ls="None",label='I-V Data (Rev.)')
+    plt.scatter(thisGraphData["Vmax"], thisGraphData["Imax"], c='g',marker='x',s=100)
+    plt.scatter(thisGraphData["Voc"], 0, c='g',marker='x',s=100)
+    plt.scatter(0, thisGraphData["Isc"], c='g',marker='x',s=100)
+    fitX = thisGraphData["fitX"]
+    modelY = thisGraphData["modelY"]
+    modelY = np.array(thisGraphData["modelY"]).astype(complex)
+    splineY = thisGraphData["splineY"]
+    if not np.isnan(modelY[0]):
+      plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
+    plt.plot(fitX, splineY,c='g', label='Spline Fit')
+    plt.autoscale(axis='x', tight=True)
+    plt.grid()
 
-      plt.annotate(
-        float(thisGraphData["Isc"]).__format__('0.4f') + ' mA/cm^2', 
-              xy = (0,thisGraphData["Isc"]), xytext = (40, 20),
-                textcoords = 'offset points', ha = 'right', va = 'bottom',
-                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+    plt.annotate(
+      thisGraphData["Voc"].__format__('0.4f')+ ' V', 
+            xy = (thisGraphData["Voc"], 0), xytext = (40, 20),
+              textcoords = 'offset points', ha = 'right', va = 'bottom',
+              bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+              arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
-      plt.annotate(
-        float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + 'mW/cm^2 @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
-              xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
-                textcoords = 'offset points', ha = 'right', va = 'bottom',
-                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
+    plt.annotate(
+      float(thisGraphData["Isc"]).__format__('0.4f') + ' mA/cm^2', 
+            xy = (0,thisGraphData["Isc"]), xytext = (40, 20),
+              textcoords = 'offset points', ha = 'right', va = 'bottom',
+              bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+              arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
-      plt.ylabel('Current [mA/cm^2]')
-      plt.xlabel('Voltage [V]')
-    else: #vs time
-      tData = thisGraphData["time"]
+    plt.annotate(
+      float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + 'mW/cm^2 @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
+            xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
+              textcoords = 'offset points', ha = 'right', va = 'bottom',
+              bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+              arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
 
-      fig, ax1 = plt.subplots()
-      ax1.plot(tData, v, 'b-',label='Voltage [V]')
-      ax1.set_xlabel('Time [s]')
-      # Make the y-axis label and tick labels match the line color.
-      ax1.set_ylabel('Voltage [V]', color='b')
-      for tl in ax1.get_yticklabels():
-        tl.set_color('b')
-      #fdsf
-      ax2 = ax1.twinx()
-      ax2.plot(tData, i, 'r-')
-      ax2.set_ylabel('Current [mA/cm^2]', color='r')
-      for tl in ax2.get_yticklabels():
-        tl.set_color('r')
+    plt.ylabel('Current [mA/cm^2]')
+    plt.xlabel('Voltage [V]')
 
-    plt.title(filename)
+    plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
+    ax = plt.gca()
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, loc=3)    
+    # ax.grid()
     plt.draw()
     plt.show()
 
@@ -707,7 +798,7 @@ class MainWindow(QMainWindow):
       #let's make a dict out of the table:
       tableDict = {}
 
-      fieldsToInclude= ('pce_spline','pmax_spline','voc_spline','isc_spline','ff_spline','vmax_spline','SSE','pce_fit','pmax_fit','voc_fit','isc_fit','ff_fit','vmax_fit','rs','rsh','iph','i0','n','area','suns')
+      fieldsToInclude= ('pce_spline','pmax_a_spline','voc_spline','isc_spline','ff_spline','vmax_spline','SSE','pce_fit','pmax_a_fit','voc_fit','isc_fit','ff_fit','vmax_fit','rs','rsh','iph','i0','n','area','suns')
 
       #how many padding zeros should we use for the MATLAB variable names?
       ndigits = str(len(str(self.ui.tableWidget.rowCount()))) 
@@ -739,14 +830,14 @@ class MainWindow(QMainWindow):
             saneValue = float(np.real(value))
             if thisCol == 'SSE':
               displayValue = saneValue*1000**2 # A^2 to mA^2
-            elif thisCol in ['ff_spline','ff_fit','pce_spline']:
+            elif thisCol in ['ff_spline','ff_fit','pce_spline','ssPCE','ssff']:
               displayValue = saneValue*100 # to percent
-            elif thisCol in ['isc_spline','voc_spline','voc_fit','isc','jph','iph','vmax_spline','vmax_fit','pmax_spline','pmax_fit','pmax_a_spline','pmax_a_fit']:
+            elif thisCol in ['ssVoc','voc_spline','voc_fit','vmax_spline','vmax_fit','isc_spline','isc','iph']:
               displayValue = saneValue*1e3 # to milli-
-            elif thisCol in ['jsc_spline','jsc']:
+            elif thisCol in ['jsc_spline','jsc','ssJsc','jph','pmax_a_spline','pmax_a_fit']:
               displayValue = saneValue*1e3*1e-4 # to milli- per cm^2
             elif thisCol in ['area']:
-              displayValue = saneValue*1e2**2 # to centi-^4
+              displayValue = saneValue*1e4 # to cm^2
             elif thisCol in ['i0','j0']:
               displayValue = saneValue*1e9 # to nano-
             else:
@@ -813,25 +904,39 @@ class MainWindow(QMainWindow):
     self.tableInsert(thisRow,'substrate', fileData.substrate, role=Qt.DisplayRole)
     self.tableInsert(thisRow,'pixel', fileData.pixel, role=Qt.DisplayRole)
     self.tableInsert(thisRow,'direction', 'Rev.' if fileData.reverseSweep else 'Fwd.', role=Qt.DisplayRole)
-    self.tableInsert(thisRow,'suns', fileData.suns, role=Qt.DisplayRole)
-    self.tableInsert(thisRow,'area', fileData.area, role=Qt.UserRole)
     
-      #self.tableInsert(thisRow,'file', fileName)
-      #self.ui.tableWidget.item(thisRow,self.getCol('file')).setData(Qt.UserRole,analysisParams['uid']) # uid for the row    
-      #thisItem.setText(fileName)
-      #thisItem.setData(Qt.UserRole, analysisParams['uid'])
-      #self.ui.tableWidget.setItem(thisRow,thisCol,thisItem)
-      #self.ui.tableWidget.item(thisRow,fileCol).setText(fileName)
-      #self.ui.tableWidget.item(thisRow,fileCol).setData(Qt.UserRole,analysisParams['uid']) # uid for the row
-      #self.ui.tableWidget.resizeColumnToContents(thisCol)
+    graphData = {}
+    if hasattr(fileData, 'mppt'):
+      graphData['mppt'] = fileData.mppt
+    if hasattr(fileData, 'ssVoc'):
+      graphData['ssVoc'] = fileData.ssVoc
+    if hasattr(fileData, 'ssIsc'):
+      graphData['ssIsc'] = fileData.ssIsc
+    
+
+    self.tableInsert(thisRow,'plotBtn', graphData)
+    
+    self.tableInsert(thisRow,'suns', fileData.suns)
+    self.tableInsert(thisRow,'area', fileData.area)  # in m^2
+    
+    #if hasattr(fileData, 'Impp'):
+      #self.tableInsert(thisRow,'???', fileData.Impp)
+    #if hasattr(fileData, 'Vmpp'):
+      #self.tableInsert(thisRow,'???', fileData.Vmpp)
+    if hasattr(fileData, 'Voc'):
+      self.tableInsert(thisRow,'ssVoc', fileData.Voc)
+    if hasattr(fileData, 'ssPmax'):
+      self.tableInsert(thisRow,'ssPCE', fileData.ssPmax / fileData.area / ivAnalyzer.stdIrridance / fileData.suns)
+    if hasattr(fileData, 'Isc'):
+      self.tableInsert(thisRow,'ssJsc', fileData.Isc / fileData.area)
+    
+    if hasattr(fileData, 'Isc') and hasattr(fileData, 'Voc') and hasattr(fileData, 'ssPmax'):
+      self.tableInsert(thisRow,'ssff', abs(fileData.ssPmax/(fileData.Isc*fileData.Voc)))
+
     self.ui.tableWidget.setSortingEnabled(True) # fix strange sort behavior
     self.fileNames.append(fileName)
-      #if not self.multiprocess:
-      #  self.processFitResult(self.analyzer.processFile(fullPaths[i], analysisParams[i]))
       
     return params
-    
-    
 
   def tableInsert(self,thisRow,colName,value,role=Qt.UserRole):
     thisCol = self.getCol(colName)
@@ -870,33 +975,31 @@ class MainWindow(QMainWindow):
     #thisItem = QTableWidgetItem()
     #thisItem.setData
     
-    rowData = Object()
-    rowData.pmax_a_spline = result.pmpp
-    rowData.vmax_spline = result.vmpp
-    rowData.isc_spline = result.isc
-    rowData.voc_spline = result.voc
-    rowData.area = result.area 
-    rowData.suns = result.suns
-    rowData.row = thisRow
-    rowData.v = result.v
-    rowData.i = result.i
-    rowData.x = result.x
-    rowData.splineCurrent = result.splineCurrent
+    fitData = Object()
+    fitData.pmax_spline = result.pmpp
+    fitData.vmax_spline = result.vmpp
+    fitData.isc_spline = result.isc
+    fitData.voc_spline = result.voc
+    fitData.row = thisRow
+    fitData.v = result.v
+    fitData.i = result.i
+    fitData.x = result.x
+    fitData.splineCurrent = result.splineCurrent
     
-    rowData.SSE = result.sse if hasattr(result,'sse') else np.nan
-    rowData.eqnCurrent = result.eqnCurrent if hasattr(result,'eqnCurrent') else np.array([np.nan])
-    rowData.n = result.n if hasattr(result,'n') else np.nan
-    rowData.rs = result.rs if hasattr(result,'rs') else np.nan
-    rowData.rsh = result.rsh if hasattr(result,'rsh') else np.nan
-    rowData.i0 = result.i0 if hasattr(result,'i0') else np.nan
-    rowData.iph = result.iph if hasattr(result,'iph') else np.nan
-    rowData.pmax_fit = result.pmax_fit if hasattr(result,'pmax_fit') else np.nan
-    rowData.isc_fit = result.isc_fit if hasattr(result,'isc_fit') else np.nan
-    rowData.voc_fit = result.voc_fit if hasattr(result,'voc_fit') else np.nan
-    rowData.vmax_fit = result.vmax_fit if hasattr(result,'vmax_fit') else np.nan
+    fitData.SSE = result.sse if hasattr(result,'sse') else np.nan
+    fitData.eqnCurrent = result.eqnCurrent if hasattr(result,'eqnCurrent') else np.array([np.nan])
+    fitData.n = result.n if hasattr(result,'n') else np.nan
+    fitData.rs = result.rs if hasattr(result,'rs') else np.nan
+    fitData.rsh = result.rsh if hasattr(result,'rsh') else np.nan
+    fitData.i0 = result.i0 if hasattr(result,'i0') else np.nan
+    fitData.iph = result.iph if hasattr(result,'iph') else np.nan
+    fitData.pmax_fit = result.pmax_fit if hasattr(result,'pmax_fit') else np.nan
+    fitData.isc_fit = result.isc_fit if hasattr(result,'isc_fit') else np.nan
+    fitData.voc_fit = result.voc_fit if hasattr(result,'voc_fit') else np.nan
+    fitData.vmax_fit = result.vmax_fit if hasattr(result,'vmax_fit') else np.nan
     
     #print('got new fit result:',uid)
-    self.populateRow(rowData)
+    self.populateRow(fitData)
     #self.mySignals.populateRow.emit(rowData)
     
     
@@ -911,7 +1014,7 @@ class MainWindow(QMainWindow):
     #thisThing = 'pce_spline'
     #insert(thisThing,result['insert'][thisThing])
 
-  def populateRow(self,rowData):
+  def populateRow(self,fitData):
     self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
     
     # add in the export button
@@ -919,46 +1022,87 @@ class MainWindow(QMainWindow):
     exportBtn.setText('Export')
     exportBtn.clicked.connect(self.handleButton)
     exportCol = self.getCol('exportBtn')
-    self.ui.tableWidget.setCellWidget(rowData.row, exportCol, exportBtn)
+    self.ui.tableWidget.setCellWidget(fitData.row, exportCol, exportBtn)
     
     # add in the plot button
     plotBtn = QPushButton(self.ui.tableWidget)
     plotBtn.setText('Plot')
     plotBtn.clicked.connect(self.handleButton)
     plotCol = self.getCol('plotBtn')
-    self.ui.tableWidget.setCellWidget(rowData.row, plotCol, plotBtn)
+    self.ui.tableWidget.setCellWidget(fitData.row, plotCol, plotBtn)
+    
+    if self.ui.tableWidget.item(fitData.row, plotCol).data(Qt.UserRole) == None:
+      graphData = {}
+    else:
+      graphData = self.ui.tableWidget.item(fitData.row, plotCol).data(Qt.UserRole)
+      
+    # copy fit data over to row data
+    rowData = fitData
+    
+    #  retrieve area and intensity from the table
+    area = self.ui.tableWidget.item(fitData.row, self.getCol('area')).data(Qt.UserRole)  # in m^2
+    suns = self.ui.tableWidget.item(fitData.row, self.getCol('suns')).data(Qt.UserRole)
+    areacm = area * 1e4  #  area in cm^2
     
     # derived row data values:
-    rowData.pce_spline = (rowData.pmax_a_spline/rowData.area)/(ivAnalyzer.stdIrridance*rowData.suns)
-    rowData.ff_spline = rowData.pmax_a_spline/(rowData.isc_spline*rowData.voc_spline)
-    rowData.jsc_spline = rowData.isc_spline/rowData.area
-    rowData.rs_a = rowData.rs*rowData.area
-    rowData.rsh_a = rowData.rsh/rowData.area
-    rowData.jph = rowData.iph/rowData.area
-    rowData.j0 = rowData.i0/rowData.area
-    rowData.pce_fit = (rowData.pmax_fit/rowData.area)/(ivAnalyzer.stdIrridance*rowData.suns)
+    rowData.pce_spline = rowData.pmax_spline / area / ivAnalyzer.stdIrridance / suns
+    rowData.pmax_a_spline = rowData.pmax_spline / area
+    rowData.ff_spline = rowData.pmax_spline / (rowData.isc_spline*rowData.voc_spline)
+    rowData.jsc_spline = rowData.isc_spline / area
+    rowData.rs_a = rowData.rs*area
+    rowData.rsh_a = rowData.rsh/area
+    rowData.jph = rowData.iph/area
+    rowData.j0 = rowData.i0/area
+    rowData.pce_fit = rowData.pmax_fit / area / ivAnalyzer.stdIrridance / suns
     rowData.ff_fit = rowData.pmax_fit/(rowData.isc_fit*rowData.voc_fit)
-    rowData.jsc_fit = rowData.isc_fit/rowData.area
+    rowData.jsc_fit = rowData.isc_fit/area
+    rowData.pmax_a_fit = rowData.pmax_fit / area
     
-    
-    
-    graphData = {}
     graphData["v"] = rowData.v
-    graphData["i"] = rowData.i/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
+    graphData["i"] = rowData.i/areacm * 1000  # in mA/cm^2
     graphData["vsTime"] = False
     graphData["Vmax"] = rowData.vmax_spline
-    graphData["Imax"] = rowData.pmax_a_spline/rowData.vmax_spline/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
+    graphData["Imax"] = rowData.pmax_spline/rowData.vmax_spline * 1000  # in mA
     graphData["Voc"] = rowData.voc_spline
-    graphData["Isc"] = rowData.isc_spline/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
+    graphData["Isc"] = rowData.isc_spline * 1000  # in mA
     graphData["fitX"] = rowData.x
-    graphData["modelY"] = rowData.eqnCurrent/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
-    graphData["splineY"] = rowData.splineCurrent/rowData.area/ivAnalyzer.sqcmpersqm*ivAnalyzer.mWperW
-    self.ui.tableWidget.item(rowData.row, plotCol).setData(Qt.UserRole,graphData)
+    graphData["modelY"] = rowData.eqnCurrent/areacm * 1000  # in mA/cm^2
+    graphData["splineY"] = rowData.splineCurrent/areacm * 1000  # in mA/cm^2
+    self.ui.tableWidget.item(rowData.row, plotCol).setData(Qt.UserRole, graphData)
     
     for key,value in rowData.__dict__.items():
       colName = key
-      if key not in ['row','i','v','vsTime','x','splineCurrent','eqnCurrent', 'area', 'suns']:
+      if key not in ['row','i','v','vsTime','x','splineCurrent','eqnCurrent', 'area', 'suns', 'pmax_spline', 'pmax_fit']:
         self.tableInsert(rowData.row, key, value)
+        
+    # add in the Voc button
+    thisGraphData = self.ui.tableWidget.item(rowData.row, self.getCol('plotBtn')).data(Qt.UserRole)
+    if 'ssVoc' in thisGraphData:
+      vocBtn = QPushButton(self.ui.tableWidget)
+      vocCol = self.getCol('ssVoc')
+      voc = self.ui.tableWidget.item(fitData.row, vocCol).data(Qt.UserRole)
+      vocBtn.setText("{:}".format(MainWindow.to_precision(voc*1000,4)))
+      vocBtn.clicked.connect(self.handleButton)
+      self.ui.tableWidget.setCellWidget(rowData.row, vocCol, vocBtn)
+    
+    # add in the Jsc button
+    if 'ssIsc' in thisGraphData:
+      jscBtn = QPushButton(self.ui.tableWidget)
+      jscCol = self.getCol('ssJsc')
+      jsc = self.ui.tableWidget.item(fitData.row, jscCol).data(Qt.UserRole)
+      jscBtn.setText("{:}".format(MainWindow.to_precision(jsc*1000*1e-4,4)))
+      jscBtn.clicked.connect(self.handleButton)
+      
+      self.ui.tableWidget.setCellWidget(rowData.row, jscCol, jscBtn)
+    
+    # add in the PCE button
+    if 'mppt' in thisGraphData:
+      pceBtn = QPushButton(self.ui.tableWidget)
+      pceCol = self.getCol('ssPCE')
+      pce = self.ui.tableWidget.item(fitData.row, pceCol).data(Qt.UserRole)
+      pceBtn.setText("{:}".format(MainWindow.to_precision(pce*1000*1e-4,4)))
+      pceBtn.clicked.connect(self.handleButton)
+      self.ui.tableWidget.setCellWidget(rowData.row, pceCol, pceBtn)      
     
     self.sanitizeRow(rowData.row)
     self.ui.tableWidget.setSortingEnabled(True)
