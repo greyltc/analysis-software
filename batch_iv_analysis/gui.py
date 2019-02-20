@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
     
     thisKey = 'ssJsc'
     self.cols[thisKey] = col()
-    self.cols[thisKey].header = 'ssJ_sc\n[mV]'
+    self.cols[thisKey].header = 'ssJ_sc\n[mA/cm^2]'
     self.cols[thisKey].tooltip = 'Final value taken during J_sc dwell stage'
     
     thisKey = 'ssff'
@@ -706,15 +706,15 @@ class MainWindow(QMainWindow):
     direction = str(self.ui.tableWidget.item(row, self.getCol('direction')).text())
 
     v = thisGraphData["v"]
-    i = thisGraphData["i"]
+    i = thisGraphData["j"]
 
     if direction == 'Fwd.':
-      plt.plot(v, i, c='b', marker='o', ls="None",label='I-V Data (Fwd.)')
+      plt.plot(v, i, c='b', marker='o', ls="None",label='J-V Data (Fwd.)')
     else:
-      plt.plot(v, i, c='r', marker='o', ls="None",label='I-V Data (Rev.)')
-    plt.scatter(thisGraphData["Vmax"], thisGraphData["Imax"], c='g',marker='x',s=100)
+      plt.plot(v, i, c='r', marker='o', ls="None",label='J-V Data (Rev.)')
+    plt.scatter(thisGraphData["Vmax"], thisGraphData["Jmax"], c='g',marker='x',s=100)
     plt.scatter(thisGraphData["Voc"], 0, c='g',marker='x',s=100)
-    plt.scatter(0, thisGraphData["Isc"], c='g',marker='x',s=100)
+    plt.scatter(0, thisGraphData["Jsc"], c='g',marker='x',s=100)
     fitX = thisGraphData["fitX"]
     modelY = thisGraphData["modelY"]
     modelY = np.array(thisGraphData["modelY"]).astype(complex)
@@ -733,20 +733,20 @@ class MainWindow(QMainWindow):
               arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
     plt.annotate(
-      float(thisGraphData["Isc"]).__format__('0.4f') + ' mA/cm^2', 
-            xy = (0,thisGraphData["Isc"]), xytext = (40, 20),
+      float(thisGraphData["Jsc"]).__format__('0.4f') + ' mA/cm^2', 
+            xy = (0,thisGraphData["Jsc"]), xytext = (40, 20),
               textcoords = 'offset points', ha = 'right', va = 'bottom',
               bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
               arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
     plt.annotate(
-      float(thisGraphData["Imax"]*thisGraphData["Vmax"]).__format__('0.4f') + 'mW/cm^2 @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Imax"]).__format__('0.4f') + ')', 
-            xy = (thisGraphData["Vmax"],thisGraphData["Imax"]), xytext = (80, 40),
+      float(thisGraphData["Jmax"]*thisGraphData["Vmax"]).__format__('0.4f') + 'mW/cm^2 @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Jmax"]).__format__('0.4f') + ')', 
+            xy = (thisGraphData["Vmax"],thisGraphData["Jmax"]), xytext = (80, 40),
               textcoords = 'offset points', ha = 'right', va = 'bottom',
               bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
               arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
 
-    plt.ylabel('Current [mA/cm^2]')
+    plt.ylabel('Current Density [mA/cm^2]')
     plt.xlabel('Voltage [V]')
 
     plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
@@ -1059,12 +1059,15 @@ class MainWindow(QMainWindow):
     rowData.pmax_a_fit = rowData.pmax_fit / area
     
     graphData["v"] = rowData.v
-    graphData["i"] = rowData.i/areacm * 1000  # in mA/cm^2
+    graphData["i"] = rowData.i * 1000  # in mA
+    graphData["j"] = rowData.i/areacm * 1000  # in mA/cm^2
     graphData["vsTime"] = False
     graphData["Vmax"] = rowData.vmax_spline
     graphData["Imax"] = rowData.pmax_spline/rowData.vmax_spline * 1000  # in mA
+    graphData["Jmax"] = rowData.pmax_spline/rowData.vmax_spline/areacm * 1000  # in mA/cm^2
     graphData["Voc"] = rowData.voc_spline
     graphData["Isc"] = rowData.isc_spline * 1000  # in mA
+    graphData["Jsc"] = rowData.isc_spline/areacm * 1000  # in mA/cm^2
     graphData["fitX"] = rowData.x
     graphData["modelY"] = rowData.eqnCurrent/areacm * 1000  # in mA/cm^2
     graphData["splineY"] = rowData.splineCurrent/areacm * 1000  # in mA/cm^2
