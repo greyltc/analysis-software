@@ -1,11 +1,11 @@
 package:
-  name: batch-iv-analysis
+  name: mutovis-analysis
   version: "3.0.0" # make sure this matches github build tag when doing release
 
 source:
   path: .
   #git_rev: v2.9.1  # use this for relesase build from github tag
-  git_url: https://github.com/greysAcademicCode/batch-iv-analysis.git
+  git_url: https://github.com/mutovis/analysis-software
 
 requirements:
   build:
@@ -30,7 +30,7 @@ build:
   script: python setup.py install --single-version-externally-managed --record record.txt
   noarch_python: True
   entry_points:
-          - batch-iv-analysis = batch_iv_analysis:main
+          - mutovis-analysis = batch_iv_analysis:main
   osx_is_app: True
 
 test:
@@ -38,13 +38,13 @@ test:
     - batch_iv_analysis
 
 app:
-  entry: batch-iv-analysis
+  entry: mutovis-analysis
   icon: misc/icon.png
   summary: Solar cell I-V data fitter
   type: desk
 
 about:
-  home: https://github.com/greysAcademicCode/batch-iv-analysis
-  license: MIT
+  home: https://github.com/mutovis/analysis-software
+  license: GPL-3.0
   license_file: LICENSE.txt
   summary: Solar cell I-V data fitter

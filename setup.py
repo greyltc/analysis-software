@@ -13,7 +13,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/mutovis/analysis-software",
     packages=setuptools.find_packages(),
-    entry_points={'gui_scripts': ['batch-iv-analysis = batch_iv_analysis:main', ],},
+    entry_points={'gui_scripts': ['mutovis-analysis = batch_iv_analysis:main', ],},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GPL-3.0",
