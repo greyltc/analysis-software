@@ -704,7 +704,22 @@ class MainWindow(QMainWindow):
     substrate = str(self.ui.tableWidget.item(row, self.getCol('substrate')).text())
     pixel = str(self.ui.tableWidget.item(row, self.getCol('pixel')).text())
     direction = str(self.ui.tableWidget.item(row, self.getCol('direction')).text())
-
+    
+    if 'ssJscValue' in thisGraphData:
+      ss_current = True
+    else:
+      ss_current = False
+      
+    if 'ssJmpp' in thisGraphData and 'ssVmpp' in thisGraphData:
+      ss_power = True
+    else:
+      ss_power = False
+      
+    if 'ssVocValue' in thisGraphData:
+      ss_voltage = True
+    else:
+      ss_voltage = False    
+    
     v = thisGraphData["v"]
     i = thisGraphData["j"]
 
@@ -712,9 +727,12 @@ class MainWindow(QMainWindow):
       plt.plot(v, i, c='b', marker='o', ls="None",label='J-V Data (Fwd.)')
     else:
       plt.plot(v, i, c='r', marker='o', ls="None",label='J-V Data (Rev.)')
-    plt.scatter(thisGraphData["Vmax"], thisGraphData["Jmax"], c='g',marker='x',s=100)
-    plt.scatter(thisGraphData["Voc"], 0, c='g',marker='x',s=100)
-    plt.scatter(0, thisGraphData["Jsc"], c='g',marker='x',s=100)
+    if ss_power:
+      plt.scatter(abs(thisGraphData["ssVmpp"]), 1000*abs(thisGraphData["ssJmpp"]), c='g',marker='x',s=100)
+    if ss_voltage:
+      plt.scatter(abs(thisGraphData["ssVocValue"]), 0, c='g',marker='x',s=100)
+    if ss_current:
+      plt.scatter(0, 1000*abs(thisGraphData["ssJscValue"]), c='g',marker='x',s=100)
     fitX = thisGraphData["fitX"]
     modelY = thisGraphData["modelY"]
     modelY = np.array(thisGraphData["modelY"]).astype(complex)
@@ -725,26 +743,29 @@ class MainWindow(QMainWindow):
     plt.autoscale(axis='x', tight=True)
     plt.grid()
 
-    plt.annotate(
-      thisGraphData["Voc"].__format__('0.4f')+ ' V', 
-            xy = (thisGraphData["Voc"], 0), xytext = (40, 20),
-              textcoords = 'offset points', ha = 'right', va = 'bottom',
-              bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-              arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+    if ss_voltage:
+      plt.annotate(
+        abs(thisGraphData["ssVocValue"]).__format__('0.4f')+ ' V', 
+              xy = (abs(thisGraphData["ssVocValue"]), 0), xytext = (40, 20),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
 
-    plt.annotate(
-      float(thisGraphData["Jsc"]).__format__('0.4f') + ' mA/cm^2', 
-            xy = (0,thisGraphData["Jsc"]), xytext = (40, 20),
-              textcoords = 'offset points', ha = 'right', va = 'bottom',
-              bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-              arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
-
-    plt.annotate(
-      float(thisGraphData["Jmax"]*thisGraphData["Vmax"]).__format__('0.4f') + 'mW/cm^2 @(' + float(thisGraphData["Vmax"]).__format__('0.4f') + ',' + float(thisGraphData["Jmax"]).__format__('0.4f') + ')', 
-            xy = (thisGraphData["Vmax"],thisGraphData["Jmax"]), xytext = (80, 40),
-              textcoords = 'offset points', ha = 'right', va = 'bottom',
-              bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
-              arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
+    if ss_current:
+      plt.annotate(
+        abs(float(1000*thisGraphData["ssJscValue"])).__format__('0.4f') + ' mA/cm^2', 
+              xy = (0, abs(1000*thisGraphData["ssJscValue"])), xytext = (40, 20),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+    
+    if ss_power:
+      plt.annotate(
+        abs(float(1000*thisGraphData["ssJmpp"]*thisGraphData["ssVmpp"])).__format__('0.4f') + 'mW/cm^2 @(' + abs(float(thisGraphData["ssVmpp"])).__format__('0.4f') + ',' + abs(float(thisGraphData["ssJmpp"])).__format__('0.4f') + ')', 
+              xy = (abs(thisGraphData["ssVmpp"]), abs(1000*thisGraphData["ssJmpp"])), xytext = (80, 40),
+                textcoords = 'offset points', ha = 'right', va = 'bottom',
+                bbox = dict(boxstyle = 'round,pad=0.5', fc = 'yellow', alpha = 0.5),
+                arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))		
 
     plt.ylabel('Current Density [mA/cm^2]')
     plt.xlabel('Voltage [V]')
@@ -905,6 +926,8 @@ class MainWindow(QMainWindow):
     self.tableInsert(thisRow,'pixel', fileData.pixel, role=Qt.DisplayRole)
     self.tableInsert(thisRow,'direction', 'Rev.' if fileData.reverseSweep else 'Fwd.', role=Qt.DisplayRole)
     
+    areacm = fileData.area * 1e4
+    
     graphData = {}
     if hasattr(fileData, 'mppt'):
       graphData['mppt'] = fileData.mppt
@@ -912,23 +935,27 @@ class MainWindow(QMainWindow):
       graphData['ssVoc'] = fileData.ssVoc
     if hasattr(fileData, 'ssIsc'):
       graphData['ssIsc'] = fileData.ssIsc
-    
+    if hasattr(fileData, 'Impp'):
+      # graphData['ssImpp'] = fileData.Impp
+      graphData['ssJmpp'] = fileData.Impp / areacm
+    if hasattr(fileData, 'Vmpp'):
+      graphData['ssVmpp'] = fileData.Vmpp
+    if hasattr(fileData, 'Voc'):
+      self.tableInsert(thisRow,'ssVoc', fileData.Voc)
+      graphData['ssVocValue'] = fileData.Voc
+    if hasattr(fileData, 'ssPmax'):
+      self.tableInsert(thisRow,'ssPCE', fileData.ssPmax / fileData.area / ivAnalyzer.stdIrridance / fileData.suns)
+      # graphData['ssPmax'] = fileData.ssPmax / fileData.area
+    if hasattr(fileData, 'Isc'):
+      self.tableInsert(thisRow,'ssJsc', fileData.Isc / fileData.area)
+      # graphData['ssIscValue'] = fileData.Isc
+      graphData['ssJscValue'] = fileData.Isc / areacm    
+
 
     self.tableInsert(thisRow,'plotBtn', graphData)
     
     self.tableInsert(thisRow,'suns', fileData.suns)
     self.tableInsert(thisRow,'area', fileData.area)  # in m^2
-    
-    #if hasattr(fileData, 'Impp'):
-      #self.tableInsert(thisRow,'???', fileData.Impp)
-    #if hasattr(fileData, 'Vmpp'):
-      #self.tableInsert(thisRow,'???', fileData.Vmpp)
-    if hasattr(fileData, 'Voc'):
-      self.tableInsert(thisRow,'ssVoc', fileData.Voc)
-    if hasattr(fileData, 'ssPmax'):
-      self.tableInsert(thisRow,'ssPCE', fileData.ssPmax / fileData.area / ivAnalyzer.stdIrridance / fileData.suns)
-    if hasattr(fileData, 'Isc'):
-      self.tableInsert(thisRow,'ssJsc', fileData.Isc / fileData.area)
     
     if hasattr(fileData, 'Isc') and hasattr(fileData, 'Voc') and hasattr(fileData, 'ssPmax'):
       self.tableInsert(thisRow,'ssff', abs(fileData.ssPmax/(fileData.Isc*fileData.Voc)))
@@ -1062,12 +1089,13 @@ class MainWindow(QMainWindow):
     graphData["i"] = rowData.i * 1000  # in mA
     graphData["j"] = rowData.i/areacm * 1000  # in mA/cm^2
     graphData["vsTime"] = False
-    graphData["Vmax"] = rowData.vmax_spline
-    graphData["Imax"] = rowData.pmax_spline/rowData.vmax_spline * 1000  # in mA
-    graphData["Jmax"] = rowData.pmax_spline/rowData.vmax_spline/areacm * 1000  # in mA/cm^2
-    graphData["Voc"] = rowData.voc_spline
-    graphData["Isc"] = rowData.isc_spline * 1000  # in mA
-    graphData["Jsc"] = rowData.isc_spline/areacm * 1000  # in mA/cm^2
+    
+    # graphData["Vmax"] = rowData.vmax_spline
+    # graphData["Imax"] = rowData.pmax_spline/rowData.vmax_spline * 1000  # in mA
+    # graphData["Jmax"] = rowData.pmax_spline/rowData.vmax_spline/areacm * 1000  # in mA/cm^2
+    # graphData["Voc"] = rowData.voc_spline
+    # graphData["Isc"] = rowData.isc_spline * 1000  # in mA
+    # graphData["Jsc"] = rowData.isc_spline/areacm * 1000  # in mA/cm^2
     graphData["fitX"] = rowData.x
     graphData["modelY"] = rowData.eqnCurrent/areacm * 1000  # in mA/cm^2
     graphData["splineY"] = rowData.splineCurrent/areacm * 1000  # in mA/cm^2

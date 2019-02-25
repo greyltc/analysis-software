@@ -360,10 +360,13 @@ class ivAnalyzer:
             ret.Voc = pixel.attrs['Voc']
 
           if 'Isc' in pixel.attrs:
-            ret.Isc = pixel.attrs['Isc']     
-          
+            ret.Isc = pixel.attrs['Isc']
+
           if 'Vmpp' in pixel.attrs:
             ret.Vmpp = pixel.attrs['Vmpp']
+
+          if 'Impp' in pixel.attrs:
+            ret.Impp = pixel.attrs['Impp']
             
           # this is all the i-v data
           iv_data = pixel['all_measurements']          
@@ -478,19 +481,8 @@ class ivAnalyzer:
       if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
         ret.II = ret.II/jScaleFactor
         
-      ret.substrate = 'n/a'
-      ret.pixel = 'n/a'
-
-      if vsTime:
-        tData = data[:,2]
-        # store off the time data in special vectors
-        VVt = VV
-        IIt = II
-        newOrder = tData.argsort()
-        VVt=VVt[newOrder]
-        IIt=IIt[newOrder]
-        tData=tData[newOrder]
-        tData=tData-tData[0]  # start time at t=0
+      ret.substrate = '?'
+      ret.pixel = '?'
         
       ret_list.append(ret)
       
