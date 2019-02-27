@@ -304,6 +304,10 @@ class ivAnalyzer:
     for fullPath in paths:
       fileDatas = ivAnalyzer._loadFile(fullPath)
       
+      # turn none into empty list
+      if fileDatas == None:
+        fileDatas = []
+      
       #TODO: possibly load multiple curves per file here
       
       for fileData in fileDatas:
@@ -329,6 +333,7 @@ class ivAnalyzer:
     ret = Object()
     
     isMcFile = False #true if this is a McGehee iv file format
+    isSnaithLegacyFile = False # true if this is a Snaith legacy iv file format
     isSnaithFile = False # true if this is a Snaith iv file format
     isMyFile = False # true if this is a custom solar sim iv file format
     isH5 = False  #true when this is an hdf5 file
@@ -411,14 +416,15 @@ class ivAnalyzer:
       fp = open(fullPath, mode='r')
       fileBuffer = fp.read()
       fp.close()
-      if len(fileBuffer) < 25:
-        print('Could not read' + fileName +'. This file is less than 25 characters long.', file = logMessages)
+      min_length = 400
+      if len(fileBuffer) < min_length:
+        print('Could not read' + fileName +'. This file is less than {:} characters long.'.format(min_length), file = logMessages)
         return
-      first10 = fileBuffer[0:10]
-      last25 = fileBuffer[-26:-1]
+      head = fileBuffer[0:10]
+      tail = fileBuffer[-min_length:-1]
     
       #mcFile test:
-      if (not first10.__contains__('#')) and (first10.__contains__('/')) and (first10.__contains__('\t')):#the first line is not a comment
+      if (not head.__contains__('#')) and (head.__contains__('/')) and (head.__contains__('\t')):#the first line is not a comment
         nMcHeaderLines = 25 #number of header lines in mcgehee IV file format
         #the first 8 chars do not contain comment symbol and do contain / and a tab, it's safe to assume mcgehee iv file format
         isMcFile = True
@@ -426,9 +432,9 @@ class ivAnalyzer:
         fileBuffer = '#'+fileBuffer
         fileBuffer = fileBuffer.replace('\n', '\n#',nMcHeaderLines-1)
       #snaithFile test:
-      elif last25.__contains__('suns:\t'):
+      elif 'suns:\t' in tail:
         nSnaithFooterLines = 11 #number of footer lines in snaith IV file format
-        isSnaithFile = True
+        isSnaithLegacyFile = True
         delimiter = '\t'
         if (fileExtension == '.liv1') or (fileExtension == '.div1'):
           ret.reverseSweep = True
@@ -438,11 +444,29 @@ class ivAnalyzer:
         fileBuffer = fileBuffer.replace('\n', '#\n',nSnaithFooterLines+1) # comment out the footer lines
         fileBuffer = fileBuffer[::-1] # un-reverse the buffer
         fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
-      elif first10.__contains__('i-v file'):
+      elif 'i-v file' in head:
         isMyFile = True
+      elif '(# suns):\t' in tail:
+        isSnaithFile = True
+        footerLines = 21
+        delimiter = '\t'
+        if (fileExtension == '.liv1') or (fileExtension == '.div1'):
+          ret.reverseSweep = True
+        if (fileExtension == '.liv2') or (fileExtension == '.div2'):
+          ret.reverseSweep = False
+        fileBuffer = '#' + fileBuffer
+        fileBuffer = fileBuffer[::-1] # reverse the buffer
+        fileBuffer = fileBuffer.replace('\n', '#\n',footerLines+1) # comment out the footer lines
+        fileBuffer = fileBuffer[::-1] # un-reverse the buffer
+        fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
+        
+      else:
+        raise ValueError("Unknown input file type!")
     
       splitBuffer = fileBuffer.splitlines(True)
     
+      ret.substrate = '?'
+      ret.pixel = '?'      
       ret.suns = 1
       ret.area = 1 * 1e-4 # in m^2
       ret.vsTime = False #this is not an i,v vs t data file
@@ -451,17 +475,23 @@ class ivAnalyzer:
       for line in splitBuffer:
         if line.startswith('#'):
           comments.append(line)
-          if line.__contains__('Area'):
+          if 'Area' in line:
             numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
             if len(numbersHere) is 1:
               ret.area = numbersHere[0] * 1e-4
-          elif line.__contains__('I&V vs t'):
+          elif 'I&V vs t' in line:
             if float(line.split(' ')[5]) == 1:
               ret.vsTime = True
-          elif line.__contains__('Number of suns:'):
+          elif 'Number of suns:' in line or '(# suns)' in line:
             numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
             if len(numbersHere) is 1:
               ret.suns = numbersHere[0]
+          elif line.startswith('#Pixel:'):
+            splitted = line.split('\t')
+            ret.pixel = splitted[1].strip()
+          elif line.startswith('#Position:'):
+            splitted = line.split('\t')
+            ret.substrate = splitted[1].upper().strip()
 
     
       jScaleFactor = 1000/ (ret.area*1e4) #for converstion to current density[mA/cm^2]
@@ -474,17 +504,22 @@ class ivAnalyzer:
       except:
         print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
         return
+      if data.size == 0:
+        print('WARNING: Could not find any data in {:}'.format(fileName), file = logMessages)        
+        return
       if isMyFile:
         ret.VV = data[:,2]
         ret.II = data[:,3]
+      elif isSnaithFile:
+        ret.VV = data[:,1]
+        ret.II = data[:,2]
       else:
         ret.VV = data[:,0]
         ret.II = data[:,1]
-      if isMcFile or isSnaithFile: # convert from current density to amps through soucemeter
+      if isMcFile or isSnaithLegacyFile: # convert from current density to amps through soucemeter
         ret.II = ret.II/jScaleFactor
         
-      ret.substrate = '?'
-      ret.pixel = '?'
+
         
       ret_list.append(ret)
       
