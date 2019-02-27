@@ -320,6 +320,7 @@ class ivAnalyzer:
           returnCall(result)
     
   def _loadFile(fullPath):
+
     logMessages = StringIO()
     fileName, fileExtension = os.path.splitext(fullPath)
     
@@ -333,9 +334,10 @@ class ivAnalyzer:
     isH5 = False  #true when this is an hdf5 file
     
     print("Processing:", fileName, file = logMessages)
-    if h5py.is_hdf5(fullPath): # (legacy) non-h5py file
+    if h5py.is_hdf5(fullPath):  #  hdf5 file processing route
       isH5 = True
       h5 = h5py.File(fullPath, 'r')
+          
       h5rev = h5.attrs['Format Revision'].decode()
       print("Found HDF5 solar sim data format revision {:s} data file".format(h5rev))
       

@@ -19,6 +19,14 @@ def is_dir(dirname):
   else:
     return dirname
 
+
+def decode_try(this):
+  """if this is decodeable, do it"""
+  if hasattr(this, 'decode'):
+    return this.decode()
+  else:
+    return this
+
 parser = argparse.ArgumentParser(description='hdf5 --> csv converter')
 
 parser.add_argument('-i', '--input-folder', type=is_dir, required=True, help='Input directory containing .h5 files')
@@ -28,13 +36,6 @@ args = parser.parse_args()
 
 # recursively get all the files in the input folder that end in .h5
 h5s = glob.glob(args.input_folder + '/**/*.h5', recursive=True)
-
-def decode_try(this):
-  """if this is decodeable, do it"""
-  if hasattr(this, 'decode'):
-    return this.decode()
-  else:
-    return this
 
 # loop through them and convert them to csv
 for file in h5s:
