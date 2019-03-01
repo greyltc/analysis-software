@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="mutovis-analysis",
-    version="3.0.2",
+    version="3.0.3",
     author="Grey Christoforo",
     author_email="grey@mutovis.com",
     description="Software for analyzing solar cell i-v curves",
