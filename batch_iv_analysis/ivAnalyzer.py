@@ -376,7 +376,11 @@ class ivAnalyzer:
             ret.Impp = pixel.attrs['Impp']
             
           # this is all the i-v data
-          iv_data = pixel['all_measurements']          
+          if 'all_measurements' in pixel:
+            iv_data = pixel['all_measurements']
+          else:
+            print('WARNING: Could not find any data in {:}'.format(fileName), file = logMessages)
+            return
           
           if 'V_oc dwell' in iv_data.attrs:
             ret.ssVoc = iv_data[iv_data.attrs['V_oc dwell']]
