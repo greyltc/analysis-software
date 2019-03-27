@@ -79,8 +79,8 @@ conda update --all
 #### Hack natively in Arch Linux
 ```
 yay --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5  python-matplotlib python-dill python-scikit-umfpack python-lmfit python-h5py
-git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
-cd batch-iv-analysis
+git clone https://github.com/mutovis/analysis-software.git
+cd analysis-software
 ./batch-iv-analysis.py
 ```
 
@@ -93,16 +93,16 @@ conda update --all
 conda config --append channels conda-forge
 conda update --all
 conda install git conda-build
-git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
-cd batch-iv-analysis
-conda install --use-local batch-iv-analysis
-batch-iv-analysis
+git clone https://github.com/mutovis/analysis-software.git
+cd analysis-software
+conda install --use-local mutovis-analysis
+analysis-software
 ```
 
 #### Hack natively in Ubuntu Linux
 ```
 # TODO: install deps
-git clone https://github.com/greysAcademicCode/batch-iv-analysis.git
-cd batch-iv-analysis
+git clone https://github.com/mutovis/analysis-software.git
+cd analysis-software
 ./batch-iv-analysis.py
 ```
