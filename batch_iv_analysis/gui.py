@@ -1073,6 +1073,10 @@ class MainWindow(QMainWindow):
     suns = self.ui.tableWidget.item(fitData.row, self.getCol('suns')).data(Qt.UserRole)
     areacm = area * 1e4  #  area in cm^2
     
+    if area == 0 or suns == 0:
+      print ("div by zer")
+      return
+    
     # derived row data values:
     rowData.pce_spline = rowData.pmax_spline / area / ivAnalyzer.stdIrridance / suns
     rowData.pmax_a_spline = rowData.pmax_spline / area

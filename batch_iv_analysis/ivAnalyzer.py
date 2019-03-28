@@ -15,6 +15,7 @@ assert mpmath.libmp.BACKEND == 'gmpy'
 import numpy as np
 import sympy
 
+from packaging import version
 from numpy import nan
 from numpy import exp
 from numpy import inf
@@ -341,10 +342,21 @@ class ivAnalyzer:
     print("Processing:", fileName, file = logMessages)
     if h5py.is_hdf5(fullPath):  #  hdf5 file processing route
       isH5 = True
-      h5 = h5py.File(fullPath, 'r')
-          
-      h5rev = h5.attrs['Format Revision'].decode()
+      try:
+        h5 = h5py.File(fullPath, 'r')
+      except Exception as inst:
+        print("Failed to open {:} with error:".format(fullPath))
+        print(inst)
+        return
+      
+      fr = h5.attrs['Format Revision']
+      if hasattr(fr, 'decode'):
+        h5rev = h5.attrs['Format Revision'].decode()
+      else:
+        h5rev = str(h5.attrs['Format Revision'])
       print("Found HDF5 solar sim data format revision {:s} data file".format(h5rev))
+      
+      this_ver = version.parse(h5rev)
       
       for substrate_str in list(h5.keys()):
         substrate = h5['/'+substrate_str]
@@ -354,10 +366,17 @@ class ivAnalyzer:
           
           ret.substrate = substrate_str
           ret.pixel = pixel_str
-          ret.sunsA = h5.attrs['Diode 1 intensity [suns]']
-          ret.sunsB = h5.attrs['Diode 2 intensity [suns]']
-          ret.suns =  (ret.sunsA + ret.sunsB)/2 # TODO: use the correct diode intensity for specific pixels instead of averaging the two diodes
-          ret.area = pixel.attrs['area'] # in m^2
+          if 'Intensity [suns]' in h5.attrs:
+            ret.suns = h5.attrs['Intensity [suns]']
+          else:
+            ret.sunsA = h5.attrs['Diode 1 intensity [suns]']
+            ret.sunsB = h5.attrs['Diode 2 intensity [suns]']
+            ret.suns =  (ret.sunsA + ret.sunsB)/2 # TODO: use the correct diode intensity for specific pixels instead of averaging the two diodes
+          
+          if this_ver <= version.parse('1.1.0'):
+            ret.area = float(pixel.attrs['area']) / 1e4 # in m^2
+          else:
+            ret.area = pixel.attrs['area']
           ret.vsTime = False
           
           if 'ssPmax' in pixel.attrs:

@@ -79,7 +79,7 @@ for file in h5s:
                 print("", file=cf)
                 print(d_region['name'], file=cf)
                 print(','.join(d_region['col_names']), file=cf)
-                numpy.savetxt(cf, d_region['data'])
+                numpy.savetxt(cf, d_region['data'], delimiter=',')
               print("Created {:}".format(csv_full_path))
       print("Done processing {:}".format(file))
     except Exception as inst:
