@@ -9,7 +9,7 @@ import os
 import glob
 import numpy
 
-tool_revision = '1.0.0'
+tool_revision = '1.1.0'
 
 def is_dir(dirname):
   """Checks if a path is an actual directory"""
