@@ -691,12 +691,22 @@ class MainWindow(QMainWindow):
     x = t - t[0]
     y = abs(i*v * 1000) / areacm
     
-    plt.plot(x, y, c='b', marker='o', ls="None",label='mppt')
+    fig, ax1 = plt.subplots()
+    ax1.plot(x, y, c='b', marker='o', ls="None",label='power_density')
+    ax1.set_ylabel('Power Density [mW/cm^2]', color='b')
+    ax1.tick_params('y', colors='b')
+    ax1.grid(b=True, axis='y',color='b', alpha=0.3)
+    ax1.grid(b=True, axis='x')
+
+    ax2 = ax1.twinx()
+    ax2.plot(x, v, c='r', marker='.', ls="None",label='voltage')
+    ax2.set_ylabel('Voltage [V]', color='r')
+    ax2.tick_params('y', colors='r')
+    ax2.grid(b=True, axis='y',color='r', alpha=0.3)
     
     plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
-    plt.ylabel('Power Density [mW/cm^2]')
     plt.xlabel('Time [s]')
-    plt.grid()
+    # plt.grid()
     plt.show()
     
 
