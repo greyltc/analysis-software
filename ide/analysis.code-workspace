@@ -1,0 +1,33 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {},
+	"launch": {
+		"configurations": [
+			{
+				"name": "Python: Current File",
+				"type": "python",
+				"request": "launch",
+				"program": "${file}"
+			},
+			{
+				"name": "Python: Module GUI",
+				"type": "python",
+				"request": "launch",
+				"module": "batch_iv_analysis"
+			},
+			{
+				"name": "Python: Module CLI",
+				"type": "python",
+				"request": "launch",
+				"module": "batch_iv_analysis",
+				"env": {"MUTOVIS_CLI_ANALYSIS": "true"},
+				"args": ["-f","exampleData/Run_0_1555509928.h5"]
+			}
+		],
+		"compounds": []
+	}
+}

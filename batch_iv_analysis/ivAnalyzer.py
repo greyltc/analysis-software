@@ -67,9 +67,14 @@ class ivAnalyzer:
   pool = None
   poolWorkers = None
     
-  def __init__(self,beFastAndSloppy=True, multiprocess=True, poolWorkers=8):
-    self.__dict__['multiprocess'] = multiprocess
+  def __init__(self, beFastAndSloppy=True, poolWorkers=8):
     self.__dict__['poolWorkers'] = poolWorkers
+
+    if poolWorkers == 0:
+      self.__dict__['multiprocess'] = False
+    else:
+      self.__dict__['multiprocess'] = True
+    
     self.__dict__['isFastAndSloppy'] = beFastAndSloppy
   
   def __setattr__(self, attr, value):
@@ -78,7 +83,7 @@ class ivAnalyzer:
       self.numericalize()
     elif attr == 'poolWorkers':
       self.__dict__[attr] = value
-      if self.multiprocess and self.pool is not None:
+      if (self.multiprocess == True) and (self.pool != None):
         self.buildAPool()
     elif attr == 'multiprocess':
       changed = (self.__dict__[attr]) != value
@@ -86,14 +91,17 @@ class ivAnalyzer:
         self.__dict__[attr] = value
         self.readyForAnalysis = False
         self.numericalize()
-        if value:
+        if value == True:
           self.buildAPool()
       if not value:
         try:
           self.pool.shutdown()
         except:
           pass
-        del(self.pool)
+        try:
+          del(self.pool)
+        except:
+          pass
         self.pool = None
     else:
       self.__dict__[attr] = value
@@ -109,6 +117,7 @@ class ivAnalyzer:
       self.symbolsDone(results)
       
   def buildAPool(self):
+    import concurrent.futures
     if self.pool is not None:
       try:
         self.pool.shutdown()

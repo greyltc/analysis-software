@@ -1,5 +1,4 @@
-from batch_iv_analysis_UI import Ui_batch_iv_analysis
-from ivAnalyzer import ivAnalyzer
+from batch_iv_analysis.batch_iv_analysis_UI import Ui_batch_iv_analysis
 
 # needed for file watching
 import time
@@ -29,7 +28,7 @@ plt.switch_backend("Qt5Agg")
 class Object(object):
   pass
 
-def runGUI(analyzer,args):
+def runGUI(analyzer, args=None):
   app = QApplication(sys.argv)
   analysis = MainWindow(analyzer)
   analysis.show()
@@ -863,16 +862,19 @@ class MainWindow(QMainWindow):
             saneValue = float(np.real(value))
             if thisCol == 'SSE':
               displayValue = saneValue*1000**2 # A^2 to mA^2
-            elif thisCol in ['ff_spline','ff_fit','pce_spline','ssPCE','ssff']:
+            elif thisCol in ['ff_spline','ff_fit','pce_spline','ssPCE','ssff','pce_fit']:
               displayValue = saneValue*100 # to percent
             elif thisCol in ['ssVoc','voc_spline','voc_fit','vmax_spline','vmax_fit','isc_spline','isc','iph']:
               displayValue = saneValue*1e3 # to milli-
-            elif thisCol in ['jsc_spline','jsc','ssJsc','jph','pmax_a_spline','pmax_a_fit']:
+            elif thisCol in ['jsc_spline','jsc','ssJsc','jph','pmax_a_spline','pmax_a_fit','jsc_fit']:
               displayValue = saneValue*1e3*1e-4 # to milli- per cm^2
-            elif thisCol in ['area']:
-              displayValue = saneValue*1e4 # to cm^2
-            elif thisCol in ['i0','j0']:
+            elif thisCol in ['area','rs_a','rsh_a']:
+              displayValue = saneValue*1e4 #m^2 to cm^2
+            elif thisCol in ['i0']:
               displayValue = saneValue*1e9 # to nano-
+            elif thisCol in ['j0']:
+              displayValue = saneValue*1e9 # to nano-
+              displayValue = saneValue*1e-4 #1/m^2 to 1/cm^2
             else:
               displayValue = saneValue
             displayValue = MainWindow.to_precision(displayValue,4)
@@ -956,7 +958,7 @@ class MainWindow(QMainWindow):
       self.tableInsert(thisRow,'ssVoc', fileData.Voc)
       graphData['ssVocValue'] = fileData.Voc
     if hasattr(fileData, 'ssPmax'):
-      self.tableInsert(thisRow,'ssPCE', fileData.ssPmax / fileData.area / ivAnalyzer.stdIrridance / fileData.suns)
+      self.tableInsert(thisRow,'ssPCE', fileData.ssPmax / fileData.area / self.analyzer.stdIrridance / fileData.suns)
       # graphData['ssPmax'] = fileData.ssPmax / fileData.area
     if hasattr(fileData, 'Isc'):
       self.tableInsert(thisRow,'ssJsc', fileData.Isc / fileData.area)
@@ -1088,15 +1090,15 @@ class MainWindow(QMainWindow):
       return
     
     # derived row data values:
-    rowData.pce_spline = rowData.pmax_spline / area / ivAnalyzer.stdIrridance / suns
+    rowData.pce_spline = rowData.pmax_spline / area / self.analyzer.stdIrridance / suns
     rowData.pmax_a_spline = rowData.pmax_spline / area
     rowData.ff_spline = rowData.pmax_spline / (rowData.isc_spline*rowData.voc_spline)
     rowData.jsc_spline = rowData.isc_spline / area
     rowData.rs_a = rowData.rs*area
-    rowData.rsh_a = rowData.rsh/area
+    rowData.rsh_a = rowData.rsh*area
     rowData.jph = rowData.iph/area
     rowData.j0 = rowData.i0/area
-    rowData.pce_fit = rowData.pmax_fit / area / ivAnalyzer.stdIrridance / suns
+    rowData.pce_fit = rowData.pmax_fit / area / self.analyzer.stdIrridance / suns
     rowData.ff_fit = rowData.pmax_fit/(rowData.isc_fit*rowData.voc_fit)
     rowData.jsc_fit = rowData.isc_fit/area
     rowData.pmax_a_fit = rowData.pmax_fit / area

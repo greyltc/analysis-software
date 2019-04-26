@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="mutovis-analysis",
-    version="3.0.5",
+    version="3.0.6",
     author="Grey Christoforo",
     author_email="grey@mutovis.com",
     description="Software for analyzing solar cell i-v curves",
@@ -13,12 +13,13 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/mutovis/analysis-software",
     packages=setuptools.find_packages(),
-    entry_points={'gui_scripts': ['mutovis-analysis = batch_iv_analysis:main', ],},
-    data_files=[('bin',['util/h52csv'])],
+    entry_points={
+        'gui_scripts': ['mutovis-analysis = batch_iv_analysis:__main__', ],
+        'console_scripts': ['mutovis-analysis-cli = batch_iv_analysis:__main__'], },
+    data_files=[('bin', ['util/h52csv'])],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GPL-3.0",
         "Operating System :: OS Independent",
     ],
 )
-
