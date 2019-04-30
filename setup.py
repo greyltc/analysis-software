@@ -14,9 +14,8 @@ setuptools.setup(
     url="https://github.com/mutovis/analysis-software",
     packages=setuptools.find_packages(),
     entry_points={
-        'gui_scripts': ['mutovis-analysis = batch_iv_analysis.__main__', ],
-        'console_scripts': ['mutovis-analysis-cli = batch_iv_analysis.__main__'], },
-    data_files=[('bin', ['util/h52csv'])],
+        'gui_scripts': ['mutovis-analysis = batch_iv_analysis.__main__:main', ],
+        'console_scripts': ['mutovis-analysis-cli = batch_iv_analysis.__main__:main'], },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GPL-3.0",
