@@ -1,3 +1,4 @@
+.eggs/
 *.pyc
 exports/
 __pycache__/
