@@ -10,3 +10,5 @@ class cell:
     s: List[int] = field(default_factory=lambda: [0])  # status byte
     area: float = 1 * 1e-4  # [m^2] device area
     intensity: float = 1  # [suns]
+    format_revision: str = '0.0.0'
+    
