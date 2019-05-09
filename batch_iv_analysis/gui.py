@@ -12,10 +12,11 @@ import math
 #TODO: make area editable
 
 from collections import OrderedDict
+from itertools import zip_longest
 
 import os, sys, inspect, csv
 
-from numpy import inf
+import scipy.io as sio #  for savemat
 import numpy as np
 import h5py
 
@@ -65,11 +66,11 @@ class MainWindow(QMainWindow):
   fileNames = []
   supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2','*.div1','*.div2', '*.h5']
   bounds = {}
-  bounds['I0'] = [0, inf] 
-  bounds['Iph'] = [0, inf]
-  bounds['Rs'] = [0, inf]
-  bounds['Rsh'] = [0, inf]
-  bounds['n'] = [0, inf]
+  bounds['I0'] = [0, np.inf] 
+  bounds['Iph'] = [0, np.inf]
+  bounds['Rs'] = [0, np.inf]
+  bounds['Rsh'] = [0, np.inf]
+  bounds['n'] = [0, np.inf]
   symbolCalcsNotDone = True
   upperVLim = float('inf')
   lowerVLim = float('-inf')
@@ -525,20 +526,65 @@ class MainWindow(QMainWindow):
     return args[0].oldShowMessage(*args[1:], **kwargs)
 
   def exportInterp(self,row):
+    # these will be the col names for the output file
+    colnames = []
+    cols = () #  data columns for output file
+    
     thisGraphData = self.ui.tableWidget.item(row,list(self.cols.keys()).index('plotBtn')).data(Qt.UserRole)
+
+    colname = 'Interpolated Voltage [V]'
     fitX = thisGraphData["fitX"]
-    modelY = thisGraphData["modelY"]
+    cols = cols + ([(colname,x) for x in fitX], )
+    colnames.append(colname)
+    
+    colname = 'Spline Fit Current Density [mA/cm^2]'
     splineY = thisGraphData["splineY"]
-    a = np.asarray([fitX, modelY, splineY])
-    a = np.transpose(a).astype(float)
+    cols = cols + ([(colname,x) for x in splineY], )
+    colnames.append(colname)
+    
+    colname = 'Char. Eqn. Fit Current Density [mA/cm^2]'
+    modelY = thisGraphData["modelY"]
+    if not np.isnan(modelY[0]): # only include this col if the fit has been done
+      cols = cols + ([(colname,x) for x in modelY], )
+      colnames.append(colname)
+    
+    colname = 'Device Voltage[V]'
+    v = thisGraphData["v"]
+    cols = cols + ([(colname,x) for x in v], )
+    colnames.append(colname)
+    
+    colname = 'Measured CurrentDensity[mA/cm^2]'
+    j = thisGraphData["j"]
+    cols = cols + ([(colname,x) for x in j], )
+    colnames.append(colname)
+       
     destinationFolder = os.path.join(self.workingDirectory,'exports')
     QDestinationFolder = QDir(destinationFolder)
+    
     if not QDestinationFolder.exists():
       QDir().mkdir(destinationFolder)
-    saveFile = os.path.join(destinationFolder,str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('file')).text())+'.csv')
-    header = 'Voltage [V],CharEqn Current [mA/cm^2],Spline Current [mA/cm^2]'
+    # data origin
+    file = str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('file')).text())
+    subs = str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('substrate')).text())
+    pix = str(self.ui.tableWidget.item(row,list(self.cols.keys()).index('pixel')).text())
+    if subs == '?':
+      subs = ''
+    else:
+      subs = '_' + subs
+    if pix == '?':
+      pix = ''
+    else:
+      pix = '_' + pix
+    saveFile = os.path.join(destinationFolder,file+subs+pix+'.csv')
+    
+    # get the column data ready to be written
+    data = [dict(filter(None, a)) for a in zip_longest(*cols)]    
+    
     try:
-      np.savetxt(saveFile, a, delimiter=",",header=header)
+      with open(saveFile, 'w') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=colnames)
+        writer.writeheader()
+        writer.writerows(data)      
       self.goodMessage()
       self.ui.statusbar.showMessage("Exported " + saveFile,5000)
     except:
