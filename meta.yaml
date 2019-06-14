@@ -24,6 +24,7 @@ requirements:
     - python.app  # [osx]
     - hdf5
     - lmfit
+    - h5py
 
 build:
   number: 0
