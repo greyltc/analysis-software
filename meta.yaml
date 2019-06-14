@@ -25,6 +25,7 @@ requirements:
     - hdf5
     - lmfit
     - h5py
+    - uncertainties
 
 build:
   number: 0
