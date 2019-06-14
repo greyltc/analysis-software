@@ -96,7 +96,7 @@ conda install git conda-build
 git clone https://github.com/mutovis/analysis-software.git
 cd analysis-software
 conda build . --output-folder .
-conda install --use-local --force-reinstall mutovis-analysis
+conda install --use-local --force-reinstall --update-deps mutovis-analysis
 analysis-software
 conda clean --all
 ```
