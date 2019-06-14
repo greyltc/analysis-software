@@ -98,6 +98,7 @@ cd analysis-software
 conda build . --output-folder .
 conda install --use-local --force-reinstall mutovis-analysis
 analysis-software
+conda clean --all
 ```
 
 #### Hack natively in Ubuntu Linux
