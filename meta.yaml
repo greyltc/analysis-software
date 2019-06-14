@@ -46,5 +46,5 @@ app:
 about:
   home: https://github.com/mutovis/analysis-software
   license: GPL-3.0
-  license_file: LICENSE.txt
+  license_file: LICENSE
   summary: Solar cell I-V data fitter
