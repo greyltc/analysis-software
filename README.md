@@ -50,45 +50,12 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
  
 ### Installation
 ---
-#### Non-command-line install
-1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
-1. Run the Anaconda Navigator program
-1. Click the "Channels" button
-1. Add a new channel called `greyltc`
-1. Add a new channel called `conda-forge`
-1. Click the "Home" button
-1. Click Install for the batch-iv-analysis app that appears there
-#### Command-line install
-1. Download the python 3.6 miniconda [from here](https://conda.io/miniconda.html)
-1. Run Anaconda Prompt (or get to your Anaconda command prompt however you please) and type:
-```
-conda update conda
-conda update --all
-conda config --append channels conda-forge
-conda update --all
-conda config --prepend channels greyltc
-conda install batch-iv-analysis
-# now you can run the program with
-batch-iv-analysis
-# and later you can make sure to keep everything up to date by periodically running
-conda update --all
-```
-
-### Hacking
----
-#### Hack natively in Arch Linux
-```
-yay --needed -S git python python-mpmath python-gmpy2 python-sympy python-scipy python-pyqt5 python-pyqt5 python-matplotlib python-dill python-scikit-umfpack python-lmfit python-h5py
-git clone https://github.com/mutovis/analysis-software.git
-cd analysis-software
-./batch-iv-analysis.py
-```
-
-#### Hack with Anaconda (for Windows or MacOS)
+#### With Anacoda
+Windows and MacOS users should do this.
 1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the "Anaconda Prompt" program that was installed in step #1 (on a Mac just run these commands in your terminal) and type the following in:
 ```
-# prepare
+# prepare anaconda
 conda update conda
 conda update --all
 conda config --prepend channels conda-forge
@@ -96,8 +63,6 @@ conda update --all
 conda install git conda-build
 git clone https://github.com/mutovis/analysis-software.git
 cd analysis-software
-
-# do your hacking now
 
 # build and (re)install
 conda build . --output-folder build
@@ -112,11 +77,59 @@ conda build purge
 # run the analysis tool
 mutovis-analysis
 ```
-
-#### Hack natively in Ubuntu Linux
+#### Under Linux
+You could use the above Anaconda instructions if you wish, but running your distro's python might be faster. If you use Arch Linux you can skip all this and just install the `python-mutovis-analysis` package from the AUR.
+1. Inspect [meta.yaml](./meta.yaml) and use your distro's package manager to install the python3 packages corresponding to the modules listed in the `run:` section.
+1. Run the following in your terminal:
 ```
-# TODO: install deps
 git clone https://github.com/mutovis/analysis-software.git
 cd analysis-software
-./batch-iv-analysis.py
+python setup.py install --user
+
+# run the analysis tool
+mutovis-analysis
+```
+
+### Hacking
+---
+#### Under Linux
+1. Inspect [meta.yaml](./meta.yaml) and install the python3 packages corresponding to the modules listed in the `run:` section.
+1. Run the following in your terminal:
+```
+git clone https://github.com/mutovis/analysis-software.git
+cd analysis-software
+
+# do your hacking here
+
+# run the analysis tool
+./mutovis-analysis
+```
+
+#### With Anaconda
+Windows and MacOS users should do this.
+1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
+1. Run the "Anaconda Prompt" program that was installed in step #1 (on a Mac just run these commands in your terminal) and type the following in:
+```
+# prepare anaconda
+conda update conda
+conda update --all
+conda config --prepend channels conda-forge
+conda update --all
+conda install git conda-build
+git clone https://github.com/mutovis/analysis-software.git
+cd analysis-software
+
+# install the dependancies
+conda build . --output-folder build
+conda install --only-deps -c "./build" mutovis-analysis
+
+# clean up all build items now or else you might get failures next time
+rm -rf ./build
+conda clean --all
+conda build purge
+
+# do your hacking here
+
+# run the analysis tool
+python mutovis-analysis
 ```
