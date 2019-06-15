@@ -34,7 +34,7 @@ build:
   script: python setup.py install --single-version-externally-managed --record record.txt
   noarch: python
   entry_points:
-          - mutovis-analysis = batch_iv_analysis:main
+          - mutovis-analysis = batch_iv_analysis.__main__:main
   osx_is_app: True
 
 test:
