@@ -88,6 +88,7 @@ cd analysis-software
 1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the "Anaconda Prompt" program that was installed in step #1 (on a Mac just run these commands in your terminal) and type the following in:
 ```
+# prepare
 conda update conda
 conda update --all
 conda config --prepend channels conda-forge
@@ -95,9 +96,13 @@ conda update --all
 conda install git conda-build
 git clone https://github.com/mutovis/analysis-software.git
 cd analysis-software
+
 # do your hacking now
+
+# build and (re)install
 conda build . --output-folder build
-conda install --force-reinstall -c "./build" mutovis-analysis
+conda remove mutovis-analysis # you must do this if it's already installed, anaconda is dumb.
+conda install -c "./build" mutovis-analysis
 
 # clean up all build items now or else your next build might fail
 rm -rf ./build
