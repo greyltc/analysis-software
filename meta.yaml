@@ -1,20 +1,21 @@
+{% set version = "3.0.7" %}
+#{% set sha256 = "77520850ae21620ec31738f4a7b467acaa44de6d3752d8ac7a9f4dcf55d77853" %}
+
 package:
   name: mutovis-analysis
-  version: "3.0.7" # make sure this matches github build tag when doing release
+  version: "{{ version }}"
 
 source:
   path: .
-  #git_rev: v2.9.1  # use this for relesase build from github tag
-  #git_url: https://github.com/mutovis/analysis-software
-
+  #url: https://github.com/mutovis/analysis-software/archive/v{{ version }}.tar.gz
+  #sha256: "{{ sha256 }}"
 
 requirements:
   host:
-    - python
+    - python >=3.4
     - setuptools
   run:
-    - python
-    - setuptools
+    - python >=3.4
     - h5py
     - numpy
     - scipy
@@ -29,7 +30,7 @@ requirements:
 build:
   number: 0
   script: python setup.py install --single-version-externally-managed --record record.txt
-  noarch_python: True
+  noarch: python
   entry_points:
           - mutovis-analysis = batch_iv_analysis:main
   osx_is_app: True
