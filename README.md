@@ -97,9 +97,14 @@ git clone https://github.com/mutovis/analysis-software.git
 cd analysis-software
 # do your hacking now
 conda build . --output-folder build
-conda build purge
 conda install --force-reinstall -c "./build" mutovis-analysis
+
+# clean up all build items now or else your next build might fail
+rm -rf ./build
 conda clean --all
+conda build purge
+
+# run the analysis tool
 mutovis-analysis
 ```
 
