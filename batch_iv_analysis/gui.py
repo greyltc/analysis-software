@@ -89,7 +89,7 @@ class MainWindow(QMainWindow):
   def __init__(self, analyzer):
     QMainWindow.__init__(self)
     
-    self.settings = QSettings("mutovis", "batch-iv-analysis")
+    self.settings = QSettings(QSettings.IniFormat, QSettings.UserScope, "mutovis", "batch-iv-analysis")
     print('Using settings file: {:}'.format(self.settings.fileName()))
     self.analyzer = analyzer
 
