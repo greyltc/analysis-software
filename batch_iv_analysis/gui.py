@@ -325,10 +325,10 @@ class MainWindow(QMainWindow):
     
     # load setting for multiprocessing
     if not self.settings.contains('multiprocessing'):
-      self.ui.useMultithreadingModeCheckBox.setChecked(True)
-      self.settings.setValue('multiprocessing',True)
+      self.ui.useMultithreadingModeCheckBox.setChecked(False)
+      self.settings.setValue('multiprocessing',False)
     else:
-      value = self.settings.value('multiprocessing') == 'true'
+      value = (self.settings.value('multiprocessing') == 'true')
       self.ui.useMultithreadingModeCheckBox.setChecked(value)
       self.ui.analysisThreadsSpinBox.setEnabled(value)
     self.ui.useMultithreadingModeCheckBox.stateChanged.connect(self.handleMultiprocessingChange)
@@ -446,13 +446,16 @@ class MainWindow(QMainWindow):
     #mySignals.sloppy.connect(self.handleMathFinished)
     #mySignals.analysisResult.connect(self.processFitResult)
     
-    if self.analyzer.isFastAndSloppy is None:
-      self.analyzer.__dict__['isFastAndSloppy'] = self.ui.doFastAndSloppyMathCheckBox.isChecked()
-    if self.analyzer.poolWorkers is None:
-      self.analyzer.__dict__['poolWorkers'] = self.ui.analysisThreadsSpinBox.value()
-    if self.analyzer.multiprocess is None:
-      self.analyzer.__dict__['multiprocess'] = self.ui.useMultithreadingModeCheckBox.isChecked()
-      
+    #if self.analyzer.isFastAndSloppy is None:
+    #  self.analyzer.__dict__['isFastAndSloppy'] = self.ui.doFastAndSloppyMathCheckBox.isChecked()
+    #if self.analyzer.poolWorkers is None:
+    #  self.analyzer.__dict__['poolWorkers'] = self.ui.analysisThreadsSpinBox.value()
+    #if self.analyzer.multiprocess is None:
+    #  self.analyzer.__dict__['multiprocess'] = self.ui.useMultithreadingModeCheckBox.isChecked()
+    
+    self.analyzer.__dict__['multiprocess'] = self.ui.useMultithreadingModeCheckBox.isChecked()
+    self.analyzer.__dict__['poolWorkers'] = self.ui.analysisThreadsSpinBox.value()
+    self.analyzer.__dict__['isFastAndSloppy'] = self.ui.doFastAndSloppyMathCheckBox.isChecked()
     self.analyzer.setup()
     #self.analyzer = ivAnalyzer(beFastAndSloppy=beFastAndSloppy, multiprocess=multiprocess, poolWorkers=poolWorkers)
      
