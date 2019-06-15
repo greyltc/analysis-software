@@ -50,7 +50,7 @@ I'd be super happy to accept pull requests or ideas you have for improving this 
  
 ### Installation
 ---
-#### With Anacoda
+#### Installing With Anacoda
 Windows and MacOS users should do this.
 1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the "Anaconda Prompt" program that was installed in step #1 (on a Mac just run these commands in your terminal) and type the following in:
@@ -77,7 +77,7 @@ conda build purge
 # run the analysis tool
 mutovis-analysis
 ```
-#### Under Linux
+#### Installing Under Linux
 You could use the above Anaconda instructions if you wish, but running your distro's python might be faster. If you use Arch Linux you can skip all this and just install the `python-mutovis-analysis` package from the AUR.
 1. Inspect [meta.yaml](./meta.yaml) and use your distro's package manager to install the python3 packages corresponding to the modules listed in the `run:` section.
 1. Run the following in your terminal:
@@ -92,7 +92,7 @@ mutovis-analysis
 
 ### Hacking
 ---
-#### Under Linux
+#### Hacking Under Linux
 1. Inspect [meta.yaml](./meta.yaml) and install the python3 packages corresponding to the modules listed in the `run:` section.
 1. Run the following in your terminal:
 ```
@@ -105,7 +105,7 @@ cd analysis-software
 ./mutovis-analysis
 ```
 
-#### With Anaconda
+#### Hacking With Anaconda
 Windows and MacOS users should do this.
 1. Make sure you have the very latest Python 3 version of Anaconda installed [from here](https://www.continuum.io/downloads)
 1. Run the "Anaconda Prompt" program that was installed in step #1 (on a Mac just run these commands in your terminal) and type the following in:
