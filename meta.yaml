@@ -26,6 +26,8 @@ requirements:
     - dill
     - lmfit
     - uncertainties
+    - python.app  # [osx]
+    - pyqt
 
 build:
   number: 0
