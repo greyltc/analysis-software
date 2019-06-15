@@ -90,7 +90,7 @@ class MainWindow(QMainWindow):
     QMainWindow.__init__(self)
     
     self.settings = QSettings("mutovis", "batch-iv-analysis")
-    print('Using settings file: {:}'.format(self.settings.fileName())
+    print('Using settings file: {:}'.format(self.settings.fileName()))
     self.analyzer = analyzer
 
     #how long status messages show for
