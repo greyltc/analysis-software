@@ -89,9 +89,9 @@ class MainWindow(QMainWindow):
   def __init__(self, analyzer):
     QMainWindow.__init__(self)
     
-    self.settings = QSettings("greyltc", "batch-iv-analysis")
+    self.settings = QSettings("mutovis", "batch-iv-analysis")
+    print('Using settings file: {:}'.format(self.settings.fileName())
     self.analyzer = analyzer
-
 
     #how long status messages show for
     self.messageDuration = 2500#ms
