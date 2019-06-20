@@ -1,3 +1,4 @@
+import batch_iv_analysis # for __version__
 from batch_iv_analysis.ivAnalyzer import ivAnalyzer
 import argparse
 
@@ -8,6 +9,7 @@ def runCLI(analyzer,args):
 def handle_cli():
   parser = argparse.ArgumentParser(description='Process some iv data.')
 
+  parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + batch_iv_analysis.__version__)
   parser.add_argument('-f', '--files', default=None, type=argparse.FileType('r'), help='File(s) to analyze.')
   parser.add_argument('-g', '--gui', default=False, action='store_true', help='Run with GUI.')
   parser.add_argument('-s', '--no-sloppy', dest='sloppyMath', default=True, action='store_false', help="Don't do sloppy math (slower).")

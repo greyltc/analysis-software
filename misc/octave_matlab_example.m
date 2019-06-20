@@ -3,5 +3,9 @@
 % octave (broken)
 %data = load(strcat(fpath,fname))
 
+target = strcat(fpath,fname);
+
 % matlab
-h5disp(strcat(fpath,fname))
+h5disp(target)
+
+info = h5info(target);
