@@ -17,4 +17,4 @@ dist/
 build/
 batch_iv_analysis.egg-info/
 .mypy_cache/
-
+.log

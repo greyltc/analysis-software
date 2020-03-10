@@ -12,7 +12,7 @@ def main():
     import batch_iv_analysis.gui as gui
     from batch_iv_analysis.ivAnalyzer import ivAnalyzer
     a = ivAnalyzer()
-    gui.runGUI(a,None)
+    gui.runGUI(a, None)
 
-if __name__ == "__main__":
+if __name__ == "batch_iv_analysis.__main__":
     main()

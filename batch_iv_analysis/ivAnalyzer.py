@@ -11,7 +11,7 @@ import concurrent.futures
 
 import itertools
 import mpmath.libmp
-assert mpmath.libmp.BACKEND == 'gmpy'
+assert mpmath.libmp.BACKEND == 'gmpy' or 'sage'
 import numpy as np
 import sympy
 
@@ -67,7 +67,7 @@ class ivAnalyzer:
   pool = None
   poolWorkers = None
     
-  def __init__(self, beFastAndSloppy=True, poolWorkers=8):
+  def __init__(self, beFastAndSloppy=True, poolWorkers=0):
     self.__dict__['poolWorkers'] = poolWorkers
 
     if poolWorkers == 0:
