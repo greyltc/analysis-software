@@ -11,7 +11,7 @@ import concurrent.futures
 
 import itertools
 import mpmath.libmp
-assert mpmath.libmp.BACKEND == 'gmpy'
+assert mpmath.libmp.BACKEND == 'gmpy' or 'sage'
 import numpy as np
 import sympy
 
@@ -67,7 +67,7 @@ class ivAnalyzer:
   pool = None
   poolWorkers = None
     
-  def __init__(self, beFastAndSloppy=True, poolWorkers=8):
+  def __init__(self, beFastAndSloppy=True, poolWorkers=0):
     self.__dict__['poolWorkers'] = poolWorkers
 
     if poolWorkers == 0:
@@ -448,11 +448,12 @@ class ivAnalyzer:
       fp = open(fullPath, mode='r')
       fileBuffer = fp.read()
       fp.close()
-      min_length = 400
+      min_length = 800  # in chars
       if len(fileBuffer) < min_length:
         print('Could not read' + fileName +'. This file is less than {:} characters long.'.format(min_length), file = logMessages)
         return
-      head = fileBuffer[0:10]
+      head_size = 10  # in chars
+      head = fileBuffer[0:head_size]
       tail = fileBuffer[-min_length:-1]
     
       #mcFile test:
@@ -478,9 +479,15 @@ class ivAnalyzer:
         fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
       elif 'i-v file' in head:
         isMyFile = True
-      elif '(# suns):\t' in tail:
+      elif ('(# suns)\t' in tail) or ('(# suns):\t' in tail):
         isSnaithFile = True
         footerLines = 21
+        i_col = 2
+        v_col = 1
+        if 'concurrent\t' in tail:  # newest snaith
+          footerLines = 45
+          i_col = 2
+          v_col = 3
         delimiter = '\t'
         if (fileExtension == '.liv1') or (fileExtension == '.div1'):
           ret.reverseSweep = True
@@ -493,7 +500,8 @@ class ivAnalyzer:
         fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
         
       else:
-        raise ValueError("Unknown input file type!")
+        print(f"Warning: Couldn't parse file: {fileName}")
+        return
     
       splitBuffer = fileBuffer.splitlines(True)
     
@@ -518,10 +526,10 @@ class ivAnalyzer:
             numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
             if len(numbersHere) is 1:
               ret.suns = numbersHere[0]
-          elif line.startswith('#Pixel:'):
+          elif line.startswith('#Pixel'):
             splitted = line.split('\t')
             ret.pixel = splitted[1].strip()
-          elif line.startswith('#Position:'):
+          elif line.startswith('#Position'):
             splitted = line.split('\t')
             ret.substrate = splitted[1].upper().strip()
 
@@ -543,8 +551,8 @@ class ivAnalyzer:
         ret.VV = data[:,2]
         ret.II = data[:,3]
       elif isSnaithFile:
-        ret.VV = data[:,1]
-        ret.II = data[:,2]
+        ret.VV = data[:,i_col]
+        ret.II = data[:,v_col]
       else:
         ret.VV = data[:,0]
         ret.II = data[:,1]
