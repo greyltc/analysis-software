@@ -11,7 +11,7 @@ import concurrent.futures
 
 import itertools
 import mpmath.libmp
-assert mpmath.libmp.BACKEND == 'gmpy' or 'sage'
+assert mpmath.libmp.BACKEND == 'gmpy'  # note sagemath can't be installed!
 import numpy as np
 import sympy
 
@@ -67,7 +67,7 @@ class ivAnalyzer:
   pool = None
   poolWorkers = None
     
-  def __init__(self, beFastAndSloppy=True, poolWorkers=0):
+  def __init__(self, beFastAndSloppy=False, poolWorkers=0):
     self.__dict__['poolWorkers'] = poolWorkers
 
     if poolWorkers == 0:
@@ -337,6 +337,7 @@ class ivAnalyzer:
 
     logMessages = StringIO()
     fileName, fileExtension = os.path.splitext(fullPath)
+    basename = os.path.basename(fullPath)
     
     # what we'll return
     ret_list = []
@@ -347,6 +348,7 @@ class ivAnalyzer:
     isSnaithFile = False # true if this is a Snaith iv file format
     isMyFile = False # true if this is a custom solar sim iv file format
     isH5 = False  #true when this is an hdf5 file
+    isNextTsv = False
     
     print("Processing:", fileName, file = logMessages)
     if h5py.is_hdf5(fullPath):  #  hdf5 file processing route
@@ -455,6 +457,8 @@ class ivAnalyzer:
       head_size = 10  # in chars
       head = fileBuffer[0:head_size]
       tail = fileBuffer[-min_length:-1]
+
+      splitlines = fileBuffer.splitlines(True)
     
       #mcFile test:
       if (not head.__contains__('#')) and (head.__contains__('/')) and (head.__contains__('\t')):#the first line is not a comment
@@ -486,8 +490,8 @@ class ivAnalyzer:
         v_col = 1
         if 'concurrent\t' in tail:  # newest snaith
           footerLines = 45
-          i_col = 2
-          v_col = 3
+          i_col = 3
+          v_col = 2
         delimiter = '\t'
         if (fileExtension == '.liv1') or (fileExtension == '.div1'):
           ret.reverseSweep = True
@@ -498,7 +502,10 @@ class ivAnalyzer:
         fileBuffer = fileBuffer.replace('\n', '#\n',footerLines+1) # comment out the footer lines
         fileBuffer = fileBuffer[::-1] # un-reverse the buffer
         fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
-        
+      elif 'status' in splitlines[0] and '.liv' in basename:  # new light tsv
+        isNextTsv = True
+        i_col = 1
+        v_col = 0
       else:
         print(f"Warning: Couldn't parse file: {fileName}")
         return
@@ -517,14 +524,14 @@ class ivAnalyzer:
           comments.append(line)
           if 'Area' in line:
             numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
-            if len(numbersHere) is 1:
+            if len(numbersHere) == 1:
               ret.area = numbersHere[0] * 1e-4
           elif 'I&V vs t' in line:
             if float(line.split(' ')[5]) == 1:
               ret.vsTime = True
           elif 'Number of suns:' in line or '(# suns)' in line:
             numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
-            if len(numbersHere) is 1:
+            if len(numbersHere) == 1:
               ret.suns = numbersHere[0]
           elif line.startswith('#Pixel'):
             splitted = line.split('\t')
@@ -536,11 +543,15 @@ class ivAnalyzer:
     
       jScaleFactor = 1000/ (ret.area*1e4) #for converstion to current density[mA/cm^2]
     
-      c = StringIO(fileBuffer) # makes string look like a file 
+      c = StringIO(fileBuffer) # makes string look like a file
+
+      skiprows = 0
+      if isNextTsv == True:
+        skiprows = 1
     
       #read in data
       try:
-        data = np.loadtxt(c,delimiter=delimiter)
+        data = np.loadtxt(c,delimiter=delimiter, skiprows=skiprows)
       except:
         print('Could not read' + fileName +'. Prepend # to all non-data lines and try again', file = logMessages)
         return
@@ -550,17 +561,26 @@ class ivAnalyzer:
       if isMyFile:
         ret.VV = data[:,2]
         ret.II = data[:,3]
-      elif isSnaithFile:
-        ret.VV = data[:,i_col]
-        ret.II = data[:,v_col]
+      elif isSnaithFile or isNextTsv:
+        ret.VV = data[:,v_col]
+        ret.II = data[:,i_col]
       else:
         ret.VV = data[:,0]
         ret.II = data[:,1]
       if isMcFile or isSnaithLegacyFile: # convert from current density to amps through soucemeter
         ret.II = ret.II/jScaleFactor
-        
 
-        
+      if isNextTsv:
+        try:
+          cur = data[1,1]
+          dens = data[1,4]
+          ret.area = cur/dens/10 # in m^2
+          fns = basename.split('_')
+          ret.pixel = fns[-2][-1]
+          ret.substrate = fns[-4]
+        except Exception:
+          print(f"Warning: Couldn't b_parse file: {fileName}")
+
       ret_list.append(ret)
       
     
@@ -727,12 +747,12 @@ class ivAnalyzer:
     isDarkCurve = False
     Vmpp = powerSplineD1.roots(extrapolate=False,discontinuity=False)
     VmppSize = Vmpp.size
-    if VmppSize is 0:
+    if VmppSize == 0:
       Pmpp = nan
       Impp = nan
       Vmpp = nan
       isDarkCurve = True
-    elif VmppSize is 1:
+    elif VmppSize == 1:
       Vmpp = float(Vmpp)
       Impp = float(smoothSpline(Vmpp))
       Pmpp = Impp*Vmpp
@@ -747,10 +767,10 @@ class ivAnalyzer:
     Voc = smoothSpline.roots(extrapolate=True,discontinuity=False)
     VocSize = Voc.size
     abortTheFit = True
-    if VocSize is 0: # never crosses zero, must be dark curve
+    if VocSize == 0: # never crosses zero, must be dark curve
       Voc = nan
       isDarkCurve = True
-    elif VocSize is 1:
+    elif VocSize == 1:
       Voc = float(Voc)
     else: # got too many answers
       valid = np.logical_and(Voc > 0, Voc < max(VV)+0.05)
@@ -1583,15 +1603,28 @@ class ivAnalyzer:
     #    fitKwargs['diff_step'] = [x0[0]/10, sqrtEPS, sqrtEPS, sqrtEPS, sqrtEPS]
     #    fitKwargs['max_nfev'] = 1200
     
-    cellModel = Model(fI, nan_policy='raise', independent_vars=['V'])
+    #cellModel = Model(fI, nan_policy='raise', independent_vars=['V'])
+    def fcn(VVV,n,I0,Iph,Rsh,Rs):
+      try:
+        send_up = np.array([np.float(np.real(fI(V=x,n=n,I0=I0,Iph=Iph,Rsh=Rsh,Rs=Rs))) for x in VVV], dtype=float)
+        if any(np.isinf(send_up)):
+          print('woopsie2')
+          send_up = np.full_like(VVV, np.nan)
+      except:
+        print('woopsie')
+        send_up = np.full_like(VVV, np.nan)
+      return send_up
+
+    #fI2 = lambda V,n,I0,Iph,Rsh,Rs: np.real(np.abs(fI(V=V,n=n,I0=I0,Iph=Iph,Rsh=Rsh,Rs=Rs)))
+    cellModel = Model(fcn, nan_policy='omit')
     cellModel.set_param_hint('Rsh',value=guess['Rsh'])
     cellModel.set_param_hint('n',value=guess['n'])
     cellModel.set_param_hint('Rs',value=guess['Rs'])
     cellModel.set_param_hint('Iph',value=guess['Iph'])
     cellModel.set_param_hint('I0',value=guess['I0'])
     
-    cellModel.set_param_hint('Rsh',min=0)
-    cellModel.set_param_hint('Rs',min=0)
+    cellModel.set_param_hint('Rsh',min=1)
+    cellModel.set_param_hint('Rs',min=1)
     
     #fitResult = cellModel.fit(II,cellParams, V=VV)
     #print(fitResult.fit_report())
@@ -1612,12 +1645,22 @@ class ivAnalyzer:
     #fitResult = cellModel.fit(II,cellParams, V=VV)
     #print("FIT2")
     #print(fitResult.fit_report())
+
+    cmodel = Model(fcn, nan_policy='omit')
+    params = cmodel.make_params(n=guess['n'], I0=guess['I0'], Iph=guess['Iph'], Rs=guess['Rs'], Rsh=guess['Rsh'])
+    params['n'].min=0.1
+    params['Rsh'].min=0.1
+    params['Rs'].min=0.1
+    params['Iph'].min=0
+    params['I0'].min=0
     
     #fitResult = cellModel.fit(II, V=VV, method='powell',fit_kws={'options':{'xtol':1e-6,'ftol':1e-6}})
-    fitResult = cellModel.fit(II, V=VV,fit_kws={'maxfev':24000})
-    cellModel.set_param_hint('Rsh',min=-np.inf)
-    cellModel.set_param_hint('Rs',min=-np.inf)
-    fitResult = cellModel.fit(II, V=VV, method='nelder',fit_kws={'reduce_fcn':'neglogcauchy','options':{'xatol':1e-14,'maxfev':44000,'fatol':1e-14,'disp':True}})
+    fitResult = cmodel.fit(II, params, VVV=VV, fit_kws={'maxfev':24000})
+    #cellModel.set_param_hint('Rsh',min=-np.inf)
+    #cellModel.set_param_hint('Rs',min=-np.inf)
+    params['Rsh'].min = float('-inf')
+    params['Rs'].min = float('-inf')
+    fitResult = cmodel.fit(II, params, VVV=VV, method='nelder',fit_kws={'reduce_fcn':'neglogcauchy','options':{'xatol':1e-14,'maxfev':44000,'fatol':1e-14,'disp':True}})
     print(fitResult.fit_report())
     
   
