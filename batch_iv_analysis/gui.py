@@ -1215,7 +1215,7 @@ class MainWindow(QMainWindow):
     else:
       openDir = '.'
 
-    fileNames = QFileDialog.getOpenFileNames(self, directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2 *.div1 *.div2 *.h5);;Folders (*)')
+    fileNames = QFileDialog.getOpenFileNames(self, directory = openDir, caption="Select one or more files to open", filter = '(*.csv *.tsv *.txt *.liv1 *.liv2 *.div1 *.div2 *.h5);;(*.liv1 *.liv2);;(*.div1 *.div2);;Folders (*)')
 
     if len(fileNames[0])>0:#check if user clicked cancel
       self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
