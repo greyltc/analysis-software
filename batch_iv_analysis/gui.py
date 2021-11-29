@@ -1131,27 +1131,35 @@ class MainWindow(QMainWindow):
     suns = self.ui.tableWidget.item(fitData.row, self.getCol('suns')).data(Qt.UserRole)
     areacm = area * 1e4  #  area in cm^2
     
-    if area == 0 or suns == 0:
-      print ("div by zer")
-      return
+    if not(area == 0):
+      rowData.pmax_a_spline = rowData.pmax_spline / area
+      rowData.jsc_spline = rowData.isc_spline / area
+      rowData.rs_a = rowData.rs*area
+      rowData.rsh_a = rowData.rsh*area
+      rowData.jph = rowData.iph/area
+      rowData.j0 = rowData.i0/area
+      rowData.jsc_fit = rowData.isc_fit/area
+      rowData.pmax_a_fit = rowData.pmax_fit / area
+      graphData["j"] = rowData.i/areacm * 1000  # in mA/cm^2
+      graphData["modelY"] = rowData.eqnCurrent/areacm * 1000  # in mA/cm^2
+      graphData["splineY"] = rowData.splineCurrent/areacm * 1000  # in mA/cm^2
+    else:
+      graphData["j"] = rowData.i*np.nan
+
+    if not(suns == 0):
+      rowData.pce_fit = rowData.pmax_fit / area / self.analyzer.stdIrridance / suns
     
+    if not(suns == 0) and not(area == 0):
+      rowData.pce_spline = rowData.pmax_spline / area / self.analyzer.stdIrridance / suns
+
     # derived row data values:
-    rowData.pce_spline = rowData.pmax_spline / area / self.analyzer.stdIrridance / suns
-    rowData.pmax_a_spline = rowData.pmax_spline / area
     rowData.ff_spline = rowData.pmax_spline / (rowData.isc_spline*rowData.voc_spline)
-    rowData.jsc_spline = rowData.isc_spline / area
-    rowData.rs_a = rowData.rs*area
-    rowData.rsh_a = rowData.rsh*area
-    rowData.jph = rowData.iph/area
-    rowData.j0 = rowData.i0/area
-    rowData.pce_fit = rowData.pmax_fit / area / self.analyzer.stdIrridance / suns
     rowData.ff_fit = rowData.pmax_fit/(rowData.isc_fit*rowData.voc_fit)
-    rowData.jsc_fit = rowData.isc_fit/area
-    rowData.pmax_a_fit = rowData.pmax_fit / area
+
     
     graphData["v"] = rowData.v
     graphData["i"] = rowData.i * 1000  # in mA
-    graphData["j"] = rowData.i/areacm * 1000  # in mA/cm^2
+    
     graphData["vsTime"] = False
     
     # graphData["Vmax"] = rowData.vmax_spline
@@ -1161,8 +1169,6 @@ class MainWindow(QMainWindow):
     # graphData["Isc"] = rowData.isc_spline * 1000  # in mA
     # graphData["Jsc"] = rowData.isc_spline/areacm * 1000  # in mA/cm^2
     graphData["fitX"] = rowData.x
-    graphData["modelY"] = rowData.eqnCurrent/areacm * 1000  # in mA/cm^2
-    graphData["splineY"] = rowData.splineCurrent/areacm * 1000  # in mA/cm^2
     self.ui.tableWidget.item(rowData.row, plotCol).setData(Qt.UserRole, graphData)
     
     for key,value in rowData.__dict__.items():
