@@ -149,8 +149,8 @@ class ivAnalyzer:
     print("Hang tight, we're doing the one-time symbolic manipulations now...")
     
     # let's define some variables we'll use to do some symbolic equaiton manipulation
-    modelSymbols = sympy.symbols('I0 Iph Rs Rsh n I V Vth', real=True, positive=True)
-    I0, Iph, Rs, Rsh, n, I, V, Vth = modelSymbols
+    modelSymbols = sympy.symbols('I0 Iph Rs Rsh n Vth', rational=True, extended_nonnegative=True) + sympy.symbols('I V', rational=True)
+    I0, Iph, Rs, Rsh, n, Vth, I, V = modelSymbols
     modelConstants = (Vth,)
     modelVariables = tuple(set(modelSymbols)-set(modelConstants))    
     
@@ -165,7 +165,14 @@ class ivAnalyzer:
     # define cell circuit model here
     lhs = I
     rhs = Iph-((V+I*Rs)/Rsh)-I0*(sympy.exp((V+I*Rs)/(n*Vth))-1)
+    rhs_no_rs = rhs.subs(Rs, 0)  # with perfect series resistance 
+    rhs_no_rsh = rhs.subs(Rsh, sympy.core.numbers.oo)  # with perfect sheet resistance
+    rhs_no_r = rhs.subs([(Rsh,sympy.core.numbers.oo),(Rs,0)])  # with no resistive losses at all
     electricalModel = sympy.Eq(lhs,rhs)
+    electricalModel_no_rs = sympy.Eq(lhs,rhs_no_rs)
+    electricalModel_no_rsh = sympy.Eq(lhs,rhs_no_rsh)
+    electricalModel_no_r = sympy.Eq(lhs,rhs_no_r)
+
     #electricalModelVarsOnly= electricalModel.subs(zip(modelConstants,valuesForConstants))
   
     # symbolically isolate each variable in our characteristic equation
@@ -174,12 +181,18 @@ class ivAnalyzer:
     # NOTE: this is actually pretty computationally intense;
     # some solutions might contain the Lambert W "function"
     symSolutionsNoSubs = {} # all the symbols preserved
+    symSolutionsNoSubs_no_rs = {} # all the symbols preserved
+    symSolutionsNoSubs_no_rsh = {} # all the symbols preserved
+    symSolutionsNoSubs_no_r = {} # all the symbols preserved
     
     
     solveForThese = [I, I0, V, n]
     for symbol in solveForThese:
       symSolutionsNoSubs[str(symbol)] = sympy.solve(electricalModel,symbol)[0]
-      #symSolutionsNoSubs[str(symbol)] = sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0] #solveset doesn't work here (yet)
+      symSolutionsNoSubs_no_rs[str(symbol)] = sympy.solve(electricalModel_no_rs,symbol)[0]
+      symSolutionsNoSubs_no_rsh[str(symbol)] = sympy.solve(electricalModel_no_rsh,symbol)[0]
+      symSolutionsNoSubs_no_r[str(symbol)] = sympy.solve(electricalModel_no_r,symbol)[0]
+      #symSolutionsNoSubs[str(symbol)] = sympy.solveset(electricalModel,symbol,domain=sympy.S.Reals).args[0] # solveset doesn't work here (yet) https://github.com/sympy/sympy/issues/12243
       #symSolutions[str(symbol)] = symSolutionsNoSubs[str(symbol)].subs(zip(modelConstants,valuesForConstants))
       ##remainingVariables = list(set(modelVariables)-set([symbol]))
       ##slns[str(symbol)] = sympy.lambdify(remainingVariables,symSolutions[str(symbol)],functionSubstitutions,dummify=False)
@@ -187,12 +200,19 @@ class ivAnalyzer:
     # now we'll solve for some useful device parameters
     #self.symSolutions = symSolutions # analytical solution for all variables
     Voc_eqn = symSolutionsNoSubs['V'].subs(I,0) # analytical solution for Voc
+    Voc_eqn_no_rs = symSolutionsNoSubs_no_rs['V'].subs(I,0)
+    Voc_eqn_no_rsh = symSolutionsNoSubs_no_rsh['V'].subs(I,0)
+    Voc_eqn_no_r = symSolutionsNoSubs_no_r['V'].subs(I,0)
     #Voc_eqn = Voc_eqn.subs(zip(modelConstants,valuesForConstants))
     ##Voc_eqn = sympy.lambdify((I0,Rsh,Iph,n),Voc_eqn,functionSubstitutions,dummify=False)
     Isc_eqn = symSolutionsNoSubs['I'].subs(V,0) # analytical solution for Isc
+    Isc_eqn_no_rs = symSolutionsNoSubs_no_rs['I'].subs(V,0)
+    Isc_eqn_no_rh = symSolutionsNoSubs_no_rsh['I'].subs(V,0)
+    Isc_eqn_no_r = symSolutionsNoSubs_no_r['I'].subs(V,0)
     #Isc_eqn = Isc_eqn.subs(zip(modelConstants,valuesForConstants))
     ##self.Isc_eqn = sympy.lambdify((I0,Rsh,Rs,Iph,n),Isc_eqn,functionSubstitutions,dummify=False)
-    #PA = symSolutionsNoSubs['I']*V # analytical solution for power (voltage as independant variable)
+    PA = symSolutionsNoSubs['I']*V # analytical solution for power (voltage as independant variable)
+    P_primeA = sympy.diff(PA,V) # first derivative of power (WRT V)
     PB = symSolutionsNoSubs['V']*I # analytical solution for power (current as independant variable)
     P_primeB = sympy.diff(PB,I) # first derivative of power (WRT I)
     #V_max = sympy.solve(P_prime,V,check=False,implicit=True)[0] # analytical solution for voltage at max power
