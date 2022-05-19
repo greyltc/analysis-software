@@ -249,7 +249,7 @@ class ivAnalyzer:
   
   # go from symbolic to numerical domain
   def numericalize (self):
-    I0, Iph, Rs, Rsh, n, I, V, Vth = self.modelSymbols
+    I0, Iph, Rs, Rsh, n, Vth, I, V = self.modelSymbols
     
     # here we define any function substitutions we'll need for lambdification later
     if self.isFastAndSloppy:
@@ -1822,4 +1822,5 @@ class ivAnalyzer:
 
 if __name__ == '__main__':
   # execute only if run as a script
-  main()
+  iva = ivAnalyzer()
+  iva.setup()
