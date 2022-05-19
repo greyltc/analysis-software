@@ -522,10 +522,14 @@ class ivAnalyzer:
         fileBuffer = fileBuffer.replace('\n', '#\n',footerLines+1) # comment out the footer lines
         fileBuffer = fileBuffer[::-1] # un-reverse the buffer
         fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
-      elif 'status' in splitlines[0] and '.liv' in basename:  # new light tsv
+      elif ('status' in splitlines[0]) and ('(mA/cm^2)' in splitlines[0]) and (any([basename.endswith(x) for x in ['.liv1.tsv', '.liv2.tsv', '.div1.tsv', '.div2.tsv']])):
+        # new processed tsv
         isNextTsv = True
-        i_col = 1
-        v_col = 0
+        fileBuffer = '#' + fileBuffer  # comment out the header line
+        i_col = 1  # current
+        v_col = 0  # voltage
+        s_col = 3  # status
+        d_col = 4  # current density
       else:
         print(f"Warning: Couldn't parse file: {fileName}")
         return
@@ -592,17 +596,57 @@ class ivAnalyzer:
 
       if isNextTsv:
         try:
-          cur = data[1,1]
-          dens = data[1,4]
-          ret.area = cur/dens/10 # in m^2
+          # prune data taken while in compliance
+          status = data[:, s_col].astype(int)
+
+          m=24  # status word length in bytes
+          compliance_bit_number = 3  # from smu datasheet, 1 when in compliance, 0 otherwise
+          check_compliance = np.vectorize(lambda x: np.binary_repr(x, m)[-compliance_bit_number-1]=='1')
+          in_compliance = check_compliance(status)
+
+          data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
+          ret.VV = data[:,v_col]
+          ret.II = data[:,i_col]
+
+
+          acur = data[0, i_col]
+          adens = data[0, d_col]
+          ret.area = acur/adens/10  # in m^2
+          i_vals = data[:, i_col]
+          imini = i_vals.argmin()  # smallest current value seen
+          voc_guess = data[imini, v_col]  # rough guess for voc
+          if voc_guess > 0:
+            voc_positive = True
+          else:
+            voc_positive = False
+          v0 = data[0, v_col]
+          vend = data[-1, v_col]
           fns = basename.split('_')
-          ret.pixel = fns[-2][-1]
-          ret.substrate = fns[-4]
-        except Exception:
-          print(f"Warning: Couldn't b_parse file: {fileName}")
+          if fns[0] != "processed":
+            print("Data from the processed folder is required to find area")
+            return
+          del fns[0]  # throw away the "processed" string
+          del fns[-1]  # throw away the timestamp
+          slot = fns[0]
+          del fns[0]  # throw away the slot string
+          ret.pixel = fns[-1][-1]
+          del fns[-1]  # throw away the pixel number string
+          label = '_'.join(fns)  # reconstitute the user's label
+          ret.substrate = f"{slot}: {label}"
+          if vend > v0:
+            sweep_up = True
+          else:
+            sweep_up = False
+          if sweep_up == voc_positive:
+            ret.reverseSweep = False
+          else:
+            ret.reverseSweep = True
+          
+        except Exception as e:
+          print(f"Couldn't parse {fileName}: {e}")
 
       ret_list.append(ret)
-      
+
     
     for i in range(len(ret_list)):
       # prune data points that share the same voltage
