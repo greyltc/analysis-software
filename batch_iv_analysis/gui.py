@@ -691,7 +691,10 @@ class MainWindow(QMainWindow):
     plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
     plt.ylabel('Open-circuit voltage [mV]')
     plt.xlabel('Time [s]')
-    plt.grid()
+    plt.draw()
+    fig = plt.gcf()
+    for ax in fig.axes:
+      ax.grid(visible=True, which="both")
     plt.show()
     
   def ssJscGraph(self, row):
@@ -716,7 +719,10 @@ class MainWindow(QMainWindow):
     plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
     plt.ylabel('Short-circuit current density [mA/cm^2]')
     plt.xlabel('Time [s]')
-    plt.grid()
+    plt.draw()
+    fig = plt.gcf()
+    for ax in fig.axes:
+      ax.grid(visible=True, which="both")
     plt.show()
     
   def mpptGraph(self, row):
@@ -751,7 +757,10 @@ class MainWindow(QMainWindow):
     
     plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
     plt.xlabel('Time [s]')
-    # plt.grid()
+    plt.draw()
+    fig = plt.gcf()
+    for ax in fig.axes:
+      ax.grid(visible=True, which="both")
     plt.show()
     
 
@@ -798,7 +807,6 @@ class MainWindow(QMainWindow):
       plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
     plt.plot(fitX, splineY,c='g', label='Spline Fit')
     plt.autoscale(axis='x', tight=True)
-    plt.grid()
 
     if ss_voltage:
       plt.annotate(
@@ -831,8 +839,10 @@ class MainWindow(QMainWindow):
     ax = plt.gca()
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles, labels, loc=3)    
-    # ax.grid()
     plt.draw()
+    fig = plt.gcf()
+    for ax in fig.axes:
+      ax.grid(visible=True, which="both")
     plt.show()
 
   # this is how we save the table data to a .csv or .mat file
@@ -1009,7 +1019,7 @@ class MainWindow(QMainWindow):
     if hasattr(fileData, 'Isc'):
       self.tableInsert(thisRow,'ssJsc', fileData.Isc / fileData.area)
       # graphData['ssIscValue'] = fileData.Isc
-      graphData['ssJscValue'] = fileData.Isc / areacm    
+      graphData['ssJscValue'] = fileData.Isc / areacm
 
 
     self.tableInsert(thisRow,'plotBtn', graphData)
@@ -1031,7 +1041,7 @@ class MainWindow(QMainWindow):
     thisItem.setData(role,value)
     self.ui.tableWidget.resizeColumnToContents(thisCol)
     
-  def processFitResult(self,result):
+  def processFitResult(self, result):
     try:# this handles the multiprocessing case
       if result.done():
         exception = result.exception(timeout=0)
@@ -1049,7 +1059,7 @@ class MainWindow(QMainWindow):
     self.mySignals.newFitResult.emit(result)
     #self._processFitResult(result)
     
-  def _processFitResult(self,result):
+  def _processFitResult(self, result):
     if self.ui.useMultithreadingModeCheckBox.isChecked():
       self.updatePoolStatus()
     uid = result.params['uid']
@@ -1063,15 +1073,20 @@ class MainWindow(QMainWindow):
     #thisItem.setData
     
     fitData = Object()
-    fitData.pmax_spline = result.pmpp
-    fitData.vmax_spline = result.vmpp
-    fitData.isc_spline = result.isc
-    fitData.voc_spline = result.voc
+    fitData.pmax_spline = result.pmpp if hasattr(result,'pmpp') else np.nan
+    fitData.vmax_spline = result.vmpp if hasattr(result,'vmpp') else np.nan
+    fitData.isc_spline = result.isc if hasattr(result,'isc') else np.nan
+    fitData.voc_spline = result.voc if hasattr(result,'voc') else np.nan
     fitData.row = thisRow
-    fitData.v = result.v
-    fitData.i = result.i
-    fitData.x = result.x
-    fitData.splineCurrent = result.splineCurrent
+    fitData.v = result.v if hasattr(result,'v') else np.nan
+    fitData.i = result.i if hasattr(result,'i') else np.nan
+    fitData.x = result.x if hasattr(result,'x') else np.nan
+    fitData.splineCurrent = result.splineCurrent if hasattr(result,'splineCurrent') else np.nan
+    fitData.vsTime = result.vsTime
+
+    fitData.ssIsc = result.ssIsc_value if hasattr(result,'ssIsc_value') else np.nan
+    fitData.ssVoc = result.ssVoc_value if hasattr(result,'ssVoc_value') else np.nan
+    fitData.ssPmax = result.mppt_value if hasattr(result,'mppt_value') else np.nan
     
     fitData.SSE = result.sse if hasattr(result,'sse') else np.nan
     fitData.eqnCurrent = result.eqnCurrent if hasattr(result,'eqnCurrent') else np.array([np.nan])
@@ -1101,7 +1116,7 @@ class MainWindow(QMainWindow):
     #thisThing = 'pce_spline'
     #insert(thisThing,result['insert'][thisThing])
 
-  def populateRow(self,fitData):
+  def populateRow(self, fitData):
     self.ui.tableWidget.setSortingEnabled(False) # fix strange sort behavior
     
     # add in the export button
@@ -1138,8 +1153,10 @@ class MainWindow(QMainWindow):
       rowData.rsh_a = rowData.rsh*area
       rowData.jph = rowData.iph/area
       rowData.j0 = rowData.i0/area
-      rowData.jsc_fit = rowData.isc_fit/area
+      rowData.jsc_fit = rowData.isc_fit / area
       rowData.pmax_a_fit = rowData.pmax_fit / area
+      rowData.ssJsc = rowData.ssIsc / area
+
       graphData["j"] = rowData.i/areacm * 1000  # in mA/cm^2
       graphData["modelY"] = rowData.eqnCurrent/areacm * 1000  # in mA/cm^2
       graphData["splineY"] = rowData.splineCurrent/areacm * 1000  # in mA/cm^2
@@ -1151,6 +1168,7 @@ class MainWindow(QMainWindow):
     
     if not(suns == 0) and not(area == 0):
       rowData.pce_spline = rowData.pmax_spline / area / self.analyzer.stdIrridance / suns
+      rowData.ssPCE = -1 * rowData.ssPmax / area / self.analyzer.stdIrridance / suns
 
     # derived row data values:
     rowData.ff_spline = rowData.pmax_spline / (rowData.isc_spline*rowData.voc_spline)
@@ -1160,7 +1178,7 @@ class MainWindow(QMainWindow):
     graphData["v"] = rowData.v
     graphData["i"] = rowData.i * 1000  # in mA
     
-    graphData["vsTime"] = False
+    graphData["vsTime"] = rowData.vsTime
     
     # graphData["Vmax"] = rowData.vmax_spline
     # graphData["Imax"] = rowData.pmax_spline/rowData.vmax_spline * 1000  # in mA
@@ -1173,7 +1191,7 @@ class MainWindow(QMainWindow):
     
     for key,value in rowData.__dict__.items():
       colName = key
-      if key not in ['row','i','v','vsTime','x','splineCurrent','eqnCurrent', 'area', 'suns', 'pmax_spline', 'pmax_fit']:
+      if key not in ['row','i','v','vsTime','x','splineCurrent','eqnCurrent', 'area', 'suns', 'pmax_spline', 'pmax_fit', 'ssIsc', 'mppt', 'ssPmax']:
         self.tableInsert(rowData.row, key, value)
         
     # add in the Voc button

@@ -10,6 +10,7 @@ import h5py
 import concurrent.futures
 
 import itertools
+from isort import file
 import mpmath.libmp
 assert mpmath.libmp.BACKEND == 'gmpy'  # note sagemath can't be installed!
 import numpy as np
@@ -341,16 +342,13 @@ class ivAnalyzer:
       #TODO: possibly load multiple curves per file here
       
       for fileData in fileDatas:
-        VV = fileData.VV
-        II = fileData.II
-        vsTime = fileData.vsTime
-        thisParams =  prepCall(fullPath, fileData)
-        
+        thisParams = prepCall(fullPath, fileData)
+
         if self.multiprocess:
-          futures.append(self.pool.submit(ivAnalyzer.processCurve, VV, II, vsTime, thisParams, self.dillPickle, fullPath))
+          futures.append(self.pool.submit(ivAnalyzer.processCurve, fileData, thisParams, self.dillPickle, fullPath))
           futures[-1].add_done_callback(returnCall)
         else:
-          result = ivAnalyzer.processCurve(VV, II, vsTime, thisParams, self.slns, fullPath)
+          result = ivAnalyzer.processCurve(fileData, thisParams, self.slns, fullPath)
           returnCall(result)
     
   def _loadFile(fullPath):
@@ -429,7 +427,7 @@ class ivAnalyzer:
           if 'all_measurements' in pixel:
             iv_data = pixel['all_measurements']
           else:
-            print('WARNING: Could not find any data in {:}'.format(fileName), file = logMessages)
+            print('WARNING: Could not find any data in {:}'.format(basename), file = logMessages)
             return
           
           if 'V_oc dwell' in iv_data.attrs:
@@ -472,7 +470,7 @@ class ivAnalyzer:
       fp.close()
       min_length = 800  # in chars
       if len(fileBuffer) < min_length:
-        print('Could not read' + fileName +'. This file is less than {:} characters long.'.format(min_length), file = logMessages)
+        print(f'Could not read {basename}. This file is less than {min_length} characters long.', file = logMessages)
         return
       head_size = 10  # in chars
       head = fileBuffer[0:head_size]
@@ -522,16 +520,17 @@ class ivAnalyzer:
         fileBuffer = fileBuffer.replace('\n', '#\n',footerLines+1) # comment out the footer lines
         fileBuffer = fileBuffer[::-1] # un-reverse the buffer
         fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
-      elif ('status' in splitlines[0]) and ('(mA/cm^2)' in splitlines[0]) and (any([basename.endswith(x) for x in ['.liv1.tsv', '.liv2.tsv', '.div1.tsv', '.div2.tsv']])):
+      elif ('status' in splitlines[0]) and ('(mA/cm^2)' in splitlines[0]) and basename.endswith('.tsv') and (any([x in basename for x in ['.liv', '.div', '.it', '.vt', '.mppt']])):
         # new processed tsv
         isNextTsv = True
         fileBuffer = '#' + fileBuffer  # comment out the header line
         i_col = 1  # current
         v_col = 0  # voltage
         s_col = 3  # status
+        t_col = 2  # time
         d_col = 4  # current density
       else:
-        print(f"Warning: Couldn't parse file: {fileName}")
+        print(f"Warning: Couldn't parse file: {basename}")
         return
     
       splitBuffer = fileBuffer.splitlines(True)
@@ -585,7 +584,7 @@ class ivAnalyzer:
       if isMyFile:
         ret.VV = data[:,2]
         ret.II = data[:,3]
-      elif isSnaithFile or isNextTsv:
+      elif isSnaithFile:
         ret.VV = data[:,v_col]
         ret.II = data[:,i_col]
       else:
@@ -594,7 +593,7 @@ class ivAnalyzer:
       if isMcFile or isSnaithLegacyFile: # convert from current density to amps through soucemeter
         ret.II = ret.II/jScaleFactor
 
-      if isNextTsv:
+      if isNextTsv:  # latest raw tsv file format
         try:
           # prune data taken while in compliance
           status = data[:, s_col].astype(int)
@@ -603,11 +602,11 @@ class ivAnalyzer:
           compliance_bit_number = 3  # from smu datasheet, 1 when in compliance, 0 otherwise
           check_compliance = np.vectorize(lambda x: np.binary_repr(x, m)[-compliance_bit_number-1]=='1')
           in_compliance = check_compliance(status)
+          n_compliance_points = np.count_nonzero(in_compliance)
 
-          data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
-          ret.VV = data[:,v_col]
-          ret.II = data[:,i_col]
-
+          if n_compliance_points > 0:
+            data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
+            print(f"{n_compliance_points} data points removed from set because the SMU was in compliance")
 
           acur = data[0, i_col]
           adens = data[0, d_col]
@@ -626,6 +625,7 @@ class ivAnalyzer:
             print("Data from the processed folder is required to find area")
             return
           del fns[0]  # throw away the "processed" string
+          end_part = fns[-1]
           del fns[-1]  # throw away the timestamp
           slot = fns[0]
           del fns[0]  # throw away the slot string
@@ -642,6 +642,26 @@ class ivAnalyzer:
           else:
             ret.reverseSweep = True
           
+          if '.liv' in end_part:
+            ret.suns = 1
+            ret.VV = data[:, v_col]
+            ret.II = data[:, i_col]
+          elif '.div' in end_part:
+            ret.suns = 0
+            ret.VV = data[:, v_col]
+            ret.II = data[:, i_col]
+          elif any([x in end_part for x in ['.it', '.vt', '.mppt']]):
+            ret.vsTime = True
+            ret.i_col = i_col
+            ret.v_col = v_col
+            ret.t_col = t_col
+            if '.it' in end_part:
+              ret.ssIsc = data
+            elif '.vt' in end_part:
+              ret.ssVoc = data
+            elif '.mppt' in end_part:
+              ret.mppt = data
+
         except Exception as e:
           print(f"Couldn't parse {fileName}: {e}")
 
@@ -649,15 +669,16 @@ class ivAnalyzer:
 
     
     for i in range(len(ret_list)):
-      # prune data points that share the same voltage
-      u, indices = np.unique(ret_list[i].VV, return_index=True)
-      ret_list[i].VV = ret_list[i].VV[indices]
-      ret_list[i].II = ret_list[i].II[indices]
-    
-      # sort data by ascending voltage
-      newOrder = ret_list[i].VV.argsort()
-      ret_list[i].VV=ret_list[i].VV[newOrder]
-      ret_list[i].II=ret_list[i].II[newOrder]
+      if hasattr(ret_list[i], 'II') and hasattr(ret_list[i], 'VV'):
+        # prune data points that share the same voltage
+        u, indices = np.unique(ret_list[i].VV, return_index=True)
+        ret_list[i].VV = ret_list[i].VV[indices]
+        ret_list[i].II = ret_list[i].II[indices]
+      
+        # sort data by ascending voltage
+        newOrder = ret_list[i].VV.argsort()
+        ret_list[i].VV=ret_list[i].VV[newOrder]
+        ret_list[i].II=ret_list[i].II[newOrder]
     
     return ret_list
   
@@ -924,29 +945,42 @@ class ivAnalyzer:
     
     #return ivAnalyzer.processCurve(VV, II, vsTime, suns, area, params, s, fullPath)
     
-  def processCurve(VV, II, vsTime, params, s, fullPath):
+  def processCurve(file_data, params, s, fullPath):
     result = {}
     ret = Object()
     logMessages = StringIO()
     result['fullPath'] = fullPath
     ret.params = params
+    ret.vsTime = file_data.vsTime
     
     fileName, fileExtension = os.path.splitext(fullPath)
     fileName = os.path.basename(fullPath)
-    result['fileName'] = fileName    
+    result['fileName'] = fileName     
 
-    splineData = ivAnalyzer._doSplineStuff(VV, II)
-    VV = splineData.voltageData
-    II = splineData.currentData
-    vv = splineData.analyticalVoltage
-    isDarkCurve = splineData.isDarkCurve
+    if not file_data.vsTime:  # this is an IV curve
+      VV = file_data.VV
+      II = file_data.II
+      splineData = ivAnalyzer._doSplineStuff(VV, II)
+      VV = splineData.voltageData
+      II = splineData.currentData
+      vv = splineData.analyticalVoltage
+      isDarkCurve = splineData.isDarkCurve
+
+      ret.pmpp = splineData.Pmpp # power at max power point
+      ret.vmpp = splineData.Vmpp
+      ret.isc = splineData.Isc
+      ret.voc = splineData.Voc
+
+      ret.v = splineData.voltageData
+      ret.i = splineData.currentData
+      ret.x = splineData.analyticalVoltage
+      ret.splineCurrent = splineData.splineCurrent
     
-    # trim data to voltage range
-    vMask = (VV > params['lowerVLim']) & (VV < params['upperVLim'])
-    VV = VV[vMask]
-    II = II[vMask]    
+      # trim data to voltage range
+      vMask = (VV > params['lowerVLim']) & (VV < params['upperVLim'])
+      VV = VV[vMask]
+      II = II[vMask]
 
-    if not vsTime:
       if not params['doFit']:
         print("Not attempting fit to characteristic equation.", file = logMessages)
       else:
@@ -1211,10 +1245,31 @@ class ivAnalyzer:
         else: # fit failure
           print("Bad fit because: " + result['fitResult']['message'],file = logMessages)
           #modelY = np.empty(plotPoints)*nan
-  
-    else:#vs time
+    else:  #vs time
       print('This file contains time data.')
-      result['fitResult']['graphData'] = {'vsTime':vsTime,'time':tData,'i':IIt,'v':VVt}
+      avg_time = 0.5  # seconds to average over to get final value
+      if hasattr(file_data, 'ssIsc'):
+        t_data = file_data.ssIsc
+      elif hasattr(file_data, 'ssVoc'):
+        t_data = file_data.ssVoc
+      elif hasattr(file_data, 'mppt'):
+        t_data = file_data.mppt
+      t = t_data[:, file_data.t_col]
+      v = t_data[:, file_data.v_col]
+      i = t_data[:, file_data.i_col]
+      p = v*i
+      t_end = t[-1]
+      t_cutoff = t_end - avg_time
+      i_final = np.average(i[t>=t_cutoff])
+      v_final = np.average(v[t>=t_cutoff])
+      p_final = np.average(p[t>=t_cutoff])
+      if hasattr(file_data, 'ssIsc'):
+        ret.ssIsc_value = i_final
+      elif hasattr(file_data, 'ssVoc'):
+        ret.ssVoc_value = v_final
+      elif hasattr(file_data, 'mppt'):
+        ret.mppt_value = p_final
+      #result['fitResult']['graphData'] = {'vsTime':vsTime,'time':tData,'i':IIt,'v':VVt}
   
     ###export button
     ##exportBtn = QPushButton(self.ui.tableWidget)
@@ -1236,16 +1291,6 @@ class ivAnalyzer:
     #print(result)pmax_a_spline
     
     #ret.pce = (splineData.Pmpp/fileData.area)/(ivAnalyzer.stdIrridance*fileData.suns/ivAnalyzer.sqcmpersqm)
-    ret.pmpp = splineData.Pmpp # power at max power point
-    ret.vmpp = splineData.Vmpp
-    ret.isc = splineData.Isc
-    ret.voc = splineData.Voc
-    
-
-    ret.v = splineData.voltageData
-    ret.i = splineData.currentData
-    ret.x = splineData.analyticalVoltage
-    ret.splineCurrent = splineData.splineCurrent
     logMessages.seek(0)
     ret.logMessages = logMessages.read()    
     return ret
