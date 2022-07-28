@@ -693,7 +693,7 @@ class ivAnalyzer:
     smoothingParameter = 1-1e-3
     coefs, brks = ivAnalyzer.findBreaksAndCoefs(VV, II, smoothingParameter)        
     superSmoothSpline = scipy.interpolate.PPoly(coefs,brks)
-    superSmoothSplineD1 = superSmoothSpline.derivative(1) # first deravive
+    # superSmoothSplineD1 = superSmoothSpline.derivative(1) # first deravive
     superSmoothSplineD2 = superSmoothSpline.derivative(2) # second deravive
   
     vv=np.linspace(min(VV),max(VV),1000)
@@ -960,7 +960,11 @@ class ivAnalyzer:
     if not file_data.vsTime:  # this is an IV curve
       VV = file_data.VV
       II = file_data.II
-      splineData = ivAnalyzer._doSplineStuff(VV, II)
+      try:
+        splineData = ivAnalyzer._doSplineStuff(VV, II)
+      except Exception as e:
+        print(f"Failure doing spline stuff: {e}")
+        return ret
       VV = splineData.voltageData
       II = splineData.currentData
       vv = splineData.analyticalVoltage
