@@ -805,7 +805,7 @@ class MainWindow(QMainWindow):
     splineY = thisGraphData["splineY"]
     if not np.isnan(modelY[0]):
       plt.plot(fitX, modelY,c='k', label='CharEqn Best Fit')
-    plt.plot(fitX, splineY,c='g', label='Spline Fit')
+    plt.plot(fitX, splineY,c='g', label='Interpolation')
     plt.autoscale(axis='x', tight=True)
 
     if ss_voltage:
@@ -1081,7 +1081,7 @@ class MainWindow(QMainWindow):
     fitData.v = result.v if hasattr(result,'v') else np.nan
     fitData.i = result.i if hasattr(result,'i') else np.nan
     fitData.x = result.x if hasattr(result,'x') else np.nan
-    fitData.splineCurrent = result.splineCurrent if hasattr(result,'splineCurrent') else np.nan
+    fitData.terpolation_current = result.terpolation_current if hasattr(result,'terpolation_current') else np.nan
     fitData.vsTime = result.vsTime
 
     fitData.ssIsc = result.ssIsc_value if hasattr(result,'ssIsc_value') else np.nan
@@ -1159,7 +1159,7 @@ class MainWindow(QMainWindow):
 
       graphData["j"] = rowData.i/areacm * 1000  # in mA/cm^2
       graphData["modelY"] = rowData.eqnCurrent/areacm * 1000  # in mA/cm^2
-      graphData["splineY"] = rowData.splineCurrent/areacm * 1000  # in mA/cm^2
+      graphData["splineY"] = rowData.terpolation_current/areacm * 1000  # in mA/cm^2
     else:
       graphData["j"] = rowData.i*np.nan
 
@@ -1171,8 +1171,12 @@ class MainWindow(QMainWindow):
       rowData.ssPCE = -1 * rowData.ssPmax / area / self.analyzer.stdIrridance / suns
 
     # derived row data values:
-    rowData.ff_spline = rowData.pmax_spline / (rowData.isc_spline*rowData.voc_spline)
-    rowData.ff_fit = rowData.pmax_fit/(rowData.isc_fit*rowData.voc_fit)
+    bottom = (rowData.isc_spline*rowData.voc_spline)
+    if bottom != 0:
+      rowData.ff_spline = rowData.pmax_spline / bottom
+    bottom = (rowData.isc_fit*rowData.voc_fit)
+    if bottom != 0:
+      rowData.ff_fit = rowData.pmax_fit / bottom
 
     
     graphData["v"] = rowData.v
@@ -1191,7 +1195,7 @@ class MainWindow(QMainWindow):
     
     for key,value in rowData.__dict__.items():
       colName = key
-      if key not in ['row','i','v','vsTime','x','splineCurrent','eqnCurrent', 'area', 'suns', 'pmax_spline', 'pmax_fit', 'ssIsc', 'mppt', 'ssPmax']:
+      if key not in ['row','i','v','vsTime','x','terpolation_current','eqnCurrent', 'area', 'suns', 'pmax_spline', 'pmax_fit', 'ssIsc', 'mppt', 'ssPmax']:
         self.tableInsert(rowData.row, key, value)
         
     # add in the Voc button

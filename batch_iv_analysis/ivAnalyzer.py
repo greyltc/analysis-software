@@ -690,39 +690,42 @@ class ivAnalyzer:
     # essentially, we want to know if current or voltage has the wrong sign
     # the goal here is that the curve "knee" ends up in quadrant 1
     # (for a light curve, and quadrant 4 for a dark curve)
-    smoothingParameter = 1-1e-3
-    coefs, brks = ivAnalyzer.findBreaksAndCoefs(VV, II, smoothingParameter)        
-    superSmoothSpline = scipy.interpolate.PPoly(coefs,brks)
-    # superSmoothSplineD1 = superSmoothSpline.derivative(1) # first deravive
-    superSmoothSplineD2 = superSmoothSpline.derivative(2) # second deravive
-  
+
+    #terpolate_mode = "homebrew"
+    #terpolate_mode = {"fcn": "splrep", "k":3, "s": 0.0}  # cubic b-spline FITPACK
+    #erpolate_mode = {"fcn": "splrep", "k":3, "s": 1e-9}  # cubic b-spline with smoothing FITPACK
+    terpolate_mode = {"fcn": "splrep", "k":1, "s": 0.0}  # linear b-spline FITPACK
+
+    # approx points
     vv=np.linspace(min(VV),max(VV),1000)
-    if vv[np.abs(superSmoothSplineD2(vv)).argmax()] < 0: # fix flipped voltage sign
+
+    smoothingParameter = 1-1e-3
+    pre_terpolated = ivAnalyzer.find_terpolator(VV, II, smoothingParameter, mode=terpolate_mode)
+    pre_terpolated_d2 = pre_terpolated.derivative(2) # second derivative
+
+    # fix flipped voltage sign
+    if vv[np.abs(pre_terpolated_d2(vv)).argmax()] < 0:
       VV = VV * -1
       newOrder = VV.argsort()
       II=II[newOrder]
       VV=VV[newOrder]
       vv=np.linspace(min(VV),max(VV),1000)
       print("Flipping voltage sign.", file = logMessages)
+
+    # fix flipped current sign
     if II[0] < II[-1]:
       II = II * -1
       print("Flipping current sign.", file = logMessages)
-  
-    # now let's do a spline fit for our data
-    # this prevents measurment noise from impacting our results
-    # and allows us to interpolate between data points
-  
+
+
     smoothingParameter = 1-2e-6
     #0 -> LS-straight line
     #1 -> cubic spline interpolant
   
-    coefs, brks = ivAnalyzer.findBreaksAndCoefs(VV, II, smoothingParameter)
-    smoothSpline = scipy.interpolate.PPoly(coefs,brks)        
+    terpolated = ivAnalyzer.find_terpolator(VV, II, smoothingParameter, mode=terpolate_mode)
   
-    pCoefs, pBrks = ivAnalyzer.findBreaksAndCoefs(VV, II*VV, smoothingParameter)
-    powerSpline = scipy.interpolate.PPoly(pCoefs,pBrks)
-    powerSplineD1 = powerSpline.derivative(1)
-  
+    p_terpolated = ivAnalyzer.find_terpolator(VV, II*VV, smoothingParameter, mode=terpolate_mode)
+    p_terpolated_d1 = p_terpolated.derivative(1)
 
     ##newCoefs = np.vstack((coefs,np.zeros(coefs.shape[1])))
     ##k=4
@@ -768,7 +771,7 @@ class ivAnalyzer:
     #p3, = plt.plot(vv,iiB, label='powerSpline')
     #p4, = plt.plot(vv,iiC, label='cheating')
     #p5, = plt.plot(vv,iiD, label='powerSplineD1')
-    ##p6, = plt.plot(vv,iiD, label='der2')
+    ##p6, = plt.plot(vv,iiD, label='der2')scipy
     ###p7, = plt.plot(vv,iiE, label='Rbf cubic')
     ###p8, = plt.plot(vv,iiF, label='Rbf with medfilt')
     ###p8, = plt.plot(vv,iiG, label='univariat with medfilt')
@@ -830,7 +833,7 @@ class ivAnalyzer:
         #isDarkCurve = False
   
     isDarkCurve = False
-    Vmpp = powerSplineD1.roots(extrapolate=False,discontinuity=False)
+    Vmpp = p_terpolated_d1.roots(extrapolate=False, discontinuity=True)
     VmppSize = Vmpp.size
     if VmppSize == 0:
       Pmpp = nan
@@ -839,17 +842,17 @@ class ivAnalyzer:
       isDarkCurve = True
     elif VmppSize == 1:
       Vmpp = float(Vmpp)
-      Impp = float(smoothSpline(Vmpp))
+      Impp = float(terpolated(Vmpp))
       Pmpp = Impp*Vmpp
     else: # there are more than one local power maxima
-      Impp = smoothSpline(Vmpp)
+      Impp = terpolated(Vmpp)
       Pmpp = Impp*Vmpp
       arg = Pmpp.argmax()
       Pmpp = float(Pmpp[arg])
       Vmpp = float(Vmpp[arg])
       Impp = float(Impp[arg])
   
-    Voc = smoothSpline.roots(extrapolate=True,discontinuity=False)
+    Voc = terpolated.roots(extrapolate=True,discontinuity=False)
     VocSize = Voc.size
     abortTheFit = True
     if VocSize == 0: # never crosses zero, must be dark curve
@@ -870,7 +873,7 @@ class ivAnalyzer:
     if isDarkCurve:
       print("Dark curve detected.", file = logMessages)
   
-    Isc = float(smoothSpline(0))
+    Isc = float(terpolated(0))
     #FF = Pmpp/(Voc*Isc)
   
     # here's how we'll discretize our fits
@@ -885,7 +888,7 @@ class ivAnalyzer:
     else:
       vvMax = max(VV)
   
-    vv = np.linspace(vvMin,vvMax,plotPoints)
+    vv = np.linspace(vvMin, vvMax, plotPoints)
   
     #splineY = smoothSpline(vv)*jScaleFactor
     ##result['graphData'] = {'vsTime':vsTime,'fitX':vv,'modelY':modelY,'splineY':splineY,'i':II*jScaleFactor,'v':VV,'Voc':Voc,'Isc':Isc*jScaleFactor,'Vmax':Vmpp,'Imax':Impp*jScaleFactor}
@@ -924,7 +927,7 @@ class ivAnalyzer:
     ret.voltageData = VV # raw voltage data points
     ret.currentData = II # raw current data points
     ret.analyticalVoltage = vv # voltage vlaues for analytical purposes
-    ret.splineCurrent = smoothSpline(vv) # current values from spline fit
+    ret.terpolation_current = terpolated(vv) # current values from spline fit
     ret.Pmpp = Pmpp # power at max power point
     ret.Vmpp = Vmpp # voltage of maximum power point
     ret.Isc = Isc # short circuit current
@@ -961,24 +964,24 @@ class ivAnalyzer:
       VV = file_data.VV
       II = file_data.II
       try:
-        splineData = ivAnalyzer._doSplineStuff(VV, II)
+        terpolation_data = ivAnalyzer._doSplineStuff(VV, II)
       except Exception as e:
         print(f"Failure doing spline stuff: {e}")
         return ret
-      VV = splineData.voltageData
-      II = splineData.currentData
-      vv = splineData.analyticalVoltage
-      isDarkCurve = splineData.isDarkCurve
+      VV = terpolation_data.voltageData
+      II = terpolation_data.currentData
+      vv = terpolation_data.analyticalVoltage
+      isDarkCurve = terpolation_data.isDarkCurve
 
-      ret.pmpp = splineData.Pmpp # power at max power point
-      ret.vmpp = splineData.Vmpp
-      ret.isc = splineData.Isc
-      ret.voc = splineData.Voc
+      ret.pmpp = terpolation_data.Pmpp # power at max power point
+      ret.vmpp = terpolation_data.Vmpp
+      ret.isc = terpolation_data.Isc
+      ret.voc = terpolation_data.Voc
 
-      ret.v = splineData.voltageData
-      ret.i = splineData.currentData
-      ret.x = splineData.analyticalVoltage
-      ret.splineCurrent = splineData.splineCurrent
+      ret.v = terpolation_data.voltageData
+      ret.i = terpolation_data.currentData
+      ret.x = terpolation_data.analyticalVoltage
+      ret.terpolation_current = terpolation_data.terpolation_current
     
       # trim data to voltage range
       vMask = (VV > params['lowerVLim']) & (VV < params['upperVLim'])
@@ -1340,73 +1343,79 @@ class ivAnalyzer:
     return u.reshape(n - 2, -1), p        
   
   # calculates breakpoints and coefficents for a smoothed piecewise polynomial interpolant for 1d data
-  def findBreaksAndCoefs(xx, yy, p=None):
-    var=1
-    x, y = np.atleast_1d(xx, yy)
-    x = x.ravel()
-    dx = np.diff(x)
-    must_sort = (dx < 0).any()
-    if must_sort:
-      ind = x.argsort()
-      x = x[ind]
-      y = y[..., ind]
+  def find_terpolator(xx, yy, p=None, mode="homebrew"):
+    if "homebrew" in mode:
+      var=1
+      x, y = np.atleast_1d(xx, yy)
+      x = x.ravel()
       dx = np.diff(x)
-  
-    n = len(x)
-  
-    #ndy = y.ndim
-    szy = y.shape
-  
-    nd =  np.prod(szy[:-1]).astype(np.int)
-    ny = szy[-1]
-  
-    if n < 2:
-      raise ValueError('There must be >=2 data points.')
-    elif (dx <= 0).any():
-      raise ValueError('Two consecutive values in x can not be equal.')
-    elif n != ny:
-      raise ValueError('x and y must have the same length.')
-  
-    dydx = np.diff(y) / dx
-  
-    if (n == 2):  # % straight line
-      coefs = np.vstack([dydx.ravel(), y[0, :]])
-    else:
-  
-      dx1 = 1. / dx
-      D = scipy.sparse.spdiags(var * np.ones(n), 0, n, n)  # The varianceStringIO
-  
-      u, p = ivAnalyzer._compute_u(p, D, dydx, dx, dx1, n)
-      dx1.shape = (n - 1, -1)
-      dx.shape = (n - 1, -1)
-      zrs = np.zeros(nd)
-      if p < 1:
-        # faster than yi-6*(1-p)*Q*u
-        ai = (y - (6 * (1 - p) * D *
-                   np.diff(np.vstack([zrs,
-                                            np.diff(np.vstack([zrs, u, zrs]), axis=0) * dx1,
-                                            zrs]), axis=0)).T).T
+      must_sort = (dx < 0).any()
+      if must_sort:
+        ind = x.argsort()
+        x = x[ind]
+        y = y[..., ind]
+        dx = np.diff(x)
+    
+      n = len(x)
+    
+      #ndy = y.ndim
+      szy = y.shape
+    
+      nd =  np.prod(szy[:-1]).astype(np.int)
+      ny = szy[-1]
+    
+      if n < 2:
+        raise ValueError('There must be >=2 data points.')
+      elif (dx <= 0).any():
+        raise ValueError('Two consecutive values in x can not be equal.')
+      elif n != ny:
+        raise ValueError('x and y must have the same length.')
+    
+      dydx = np.diff(y) / dx
+    
+      if (n == 2):  # % straight line
+        coefs = np.vstack([dydx.ravel(), y[0, :]])
       else:
-        ai = y.reshape(n, -1)
-  
-      ci = np.vstack([zrs, 3 * p * u])
-      di = (np.diff(np.vstack([ci, zrs]), axis=0) * dx1 / 3)
-      bi = (np.diff(ai, axis=0) * dx1 - (ci + di * dx) * dx)
-      ai = ai[:n - 1, ...]
-      if nd > 1:
-        di = di.T
-        ci = ci.T
-        ai = ai.T
-      if not any(di):
-        if not any(ci):
-          coefs = np.vstack([bi.ravel(), ai.ravel()])
+    
+        dx1 = 1. / dx
+        D = scipy.sparse.spdiags(var * np.ones(n), 0, n, n)  # The varianceStringIO
+    
+        u, p = ivAnalyzer._compute_u(p, D, dydx, dx, dx1, n)
+        dx1.shape = (n - 1, -1)
+        dx.shape = (n - 1, -1)
+        zrs = np.zeros(nd)
+        if p < 1:
+          # faster than yi-6*(1-p)*Q*u
+          ai = (y - (6 * (1 - p) * D *
+                    np.diff(np.vstack([zrs,
+                                              np.diff(np.vstack([zrs, u, zrs]), axis=0) * dx1,
+                                              zrs]), axis=0)).T).T
         else:
-          coefs = np.vstack([ci.ravel(), bi.ravel(), ai.ravel()])
-      else:
-        coefs = np.vstack(
-          [di.ravel(), ci.ravel(), bi.ravel(), ai.ravel()])
-  
-    return coefs, x
+          ai = y.reshape(n, -1)
+    
+        ci = np.vstack([zrs, 3 * p * u])
+        di = (np.diff(np.vstack([ci, zrs]), axis=0) * dx1 / 3)
+        bi = (np.diff(ai, axis=0) * dx1 - (ci + di * dx) * dx)
+        ai = ai[:n - 1, ...]
+        if nd > 1:
+          di = di.T
+          ci = ci.T
+          ai = ai.T
+        if not any(di):
+          if not any(ci):
+            coefs = np.vstack([bi.ravel(), ai.ravel()])
+          else:
+            coefs = np.vstack([ci.ravel(), bi.ravel(), ai.ravel()])
+        else:
+          coefs = np.vstack(
+            [di.ravel(), ci.ravel(), bi.ravel(), ai.ravel()])
+      return scipy.interpolate.PPoly(coefs, x)
+    else:
+      to_call = getattr(scipy.interpolate, mode["fcn"])
+      local_mode = mode.copy()
+      del local_mode["fcn"]
+      spl = to_call(xx, yy, **local_mode)
+      return scipy.interpolate.PPoly.from_spline(spl)
   
   def lineFit (xData, yData, mGuess, bGuess):
     lineResiduals = lambda p,dataX,dataY: np.square([p[0]*x + p[1] - y for x,y in zip(dataX,dataY)])
