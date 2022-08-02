@@ -64,7 +64,7 @@ class FloatDelegate(QItemDelegate):
 class MainWindow(QMainWindow):
   workingDirectory = ''
   fileNames = []
-  supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2','*.div1','*.div2', '*.h5', '.yaml']
+  supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2','*.div1','*.div2', '*.h5']
   bounds = {}
   bounds['I0'] = [0, np.inf] 
   bounds['Iph'] = [0, np.inf]
