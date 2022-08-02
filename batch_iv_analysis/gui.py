@@ -64,7 +64,7 @@ class FloatDelegate(QItemDelegate):
 class MainWindow(QMainWindow):
   workingDirectory = ''
   fileNames = []
-  supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2','*.div1','*.div2', '*.h5']
+  supportedExtensions = ['*.csv','*.tsv','*.txt','*.liv1','*.liv2','*.div1','*.div2', '*.h5', '.yaml']
   bounds = {}
   bounds['I0'] = [0, np.inf] 
   bounds['Iph'] = [0, np.inf]
@@ -964,7 +964,19 @@ class MainWindow(QMainWindow):
     self.fileNames = []
     
   def newFiles(self, fullPaths):
-    self.analyzer.processFiles(fullPaths, self.processFitResult, self.primeRow)
+    pixels = []
+    for slots_file in filter(lambda fullPath: fullPath.endswith('.csv') and ("IV_pixel_setup_" in fullPath), fullPaths):
+      with open(slots_file, 'r') as f:
+        first = True
+        pixels = []
+        for line in f:
+          lst = tuple(line.strip().split(','))[1:]  # drop the first col
+          if first:
+            headers = lst  # drop the
+            first = False
+          else:
+            pixels.append(dict(zip(headers, lst)))
+    self.analyzer.processFiles(fullPaths, self.processFitResult, self.primeRow, pixels)
 
   def primeRow(self, fullPath, fileData):
     """primes a new row in the table"""
@@ -1241,7 +1253,7 @@ class MainWindow(QMainWindow):
 
     if len(fileNames[0])>0:#check if user clicked cancel
       self.workingDirectory = os.path.dirname(str(fileNames[0][0]))
-      self.settings.setValue('lastFolder',self.workingDirectory)
+      self.settings.setValue('lastFolder', self.workingDirectory)
       
       fullPaths = fileNames[0]
       self.newFiles(fullPaths)

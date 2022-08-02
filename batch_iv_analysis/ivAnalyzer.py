@@ -320,7 +320,7 @@ class ivAnalyzer:
   # this function should be ready to be passed one argument
   # that argument could bethe analysis result dict
   # or a future object where the analysis result dict can be recovered with .result()
-  def processFiles(self, paths, returnCall, prepCall):
+  def processFiles(self, paths, returnCall, prepCall, pixels):
     if type(paths) is not list:
       paths = [paths]
       
@@ -333,7 +333,7 @@ class ivAnalyzer:
     
     futures = []
     for fullPath in paths:
-      fileDatas = ivAnalyzer._loadFile(fullPath)
+      fileDatas = ivAnalyzer._loadFile(fullPath, pixels)
       
       # turn none into empty list
       if fileDatas == None:
@@ -351,7 +351,7 @@ class ivAnalyzer:
           result = ivAnalyzer.processCurve(fileData, thisParams, self.slns, fullPath)
           returnCall(result)
     
-  def _loadFile(fullPath):
+  def _loadFile(fullPath, pixels):
 
     logMessages = StringIO()
     fileName, fileExtension = os.path.splitext(fullPath)
@@ -366,6 +366,7 @@ class ivAnalyzer:
     isSnaithFile = False # true if this is a Snaith iv file format
     isMyFile = False # true if this is a custom solar sim iv file format
     isH5 = False  #true when this is an hdf5 file
+    isNextTsvProc = False  # processed next gen tsv
     isNextTsv = False
     
     print("Processing:", fileName, file = logMessages)
@@ -522,13 +523,21 @@ class ivAnalyzer:
         fileBuffer = fileBuffer[:-3] # remove the last (extra) '\r\n#'
       elif ('status' in splitlines[0]) and ('(mA/cm^2)' in splitlines[0]) and basename.endswith('.tsv') and (any([x in basename for x in ['.liv', '.div', '.it', '.vt', '.mppt']])):
         # new processed tsv
-        isNextTsv = True
+        isNextTsvProc = True
         fileBuffer = '#' + fileBuffer  # comment out the header line
         i_col = 1  # current
         v_col = 0  # voltage
         s_col = 3  # status
         t_col = 2  # time
         d_col = 4  # current density
+      elif (pixels != []) and ('status' in splitlines[0]) and ('(mA/cm^2)' not in splitlines[0]) and (len(splitlines[0].split('\t')) == 4) and basename.endswith('.tsv') and (any([x in basename for x in ['.liv', '.div', '.it', '.vt', '.mppt']])):
+        # new processed tsv
+        isNextTsv = True
+        fileBuffer = '#' + fileBuffer  # comment out the header line
+        v_col = 0  # voltage
+        i_col = 1  # current
+        t_col = 2  # time
+        s_col = 3  # status
       else:
         print(f"Warning: Couldn't parse file: {basename}")
         return
@@ -569,7 +578,7 @@ class ivAnalyzer:
       c = StringIO(fileBuffer) # makes string look like a file
 
       skiprows = 0
-      if isNextTsv == True:
+      if isNextTsvProc or isNextTsv:
         skiprows = 1
     
       #read in data
@@ -593,7 +602,7 @@ class ivAnalyzer:
       if isMcFile or isSnaithLegacyFile: # convert from current density to amps through soucemeter
         ret.II = ret.II/jScaleFactor
 
-      if isNextTsv:  # latest raw tsv file format
+      if isNextTsvProc or isNextTsv:  # latest raw tsv file format
         try:
           # prune data taken while in compliance
           status = data[:, s_col].astype(int)
@@ -607,10 +616,16 @@ class ivAnalyzer:
           if n_compliance_points > 0:
             data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
             print(f"{n_compliance_points} data points removed from set because the SMU was in compliance")
+          
+          for px in pixels:
+            if basename.startswith(px["system_label"]) and (f"_device{px['mux_index']}_" in basename):
+              this_px = px
+              break
 
-          acur = data[0, i_col]
-          adens = data[0, d_col]
-          ret.area = acur/adens/10  # in m^2
+          if ".div" in basename:
+            ret.area = this_px['dark_area']/10  # in m^2
+          else:
+            ret.area = this_px['area']/10  # in m^2
           i_vals = data[:, i_col]
           imini = i_vals.argmin()  # smallest current value seen
           voc_guess = data[imini, v_col]  # rough guess for voc
