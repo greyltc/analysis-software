@@ -966,6 +966,7 @@ class MainWindow(QMainWindow):
   def newFiles(self, fullPaths):
     pixels = []
     for slots_file in filter(lambda fullPath: fullPath.endswith('.csv') and ("IV_pixel_setup_" in fullPath), fullPaths):
+      fullPaths.remove(slots_file)
       with open(slots_file, 'r') as f:
         first = True
         pixels = []

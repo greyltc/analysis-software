@@ -617,15 +617,31 @@ class ivAnalyzer:
             data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
             print(f"{n_compliance_points} data points removed from set because the SMU was in compliance")
           
-          for px in pixels:
-            if basename.startswith(px["system_label"]) and (f"_device{px['mux_index']}_" in basename):
-              this_px = px
-              break
-
-          if ".div" in basename:
-            ret.area = this_px['dark_area']/10  # in m^2
+          bn2 = basename.removeprefix("processed_")
+          fns = bn2.split('_')
+          system_label = fns.pop(0)
+          tsft = fns.pop(-1)
+          pxn = fns.pop(-1).removeprefix("device")
+          if len(fns) == 0:
+            user_label = ""
+            ret.substrate = system_label
           else:
-            ret.area = this_px['area']/10  # in m^2
+            user_label = fns[0]
+            ret.substrate = f"{system_label}: {user_label}"
+
+          if isNextTsvProc:
+            acur = data[0, i_col]
+            adens = data[0, d_col]
+            ret.area = acur/adens/10  # in m^2
+          else:
+            for px in pixels:
+              if (system_label == px["system_label"]) and (pxn == px["mux_index"]) and (user_label == px["user_label"]):
+                this_px = px
+                break
+            if ".div" in basename:
+              ret.area = float(this_px['dark_area'])/10000  # in m^2
+            else:
+              ret.area = float(this_px['area'])/10000  # in m^2
           i_vals = data[:, i_col]
           imini = i_vals.argmin()  # smallest current value seen
           voc_guess = data[imini, v_col]  # rough guess for voc
@@ -635,19 +651,8 @@ class ivAnalyzer:
             voc_positive = False
           v0 = data[0, v_col]
           vend = data[-1, v_col]
-          fns = basename.split('_')
-          if fns[0] != "processed":
-            print("Data from the processed folder is required to find area")
-            return
-          del fns[0]  # throw away the "processed" string
-          end_part = fns[-1]
-          del fns[-1]  # throw away the timestamp
-          slot = fns[0]
-          del fns[0]  # throw away the slot string
-          ret.pixel = fns[-1][-1]
-          del fns[-1]  # throw away the pixel number string
-          label = '_'.join(fns)  # reconstitute the user's label
-          ret.substrate = f"{slot}: {label}"
+
+          ret.pixel = pxn
           if vend > v0:
             sweep_up = True
           else:
@@ -657,24 +662,24 @@ class ivAnalyzer:
           else:
             ret.reverseSweep = True
           
-          if '.liv' in end_part:
+          if '.liv' in tsft:
             ret.suns = 1
             ret.VV = data[:, v_col]
             ret.II = data[:, i_col]
-          elif '.div' in end_part:
+          elif '.div' in tsft:
             ret.suns = 0
             ret.VV = data[:, v_col]
             ret.II = data[:, i_col]
-          elif any([x in end_part for x in ['.it', '.vt', '.mppt']]):
+          elif any([x in tsft for x in ['.it', '.vt', '.mppt']]):
             ret.vsTime = True
             ret.i_col = i_col
             ret.v_col = v_col
             ret.t_col = t_col
-            if '.it' in end_part:
+            if '.it' in tsft:
               ret.ssIsc = data
-            elif '.vt' in end_part:
+            elif '.vt' in tsft:
               ret.ssVoc = data
-            elif '.mppt' in end_part:
+            elif '.mppt' in tsft:
               ret.mppt = data
 
         except Exception as e:
@@ -707,6 +712,7 @@ class ivAnalyzer:
     # (for a light curve, and quadrant 4 for a dark curve)
 
     #terpolate_mode = "homebrew"
+    preterpolate_mode = {"fcn": "splrep", "k":3, "s": 0.0}  # cubic b-spline FITPACK
     #terpolate_mode = {"fcn": "splrep", "k":3, "s": 0.0}  # cubic b-spline FITPACK
     #erpolate_mode = {"fcn": "splrep", "k":3, "s": 1e-9}  # cubic b-spline with smoothing FITPACK
     terpolate_mode = {"fcn": "splrep", "k":1, "s": 0.0}  # linear b-spline FITPACK
@@ -715,7 +721,7 @@ class ivAnalyzer:
     vv=np.linspace(min(VV),max(VV),1000)
 
     smoothingParameter = 1-1e-3
-    pre_terpolated = ivAnalyzer.find_terpolator(VV, II, smoothingParameter, mode=terpolate_mode)
+    pre_terpolated = ivAnalyzer.find_terpolator(VV, II, smoothingParameter, mode=preterpolate_mode)
     pre_terpolated_d2 = pre_terpolated.derivative(2) # second derivative
 
     # fix flipped voltage sign
@@ -1268,7 +1274,6 @@ class ivAnalyzer:
           print("Bad fit because: " + result['fitResult']['message'],file = logMessages)
           #modelY = np.empty(plotPoints)*nan
     else:  #vs time
-      print('This file contains time data.')
       avg_time = 0.5  # seconds to average over to get final value
       if hasattr(file_data, 'ssIsc'):
         t_data = file_data.ssIsc
