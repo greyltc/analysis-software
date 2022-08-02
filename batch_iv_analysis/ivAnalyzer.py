@@ -469,7 +469,10 @@ class ivAnalyzer:
       fp = open(fullPath, mode='r')
       fileBuffer = fp.read()
       fp.close()
-      min_length = 800  # in chars
+      if basename.endswith('.mppt.tsv'):
+        min_length = 100  # allow short mppts
+      else:
+        min_length = 800  # in chars
       if len(fileBuffer) < min_length:
         print(f'Could not read {basename}. This file is less than {min_length} characters long.', file = logMessages)
         return
