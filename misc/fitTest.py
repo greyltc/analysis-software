@@ -184,8 +184,8 @@ def makeAGuess(VV,II):
     #todo: play with setting up "key points"
     
     guess = [float(x) for x in guess]
-    #VV = [np.float(x) for x in VV]
-    #II = [np.float(x) for x in II]
+    #VV = [float(x) for x in VV]
+    #II = [float(x) for x in II]
     
     #odrMod = odr.Model(odrThing)
     #myData = odr.Data(VV,II)

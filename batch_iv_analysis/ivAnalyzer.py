@@ -281,7 +281,7 @@ class ivAnalyzer:
 
         # if not self.isFastAndSloppy:
         #  for key, value in slns.items():
-        #    slns[key] = lambda **kw: np.float(value(**kw))
+        #    slns[key] = lambda **kw: float(value(**kw))
 
         # self.slns = {}
         # self.slns['I'] = functools.partial(tmp['I'],V=V,Iph=Iph,I0=I0,Rsh=Rsh,Rs=Rs,n=n)
@@ -1172,9 +1172,9 @@ class ivAnalyzer:
 
                     # find Voc
                     try:
-                        Voc_charEqn = np.real_if_close(np.float(s["Voc"](I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], n=p["n"])))
+                        Voc_charEqn = np.real_if_close(float(s["Voc"](I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], n=p["n"])))
                         if not np.isfinite(Voc_charEqn):
-                            Inew = lambda V: np.float(np.real(s["I"](n=p["n"], I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], V=V)))
+                            Inew = lambda V: float(np.real(s["I"](n=p["n"], I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], V=V)))
                             sol = scipy.optimize.root(Inew, 1)
                             if sol.success:
                                 Voc_charEqn = sol.x[0]
@@ -1185,9 +1185,9 @@ class ivAnalyzer:
 
                     # find Isc
                     try:
-                        Isc_charEqn = np.real_if_close(np.float(s["Isc"](I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], n=p["n"])))
+                        Isc_charEqn = np.real_if_close(float(s["Isc"](I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], n=p["n"])))
                         if not np.isfinite(Isc_charEqn):
-                            Vnew = lambda I: np.float(np.real(s["V"](n=p["n"], I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], I=I)))
+                            Vnew = lambda I: float(np.real(s["V"](n=p["n"], I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], I=I)))
                             sol = scipy.optimize.root(Vnew, 1e-3)
                             if sol.success:
                                 Isc_charEqn = sol.x[0]
@@ -1198,7 +1198,7 @@ class ivAnalyzer:
 
                     def findMPP(ImppGuess, P_prime, p):
                         try:
-                            Pnew = lambda I: np.float(np.real(P_prime(n=p["n"], I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], I=I)))
+                            Pnew = lambda I: float(np.real(P_prime(n=p["n"], I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], I=I)))
                             sol = scipy.optimize.root(Pnew, ImppGuess)
                             if sol.success:
                                 Impp = sol.x[0]
@@ -1216,7 +1216,7 @@ class ivAnalyzer:
                         Impp_charEqn = findMPP(ImppGuess - 1e-4, s["P_prime"], p)
 
                     if not np.isnan(Impp_charEqn):
-                        Vmpp_charEqn = np.float(np.real_if_close(s["V"](n=p["n"], I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], I=Impp_charEqn)))
+                        Vmpp_charEqn = float(np.real_if_close(s["V"](n=p["n"], I0=p["I0"], Iph=p["Iph"], Rsh=p["Rsh"], Rs=p["Rs"], I=Impp_charEqn)))
                         Pmpp_charEqn = Impp_charEqn * Vmpp_charEqn
                     else:
                         Vmpp_charEqn = nan
@@ -1682,9 +1682,9 @@ class ivAnalyzer:
         x0 = [guess["I0"], guess["Iph"], guess["Rs"], guess["Rsh"], guess["n"]]
         # x0 = [7.974383037191593e-06, 627.619846736794, 0.00012743239329693432, 0.056948423418631065, 2.0]
         residuals = lambda x, T, Y: np.real(np.array([-y + fI(n=x[4], I0=x[0], Iph=x[1], Rsh=x[3], Rs=x[2], V=t) for t, y in zip(T, Y)]))
-        # residuals = lambda x,T,Y: np.abs([np.real_if_close(np.float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t))) - y for t,y in zip(T,Y)])
+        # residuals = lambda x,T,Y: np.abs([np.real_if_close(float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t))) - y for t,y in zip(T,Y)])
 
-        # residuals = lambda x,T,Y: np.abs([np.float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t).real) - y for t,y in zip(T,Y)])
+        # residuals = lambda x,T,Y: np.abs([float(fI(n=x[4],I0=x[0],Iph=x[1],Rsh=x[3],Rs=x[2],V=t).real) - y for t,y in zip(T,Y)])
 
         # residuals = lambda x,T,Y: np.array([-y + slns['I'](I0=x[0], Iph=x[1], Rs=x[2], Rsh=x[3], n=x[4], V=t) for t,y in zip(T,Y)]).astype('complex')
         fitArgs = (residuals, x0)
@@ -1734,7 +1734,7 @@ class ivAnalyzer:
         # cellModel = Model(fI, nan_policy='raise', independent_vars=['V'])
         def fcn(VVV, n, I0, Iph, Rsh, Rs):
             try:
-                send_up = np.array([np.float(np.real(fI(V=x, n=n, I0=I0, Iph=Iph, Rsh=Rsh, Rs=Rs))) for x in VVV], dtype=float)
+                send_up = np.array([float(np.real(fI(V=x, n=n, I0=I0, Iph=Iph, Rsh=Rsh, Rs=Rs))) for x in VVV], dtype=float)
                 if any(np.isinf(send_up)):
                     print("woopsie2")
                     send_up = np.full_like(VVV, np.nan)
