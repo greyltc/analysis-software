@@ -960,14 +960,23 @@ class MainWindow(QMainWindow):
             fullPaths.remove(slots_file)
             with open(slots_file, "r") as f:
                 first = True
+                drop_first = True
                 pixels = []
                 for line in f:
-                    lst = tuple(line.strip().split(","))[1:]  # drop the first col
+                    lst = tuple(line.strip().split(","))
                     if first:
-                        headers = lst  # drop the
+                        if lst[0] != "IV":
+                            drop_first = False
+                        if drop_first:
+                            headers = lst[1:]
+                        else:
+                            headers = lst
                         first = False
                     else:
-                        pixels.append(dict(zip(headers, lst)))
+                        if drop_first:
+                            pixels.append(dict(zip(headers, lst[1:])))
+                        else:
+                            pixels.append(dict(zip(headers, lst)))
         self.analyzer.processFiles(fullPaths, self.processFitResult, self.primeRow, pixels)
 
     def primeRow(self, fullPath, fileData):

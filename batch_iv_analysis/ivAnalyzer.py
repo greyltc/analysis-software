@@ -642,9 +642,14 @@ class ivAnalyzer:
                         ret.area = acur / adens / 10  # in m^2
                     else:
                         for px in pixels:
-                            if (system_label == px["system_label"]) and (pxn == px["mux_index"]) and (user_label == px["user_label"]):
-                                this_px = px
-                                break
+                            if ("slot" in px) and ("pad" in px):  # new headers
+                                if (system_label == px["slot"]) and (pxn == px["pad"]) and (user_label == px["user_label"]):  
+                                    this_px = px
+                                    break
+                            else:  # old headers
+                                if (system_label == px["system_label"]) and (pxn == px["mux_index"]) and (user_label == px["user_label"]):  
+                                    this_px = px
+                                    break
                         if ".div" in basename:
                             ret.area = float(this_px["dark_area"]) / 10000  # in m^2
                         else:
