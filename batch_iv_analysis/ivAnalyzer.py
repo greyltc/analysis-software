@@ -1783,12 +1783,12 @@ class ivAnalyzer:
         params["I0"].min = 0
 
         # fitResult = cellModel.fit(II, V=VV, method='powell',fit_kws={'options':{'xtol':1e-6,'ftol':1e-6}})
-        fitResult = cmodel.fit(II, params, VVV=VV, fit_kws={"max_nfev": 24000})
+        fitResult = cmodel.fit(II, params, VVV=VV, fit_kws={"maxfev": 24000})
         # cellModel.set_param_hint('Rsh',min=-np.inf)
         # cellModel.set_param_hint('Rs',min=-np.inf)
         params["Rsh"].min = float("-inf")
         params["Rs"].min = float("-inf")
-        fitResult = cmodel.fit(II, params, VVV=VV, method="nelder", fit_kws={"reduce_fcn": "neglogcauchy", "options": {"xatol": 1e-14, "max_nfev": 44000, "fatol": 1e-14, "disp": True}})
+        fitResult = cmodel.fit(II, params, VVV=VV, method="nelder", fit_kws={"reduce_fcn": "neglogcauchy", "options": {"xatol": 1e-14, "maxfev": 44000, "fatol": 1e-14, "disp": True}})
         print(fitResult.fit_report())
 
         # do the fit
