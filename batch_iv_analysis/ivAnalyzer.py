@@ -358,7 +358,8 @@ class ivAnalyzer:
 
     def _loadFile(fullPath, pixels):
 
-        logMessages = StringIO()
+        #logMessages = StringIO()
+        logMessages = None
         fileName, fileExtension = os.path.splitext(fullPath)
         basename = os.path.basename(fullPath)
 
@@ -714,7 +715,8 @@ class ivAnalyzer:
         return ret_list
 
     def _doSplineStuff(VV, II):
-        logMessages = StringIO()
+        #logMessages = StringIO()
+        logMessages = None
         # the task now is to figure out how this data was collected so that we can fix it
         # this is important because the guess and fit algorithms below expect the data to be
         # in a certian way
@@ -723,7 +725,7 @@ class ivAnalyzer:
         # (for a light curve, and quadrant 4 for a dark curve)
 
         # terpolate_mode = "homebrew"
-        preterpolate_mode = {"fcn": "splrep", "k": 3, "s": 0.0}  # cubic b-spline FITPACK
+        preterpolate_mode = {"fcn": "splrep", "k": 3, "s": 1e-7}  # cubic b-spline FITPACK
         # terpolate_mode = {"fcn": "splrep", "k":3, "s": 0.0}  # cubic b-spline FITPACK
         # erpolate_mode = {"fcn": "splrep", "k":3, "s": 1e-9}  # cubic b-spline with smoothing FITPACK
         terpolate_mode = {"fcn": "splrep", "k": 1, "s": 0.0}  # linear b-spline FITPACK
@@ -963,8 +965,8 @@ class ivAnalyzer:
         ret.Isc = Isc  # short circuit current
         ret.Voc = Voc  # open circuit voltage
         ret.isDarkCurve = isDarkCurve  # dark curve detection flag
-        logMessages.seek(0)
-        ret.logMessages = logMessages.read()
+        #logMessages.seek(0)
+        #ret.logMessages = logMessages.read()
         return ret
 
     # def processFile(fullPath, params, s):
@@ -981,7 +983,8 @@ class ivAnalyzer:
     def processCurve(file_data, params, s, fullPath):
         result = {}
         ret = Object()
-        logMessages = StringIO()
+        #logMessages = StringIO()
+        logMessages = None
         result["fullPath"] = fullPath
         ret.params = params
         ret.vsTime = file_data.vsTime
@@ -1320,8 +1323,8 @@ class ivAnalyzer:
         # print(result)pmax_a_spline
 
         # ret.pce = (splineData.Pmpp/fileData.area)/(ivAnalyzer.stdIrridance*fileData.suns/ivAnalyzer.sqcmpersqm)
-        logMessages.seek(0)
-        ret.logMessages = logMessages.read()
+        #logMessages.seek(0)
+        #ret.logMessages = logMessages.read()
         return ret
         # return result
 
