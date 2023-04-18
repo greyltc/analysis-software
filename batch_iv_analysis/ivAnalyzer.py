@@ -67,13 +67,17 @@ class ivAnalyzer:
     stdIrridance = 1000  # [W/m^2] standard reporting irridance
     mWperW = 1000  # mW per W
 
+    no_prune = False
     multiprocess = None
     readyForAnalysis = False
+
+    flipx:bool|None = None
+    flipy:bool|None = None
 
     pool = None
     poolWorkers = None
 
-    def __init__(self, beFastAndSloppy=False, poolWorkers=0):
+    def __init__(self, beFastAndSloppy=False, poolWorkers=0, no_prune=False, flipx=None, flipy=None):
         self.__dict__["poolWorkers"] = poolWorkers
 
         if poolWorkers == 0:
@@ -82,6 +86,9 @@ class ivAnalyzer:
             self.__dict__["multiprocess"] = True
 
         self.__dict__["isFastAndSloppy"] = beFastAndSloppy
+        self.no_prune = no_prune
+        self.flipx = flipx
+        self.flipy = flipy
 
     def __setattr__(self, attr, value):
         if attr == "isFastAndSloppy":
@@ -338,7 +345,7 @@ class ivAnalyzer:
 
         futures = []
         for fullPath in paths:
-            fileDatas = ivAnalyzer._loadFile(fullPath, pixels)
+            fileDatas = ivAnalyzer._loadFile(fullPath, pixels, self.no_prune)
 
             # turn none into empty list
             if fileDatas == None:
@@ -350,13 +357,13 @@ class ivAnalyzer:
                 thisParams = prepCall(fullPath, fileData)
 
                 if self.multiprocess:
-                    futures.append(self.pool.submit(ivAnalyzer.processCurve, fileData, thisParams, self.dillPickle, fullPath))
+                    futures.append(self.pool.submit(ivAnalyzer.processCurve, fileData, thisParams, self.dillPickle, fullPath, self.flipx, self.flipy))
                     futures[-1].add_done_callback(returnCall)
                 else:
-                    result = ivAnalyzer.processCurve(fileData, thisParams, self.slns, fullPath)
+                    result = ivAnalyzer.processCurve(fileData, thisParams, self.slns, fullPath, self.flipx, self.flipy)
                     returnCall(result)
 
-    def _loadFile(fullPath, pixels):
+    def _loadFile(fullPath, pixels, no_prune:bool):
 
         #logMessages = StringIO()
         logMessages = None
@@ -622,8 +629,11 @@ class ivAnalyzer:
                     n_compliance_points = np.count_nonzero(in_compliance)
 
                     if n_compliance_points > 0:
-                        data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
-                        print(f"{n_compliance_points} data points removed from set because the SMU was in compliance")
+                        if no_prune:
+                            print(f"{n_compliance_points} data points would have been removed from set because the SMU was in compliance, but no_prune was set")
+                        else:
+                            data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
+                            print(f"{n_compliance_points} data points removed from set because the SMU was in compliance")
 
                     bn2 = basename.removeprefix("processed_")
                     fns = bn2.split("_")
@@ -708,13 +718,13 @@ class ivAnalyzer:
                 ret_list[i].II = ret_list[i].II[indices]
 
                 # sort data by ascending voltage
-                newOrder = ret_list[i].VV.argsort()
-                ret_list[i].VV = ret_list[i].VV[newOrder]
-                ret_list[i].II = ret_list[i].II[newOrder]
+                #newOrder = ret_list[i].VV.argsort()
+                #ret_list[i].VV = ret_list[i].VV[newOrder]
+                #ret_list[i].II = ret_list[i].II[newOrder]
 
         return ret_list
 
-    def _doSplineStuff(VV, II):
+    def _doSplineStuff(VV, II, flipx:None|bool, flipy:None|bool):
         #logMessages = StringIO()
         logMessages = None
         # the task now is to figure out how this data was collected so that we can fix it
@@ -738,7 +748,7 @@ class ivAnalyzer:
         pre_terpolated_d2 = pre_terpolated.derivative(2)  # second derivative
 
         # fix flipped voltage sign
-        if vv[np.abs(pre_terpolated_d2(vv)).argmax()] < 0:
+        if ((vv[np.abs(pre_terpolated_d2(vv)).argmax()] < 0) and (flipx is None)) or flipx:
             VV = VV * -1
             newOrder = VV.argsort()
             II = II[newOrder]
@@ -747,7 +757,7 @@ class ivAnalyzer:
             print("Flipping voltage sign.", file=logMessages)
 
         # fix flipped current sign
-        if II[0] < II[-1]:
+        if ((II[0] < II[-1]) and (flipy is None)) or flipy:
             II = II * -1
             print("Flipping current sign.", file=logMessages)
 
@@ -980,7 +990,7 @@ class ivAnalyzer:
 
     # return ivAnalyzer.processCurve(VV, II, vsTime, suns, area, params, s, fullPath)
 
-    def processCurve(file_data, params, s, fullPath):
+    def processCurve(file_data, params, s, fullPath, flipx:None|bool = None, flipy:None|bool = None):
         result = {}
         ret = Object()
         #logMessages = StringIO()
@@ -997,7 +1007,7 @@ class ivAnalyzer:
             VV = file_data.VV
             II = file_data.II
             try:
-                terpolation_data = ivAnalyzer._doSplineStuff(VV, II)
+                terpolation_data = ivAnalyzer._doSplineStuff(VV, II, flipx, flipy)
             except Exception as e:
                 print(f"Failure doing spline stuff: {e}")
                 return ret
