@@ -105,7 +105,7 @@ def makeAGuess(VV,II):
         plt.title('Guess and raw data')
         plt.plot(vv,ii)
         plt.scatter(dataX,dataY)
-        plt.grid(b=True)
+        plt.grid()
         plt.draw()
         plt.show()
     

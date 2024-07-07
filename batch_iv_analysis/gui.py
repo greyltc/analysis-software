@@ -754,8 +754,8 @@ class MainWindow(QMainWindow):
         ax1.plot(x, y, c="b", marker="o", ls="None", label="power_density")
         ax1.set_ylabel("Power Density [mW/cm^2]", color="b")
         ax1.tick_params("y", colors="b")
-        ax1.grid(b=True, axis="y", color="b", alpha=0.3)
-        ax1.grid(b=True, axis="x")
+        ax1.grid(axis="y", color="b", alpha=0.3)
+        ax1.grid(axis="x")
         ax1.set_xlabel("Time [s]")
         ax1.set_title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
 
@@ -763,7 +763,7 @@ class MainWindow(QMainWindow):
         ax2.plot(x, v, c="r", marker=".", ls="None", label="voltage")
         ax2.set_ylabel("Voltage [V]", color="r")
         ax2.tick_params("y", colors="r")
-        ax2.grid(b=True, axis="y", color="r", alpha=0.3)
+        ax2.grid(axis="y", color="r", alpha=0.3)
 
         plt.draw()
         fig = plt.gcf()

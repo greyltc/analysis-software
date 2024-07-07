@@ -337,10 +337,11 @@ class ivAnalyzer:
             paths = [paths]
 
         tic = time.time()
+        max_time_s = 30
         while not self.readyForAnalysis:
             time.sleep(0.1)
-            if (time.time() - tic) > 10:
-                print("Error: 10 seconds have passed and we're not ready yet. Aborting.")
+            if (time.time() - tic) > max_time_s:
+                print(f"Error: {max_time_s} seconds have passed and we're not ready yet. Aborting.")
                 return
 
         futures = []
@@ -821,7 +822,7 @@ class ivAnalyzer:
         # ax = plt.gca()
         # handles, labels = ax.get_legend_handles_labels()
         # ax.legend(handles, labels, loc=3)
-        # plt.grid(b=True)
+        # plt.grid()
         # plt.draw()
         # plt.show()
         # plt.pause(500)
@@ -1050,7 +1051,8 @@ class ivAnalyzer:
                     s = dill.loads(s)  # multiprocess case
 
                 try:
-                    guess = ivAnalyzer.makeAReallySmartGuess(VV, II, isDarkCurve, s["I"], s["I0"], s["n"])
+                    print(f"{fileName=}")
+                    guess = ivAnalyzer.makeAReallySmartGuess(VV, II, isDarkCurve, s["I"], s["I0"], s["n"], fileName)
                 except:
                     print("Warning: makeAReallySmartGuess() function failed!", file=logMessages)
                     guess = {"I0": 1e-9, "Iph": II[0], "Rs": 5, "Rsh": 1e6, "n": 1.0}
@@ -1492,7 +1494,7 @@ class ivAnalyzer:
     # of the equation that w're about to attempt to fit so that
     # the (relatively dumb and fragile) final optimization/curve fitting routine
     # has the best chance of giving good results
-    def makeAReallySmartGuess(VV, II, isDarkCurve, fI, fI0, fn):
+    def makeAReallySmartGuess(VV, II, isDarkCurve, fI, fI0, fn, file):
         # data point selection:
         # lowest voltage (might be same as Isc)
         nPoints = len(VV)
@@ -1571,6 +1573,7 @@ class ivAnalyzer:
         yData = II[start_i:vp_i]
         result = ivAnalyzer.lineFit(xData, yData, -1 / guess["Rsh"], guess["Iph"])
         guess["Rsh"] = -1 / result[0]
+        print(f'dink: {file},{guess["Rsh"]}')
         guess["Iph"] = result[1]
 
         # try to further refine guess for Rs
@@ -1682,7 +1685,7 @@ class ivAnalyzer:
         plt.plot(V_vp_n, I_vp_n, "Dc", markersize=10, label="vp")
         plt.plot(V_vmpp_n, I_vmpp_n, "+c", markersize=10, label="mpp")
         plt.scatter(VV, II, label="Data")
-        plt.grid(b=True)
+        plt.grid()
         plt.legend()
         yRange = max(II) - min(II)
         plt.ylim(min(II) - yRange * 0.1, max(II) + yRange * 0.1)
@@ -1931,7 +1934,7 @@ class ivAnalyzer:
         ax = plt.gca()
         handles, labels = ax.get_legend_handles_labels()
         ax.legend(handles, labels, loc=3)
-        plt.grid(b=True)
+        plt.grid()
         plt.draw()
         plt.show()
         plt.pause(1)
