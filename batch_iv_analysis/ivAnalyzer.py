@@ -373,7 +373,7 @@ class ivAnalyzer:
 
         # what we'll return
         ret_list = []
-        ret = Object()
+        ret = {}
 
         isMcFile = False  # true if this is a McGehee iv file format
         isSnaithLegacyFile = False  # true if this is a Snaith legacy iv file format
@@ -405,38 +405,38 @@ class ivAnalyzer:
             for substrate_str in list(h5.keys()):
                 substrate = h5["/" + substrate_str]
                 for pixel_str in list(substrate.keys()):
-                    ret = Object()
+                    ret = {}
                     pixel = substrate[pixel_str]
 
-                    ret.substrate = substrate_str
-                    ret.pixel = pixel_str
+                    ret["substrate"] = substrate_str
+                    ret["pixel"] = pixel_str
                     if "Intensity [suns]" in h5.attrs:
-                        ret.suns = h5.attrs["Intensity [suns]"]
+                        ret["suns"] = h5.attrs["Intensity [suns]"]
                     else:
-                        ret.sunsA = h5.attrs["Diode 1 intensity [suns]"]
-                        ret.sunsB = h5.attrs["Diode 2 intensity [suns]"]
-                        ret.suns = (ret.sunsA + ret.sunsB) / 2  # TODO: use the correct diode intensity for specific pixels instead of averaging the two diodes
+                        ret["sunsA"] = h5.attrs["Diode 1 intensity [suns]"]
+                        ret["sunsB"] = h5.attrs["Diode 2 intensity [suns]"]
+                        ret["suns"] = (ret["sunsA"] + ret["sunsB"]) / 2  # TODO: use the correct diode intensity for specific pixels instead of averaging the two diodes
 
                     if this_ver <= version.parse("1.1.0"):
-                        ret.area = float(pixel.attrs["area"]) / 1e4  # in m^2
+                        ret["area"] = float(pixel.attrs["area"]) / 1e4  # in m^2
                     else:
-                        ret.area = pixel.attrs["area"]
-                    ret.vsTime = False
+                        ret["area"] = pixel.attrs["area"]
+                    ret["vsTime"] = False
 
                     if "ssPmax" in pixel.attrs:
-                        ret.ssPmax = pixel.attrs["ssPmax"]
+                        ret["ssPmax"] = pixel.attrs["ssPmax"]
 
                     if "Voc" in pixel.attrs:
-                        ret.Voc = pixel.attrs["Voc"]
+                        ret["Voc"] = pixel.attrs["Voc"]
 
                     if "Isc" in pixel.attrs:
-                        ret.Isc = pixel.attrs["Isc"]
+                        ret["Isc"] = pixel.attrs["Isc"]
 
                     if "Vmpp" in pixel.attrs:
-                        ret.Vmpp = pixel.attrs["Vmpp"]
+                        ret["Vmpp"] = pixel.attrs["Vmpp"]
 
                     if "Impp" in pixel.attrs:
-                        ret.Impp = pixel.attrs["Impp"]
+                        ret["Impp"] = pixel.attrs["Impp"]
 
                     # this is all the i-v data
                     if "all_measurements" in pixel:
@@ -446,20 +446,20 @@ class ivAnalyzer:
                         return
 
                     if "V_oc dwell" in iv_data.attrs:
-                        ret.ssVoc = iv_data[iv_data.attrs["V_oc dwell"]]
+                        ret["ssVoc"] = iv_data[iv_data.attrs["V_oc dwell"]]
 
                     if "I_sc dwell" in iv_data.attrs:
-                        ret.ssIsc = iv_data[iv_data.attrs["I_sc dwell"]]
+                        ret["ssIsc"] = iv_data[iv_data.attrs["I_sc dwell"]]
 
                     if "MPPT" in iv_data.attrs:
-                        ret.mppt = iv_data[iv_data.attrs["MPPT"]]
+                        ret["mppt"] = iv_data[iv_data.attrs["MPPT"]]
 
                     # now we pick out regions of interest from the big i-v data set
                     if "Snaith" in iv_data.attrs:
                         snaith_region = iv_data[iv_data.attrs["Snaith"]]  # I_sc --> V_oc sweep
-                        ret.VV = np.array([e[0] for e in snaith_region])
-                        ret.II = np.array([e[1] for e in snaith_region])
-                        ret.reverseSweep = False
+                        ret["VV"] = np.array([e[0] for e in snaith_region])
+                        ret["II"] = np.array([e[1] for e in snaith_region])
+                        ret["reverseSweep"] = False
                         ret_list.append(copy.deepcopy(ret))
                     if "Sweep" in iv_data.attrs:
                         sweep_region = iv_data[iv_data.attrs["Sweep"]]  #  V_oc --> I_sc sweep
@@ -467,12 +467,12 @@ class ivAnalyzer:
                             ret_list.append(copy.deepcopy(ret_list[-1]))
                         else:
                             ret_list.append(copy.deepcopy(ret))
-                        ret_list[-1].VV = np.array([e[0] for e in sweep_region])
-                        ret_list[-1].II = np.array([e[1] for e in sweep_region])
-                        ret_list[-1].reverseSweep = True
+                        ret_list[-1]["VV"] = np.array([e[0] for e in sweep_region])
+                        ret_list[-1]["II"] = np.array([e[1] for e in sweep_region])
+                        ret_list[-1]["reverseSweep"] = True
 
         else:  # (legacy) non-h5py file
-            ret.reverseSweep = False
+            ret["reverseSweep"] = False
             if fileExtension == ".csv":
                 delimiter = ","
             elif fileExtension == ".tsv":
@@ -496,6 +496,8 @@ class ivAnalyzer:
 
             splitlines = fileBuffer.splitlines(True)
 
+            header = ""
+
             # mcFile test:
             if (not head.__contains__("#")) and (head.__contains__("/")) and (head.__contains__("\t")):  # the first line is not a comment
                 nMcHeaderLines = 25  # number of header lines in mcgehee IV file format
@@ -510,9 +512,9 @@ class ivAnalyzer:
                 isSnaithLegacyFile = True
                 delimiter = "\t"
                 if (fileExtension == ".liv1") or (fileExtension == ".div1"):
-                    ret.reverseSweep = True
+                    ret["reverseSweep"] = True
                 if (fileExtension == ".liv2") or (fileExtension == ".div2"):
-                    ret.reverseSweep = False
+                    ret["reverseSweep"] = False
                 fileBuffer = fileBuffer[::-1]  # reverse the buffer
                 fileBuffer = fileBuffer.replace("\n", "#\n", nSnaithFooterLines + 1)  # comment out the footer lines
                 fileBuffer = fileBuffer[::-1]  # un-reverse the buffer
@@ -530,9 +532,9 @@ class ivAnalyzer:
                     v_col = 2
                 delimiter = "\t"
                 if (fileExtension == ".liv1") or (fileExtension == ".div1"):
-                    ret.reverseSweep = True
+                    ret["reverseSweep"] = True
                 if (fileExtension == ".liv2") or (fileExtension == ".div2"):
-                    ret.reverseSweep = False
+                    ret["reverseSweep"] = False
                 fileBuffer = "#" + fileBuffer
                 fileBuffer = fileBuffer[::-1]  # reverse the buffer
                 fileBuffer = fileBuffer.replace("\n", "#\n", footerLines + 1)  # comment out the footer lines
@@ -561,11 +563,11 @@ class ivAnalyzer:
 
             splitBuffer = fileBuffer.splitlines(True)
 
-            ret.substrate = "?"
-            ret.pixel = "?"
-            ret.suns = 1
-            ret.area = 1 * 1e-4  # in m^2
-            ret.vsTime = False  # this is not an i,v vs t data file
+            ret["substrate"] = "?"
+            ret["pixel"] = "?"
+            ret["suns"] = 1
+            ret["area"] = 1 * 1e-4  # in m^2
+            ret["vsTime"] = False  # this is not an i,v vs t data file
             # extract comments lines and search for area and intensity
             comments = []
             for line in splitBuffer:
@@ -574,22 +576,25 @@ class ivAnalyzer:
                     if "Area" in line:
                         numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
                         if len(numbersHere) == 1:
-                            ret.area = numbersHere[0] * 1e-4
+                            ret["area"] = numbersHere[0] * 1e-4
                     elif "I&V vs t" in line:
                         if float(line.split(" ")[5]) == 1:
-                            ret.vsTime = True
+                            ret["vsTime"] = True
                     elif "Number of suns:" in line or "(# suns)" in line:
                         numbersHere = [float(s) for s in line.split() if ivAnalyzer.isNumber(s)]
                         if len(numbersHere) == 1:
-                            ret.suns = numbersHere[0]
+                            ret["suns"] = numbersHere[0]
                     elif line.startswith("#Pixel"):
                         splitted = line.split("\t")
-                        ret.pixel = splitted[1].strip()
+                        ret["pixel"] = splitted[1].strip()
                     elif line.startswith("#Position"):
                         splitted = line.split("\t")
-                        ret.substrate = splitted[1].upper().strip()
+                        ret["substrate"] = splitted[1].upper().strip()
+            
+            if comments:
+                header = comments[0].removeprefix("#")
 
-            jScaleFactor = 1000 / (ret.area * 1e4)  # for converstion to current density[mA/cm^2]
+            jScaleFactor = 1000 / (ret["area"] * 1e4)  # for converstion to current density[mA/cm^2]
 
             c = StringIO(fileBuffer)  # makes string look like a file
 
@@ -607,16 +612,16 @@ class ivAnalyzer:
                 print("WARNING: Could not find any data in {:}".format(fileName), file=logMessages)
                 return
             if isMyFile:
-                ret.VV = data[:, 2]
-                ret.II = data[:, 3]
+                ret["VV"] = data[:, 2]
+                ret["II"] = data[:, 3]
             elif isSnaithFile:
-                ret.VV = data[:, v_col]
-                ret.II = data[:, i_col]
+                ret["VV"] = data[:, v_col]
+                ret["II"] = data[:, i_col]
             else:
-                ret.VV = data[:, 0]
-                ret.II = data[:, 1]
+                ret["VV"] = data[:, 0]
+                ret["II"] = data[:, 1]
             if isMcFile or isSnaithLegacyFile:  # convert from current density to amps through soucemeter
-                ret.II = ret.II / jScaleFactor
+                ret["II"] = ret["II"] / jScaleFactor
 
             if isNextTsvProc or isNextTsv:  # latest raw tsv file format
                 try:
@@ -639,33 +644,44 @@ class ivAnalyzer:
                     bn2 = basename.removeprefix("processed_")
                     fns = bn2.split("_")
                     system_label = fns.pop(0)
+                    ret["slot"] = system_label
                     tsft = fns.pop(-1)
                     pxn = fns.pop(-1).removeprefix("device")
                     if len(fns) == 0:
                         user_label = ""
-                        ret.substrate = system_label
                     else:
                         user_label = fns[0]
-                        ret.substrate = f"{system_label}: {user_label}"
+                    ret["substrate"] = user_label
 
                     if isNextTsvProc:
                         acur = data[0, i_col]
                         adens = data[0, d_col]
-                        ret.area = acur / adens / 10  # in m^2
-                    else:
+                        ret["area"] = acur / adens / 10  # in m^2
+                    else:  # unprocessed NextTsv
+                        baseline_headers = []
                         for px in pixels:
                             if ("slot" in px) and ("pad" in px):  # new headers
-                                if (system_label == px["slot"]) and (pxn == px["pad"]) and (user_label == px["user_label"]):  
+                                if (system_label == px["slot"]) and (pxn == px["pad"]) and (user_label == px["user_label"]):
+                                    baseline_headers = ["slot","user_label","layout","area","dark_area","pad"]
                                     this_px = px
                                     break
                             else:  # old headers
                                 if (system_label == px["system_label"]) and (pxn == px["mux_index"]) and (user_label == px["user_label"]):  
                                     this_px = px
+                                    baseline_headers = ["IV","system_label","user_label","substrate_index","layout","area","dark_area","mux_index"]
                                     break
                         if ".div" in basename:
-                            ret.area = float(this_px["dark_area"]) / 10000  # in m^2
+                            ret["area"] = float(this_px["dark_area"]) / 10000  # in m^2
                         else:
-                            ret.area = float(this_px["area"]) / 10000  # in m^2
+                            ret["area"] = float(this_px["area"]) / 10000  # in m^2
+
+                        # process user supplied variables
+                        if baseline_headers:
+                            pxcpy = this_px.copy()
+                            for expected in baseline_headers:
+                                del pxcpy[expected]
+                            ret["user_vars"] = pxcpy
+
                     i_vals = data[:, i_col]
                     imini = i_vals.argmin()  # smallest current value seen
                     voc_guess = data[imini, v_col]  # rough guess for voc
@@ -676,35 +692,35 @@ class ivAnalyzer:
                     v0 = data[0, v_col]
                     vend = data[-1, v_col]
 
-                    ret.pixel = pxn
+                    ret["pixel"] = pxn
                     if vend > v0:
                         sweep_up = True
                     else:
                         sweep_up = False
                     if sweep_up == voc_positive:
-                        ret.reverseSweep = False
+                        ret["reverseSweep"] = False
                     else:
-                        ret.reverseSweep = True
+                        ret["reverseSweep"] = True
 
                     if ".liv" in tsft:
-                        ret.suns = 1
-                        ret.VV = data[:, v_col]
-                        ret.II = data[:, i_col]
+                        ret["suns"] = 1
+                        ret["VV"] = data[:, v_col]
+                        ret["II"] = data[:, i_col]
                     elif ".div" in tsft:
-                        ret.suns = 0
-                        ret.VV = data[:, v_col]
-                        ret.II = data[:, i_col]
+                        ret["suns"] = 0
+                        ret["VV"] = data[:, v_col]
+                        ret["II"] = data[:, i_col]
                     elif any([x in tsft for x in [".it", ".vt", ".mppt"]]):
-                        ret.vsTime = True
-                        ret.i_col = i_col
-                        ret.v_col = v_col
-                        ret.t_col = t_col
+                        ret["vsTime"] = True
+                        ret["i_col"] = i_col
+                        ret["v_col"] = v_col
+                        ret["t_col"] = t_col
                         if ".it" in tsft:
-                            ret.ssIsc = data
+                            ret["ssIsc"] = data
                         elif ".vt" in tsft:
-                            ret.ssVoc = data
+                            ret["ssVoc"] = data
                         elif ".mppt" in tsft:
-                            ret.mppt = data
+                            ret["mppt"] = data
 
                 except Exception as e:
                     print(f"Couldn't parse {fileName}: {e}")
@@ -712,11 +728,11 @@ class ivAnalyzer:
             ret_list.append(ret)
 
         for i in range(len(ret_list)):
-            if hasattr(ret_list[i], "II") and hasattr(ret_list[i], "VV"):
+            if "II" in ret_list[i] and "VV" in ret_list[i]:
                 # prune data points that share the same voltage
-                u, indices = np.unique(ret_list[i].VV, return_index=True)
-                ret_list[i].VV = ret_list[i].VV[indices]
-                ret_list[i].II = ret_list[i].II[indices]
+                u, indices = np.unique(ret_list[i]["VV"], return_index=True)
+                ret_list[i]["VV"] = ret_list[i]["VV"][indices]
+                ret_list[i]["II"] = ret_list[i]["II"][indices]
 
                 # sort data by ascending voltage
                 #newOrder = ret_list[i].VV.argsort()
@@ -998,15 +1014,14 @@ class ivAnalyzer:
         logMessages = None
         result["fullPath"] = fullPath
         ret.params = params
-        ret.vsTime = file_data.vsTime
+        ret.vsTime = file_data["vsTime"]
 
-        fileName, fileExtension = os.path.splitext(fullPath)
         fileName = os.path.basename(fullPath)
         result["fileName"] = fileName
 
-        if not file_data.vsTime:  # this is an IV curve
-            VV = file_data.VV
-            II = file_data.II
+        if not file_data["vsTime"]:  # this is an IV curve
+            VV = file_data["VV"]
+            II = file_data["II"]
             try:
                 terpolation_data = ivAnalyzer._doSplineStuff(VV, II, flipx, flipy)
             except Exception as e:
@@ -1294,26 +1309,26 @@ class ivAnalyzer:
                     # modelY = np.empty(plotPoints)*nan
         else:  # vs time
             avg_time = 0.5  # seconds to average over to get final value
-            if hasattr(file_data, "ssIsc"):
-                t_data = file_data.ssIsc
-            elif hasattr(file_data, "ssVoc"):
-                t_data = file_data.ssVoc
-            elif hasattr(file_data, "mppt"):
-                t_data = file_data.mppt
-            t = t_data[:, file_data.t_col]
-            v = t_data[:, file_data.v_col]
-            i = t_data[:, file_data.i_col]
+            if "ssIsc" in file_data:
+                t_data = file_data["ssIsc"]
+            elif "ssVoc" in file_data:
+                t_data = file_data["ssVoc"]
+            elif "mppt" in file_data:
+                t_data = file_data["mppt"]
+            t = t_data[:, file_data["t_col"]]
+            v = t_data[:, file_data["v_col"]]
+            i = t_data[:, file_data["i_col"]]
             p = v * i
             t_end = t[-1]
             t_cutoff = t_end - avg_time
             i_final = np.average(i[t >= t_cutoff])
             v_final = np.average(v[t >= t_cutoff])
             p_final = np.average(p[t >= t_cutoff])
-            if hasattr(file_data, "ssIsc"):
+            if "ssIsc" in file_data:
                 ret.ssIsc_value = i_final
-            elif hasattr(file_data, "ssVoc"):
+            elif "ssVoc" in file_data:
                 ret.ssVoc_value = v_final
-            elif hasattr(file_data, "mppt"):
+            elif "mppt" in file_data:
                 ret.mppt_value = p_final
             # result['fitResult']['graphData'] = {'vsTime':vsTime,'time':tData,'i':IIt,'v':VVt}
 

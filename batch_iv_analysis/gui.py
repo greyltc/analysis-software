@@ -21,7 +21,7 @@ import numpy as np
 import h5py
 
 from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo, QObject, pyqtSignal, QRunnable
-from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QItemDelegate
+from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QItemDelegate, QTableWidget
 
 import matplotlib.pyplot as plt
 
@@ -48,13 +48,6 @@ class customSignals(QObject):
 
 
 # mySignals = customSignals()
-
-
-class col:
-    header = ""
-    position = 0
-    tooltip = ""
-
 
 class FloatDelegate(QItemDelegate):
     def __init__(self, sigFigs, parent=None):
@@ -86,10 +79,27 @@ class MainWindow(QMainWindow):
     analyzer = None
     uid = 0  # unique identifier associated with each file
 
-    # for table
-    # rows = 0 #this variable keepss track of how many rows there are in the results table
-    cols = OrderedDict()
-    # nextRow = 0
+    # this is so that the gui table gets updated automatically when we modify self.cols
+    class HookedOrderedDict(OrderedDict):
+        def __init__(self, table_widget, *args, **kwargs):
+            self.tw:QTableWidget = table_widget
+            super().__init__(*args, **kwargs)
+
+        def __setitem__(self, key, *args, **kwargs):
+            val = args[0]
+            if key in self:
+                i = list(self.keys()).index(key)
+            else:
+                i = self.tw.columnCount()
+                self.tw.insertColumn(i)
+                self.tw.setHorizontalHeaderItem(i, QTableWidgetItem())
+            col_header = self.tw.horizontalHeaderItem(i)
+            if isinstance(val, dict):
+                if "tooltip" in val:
+                    col_header.setToolTip(val["tooltip"])
+                if "header" in val:
+                    col_header.setText(val["header"])
+            super().__setitem__(key, *args, **kwargs)
 
     def closeEvent(self, event):
         pass
@@ -109,201 +119,7 @@ class MainWindow(QMainWindow):
         self.ui.setupUi(self)
         self.ui.tableWidget.setItemDelegate(FloatDelegate(4))
 
-        # populate column headers
-        thisKey = "plotBtn"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "Draw Plot"
-        self.cols[thisKey].tooltip = "Click this button to draw a plot for that row"
-
-        thisKey = "exportBtn"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "Export"
-        self.cols[thisKey].tooltip = "Click this button to export\ninterpolated data points from fits"
-
-        thisKey = "file"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "File"
-        self.cols[thisKey].tooltip = "File name\nHover to see header from data file"
-
-        thisKey = "substrate"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "Subs"
-        self.cols[thisKey].tooltip = "Substrate position"
-
-        thisKey = "pixel"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "Pix"
-        self.cols[thisKey].tooltip = "Pixel number"
-
-        thisKey = "ssPCE"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "ssPCE\n[%]"
-        self.cols[thisKey].tooltip = "Final value taken during max power point tracking stage"
-
-        thisKey = "ssVoc"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "ssV_oc\n[mV]"
-        self.cols[thisKey].tooltip = "Final value taken during V_oc dwell stage"
-
-        thisKey = "ssJsc"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "ssJ_sc\n[mA/cm^2]"
-        self.cols[thisKey].tooltip = "Final value taken during J_sc dwell stage"
-
-        thisKey = "ssff"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "ssFF\n[%]"
-        self.cols[thisKey].tooltip = 'Fill factor as found from the "steady state" Mpp, V_oc and I_sc'
-
-        thisKey = "direction"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "Dir"
-        self.cols[thisKey].tooltip = "Scan direction"
-
-        thisKey = "pce_spline"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "PCE\n[%]"
-        self.cols[thisKey].tooltip = "Power conversion efficiency as found from spline fit"
-
-        thisKey = "pmax_a_spline"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "P_max\n[mW/cm^2]"
-        self.cols[thisKey].tooltip = "Maximum power density as found from spline fit"
-
-        thisKey = "voc_spline"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "V_oc\n[mV]"
-        self.cols[thisKey].tooltip = "Open-circuit voltage as found from spline fit I=0 crossing"
-
-        thisKey = "jsc_spline"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "J_sc\n[mA/cm^2]"
-        self.cols[thisKey].tooltip = "Short-circuit current density as found from spline spline fit V=0 crossing"
-
-        thisKey = "ff_spline"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "FF\n[%]"
-        self.cols[thisKey].tooltip = "Fill factor as found from spline fit"
-
-        thisKey = "area"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "Area\n[cm^2]"
-        self.cols[thisKey].tooltip = "Device area"
-
-        thisKey = "suns"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "Suns\n"
-        self.cols[thisKey].tooltip = "Illumination intensity"
-
-        thisKey = "vmax_spline"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "V_max\n[mV]"
-        self.cols[thisKey].tooltip = "Voltage at maximum power point as found from spline fit"
-
-        thisKey = "isc_spline"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "I_sc\n[mA]"
-        self.cols[thisKey].tooltip = "Short-circuit current as found from spline V=0 crossing"
-
-        thisKey = "SSE"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "SSE\n[mA^2]"
-        self.cols[thisKey].tooltip = "Sum of the square of the errors between the data points and the fit to the char. eqn. (a measure of fit goodness)"
-
-        thisKey = "n"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "n"
-        self.cols[thisKey].tooltip = "Diode ideality factor as found from characteristic equation fit"
-
-        thisKey = "rs_a"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "R_s\n[ohm*cm^2]"
-        self.cols[thisKey].tooltip = "Specific series resistance as found from characteristic equation fit"
-
-        thisKey = "rsh_a"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "R_sh\n[ohm*cm^2]"
-        self.cols[thisKey].tooltip = "Specific shunt resistance as found from characteristic equation fit"
-
-        thisKey = "jph"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "J_ph\n[mA/cm^2]"
-        self.cols[thisKey].tooltip = "Photogenerated current density as found from characteristic equation fit"
-
-        thisKey = "j0"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "J_0\n[nA/cm^2]"
-        self.cols[thisKey].tooltip = "Reverse saturation current density as found from characteristic equation fit"
-
-        thisKey = "pce_fit"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "PCE_fit\n[%]"
-        self.cols[thisKey].tooltip = "Power conversion efficiency as found from characteristic equation fit"
-
-        # thisKey = 'pmax_fit'
-        # self.cols[thisKey] = col()
-        # self.cols[thisKey].header = 'P_max_fit\n[mW]'
-        # self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
-
-        thisKey = "pmax_a_fit"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "P_max_fit\n[mW/cm^2]"
-        self.cols[thisKey].tooltip = "Maximum power density as found from characteristic equation fit"
-
-        thisKey = "vmax_fit"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "V_max_fit\n[mV]"
-        self.cols[thisKey].tooltip = "Voltage at maximum power point as found from characteristic equation fit"
-
-        thisKey = "voc_fit"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "V_oc_fit\n[mV]"
-        self.cols[thisKey].tooltip = "Open-circuit voltage as found from characteristic equation fit I=0 crossing"
-
-        thisKey = "ff_fit"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "FF_fit\n[%]"
-        self.cols[thisKey].tooltip = "Fill factor as found from characteristic equation fit"
-
-        thisKey = "jsc_fit"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "J_sc_fit\n[mA/cm^2]"
-        self.cols[thisKey].tooltip = "Short-circuit current density as found from characteristic equation fit V=0 crossing"
-
-        thisKey = "isc_fit"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "I_sc_fit\n[mA]"
-        self.cols[thisKey].tooltip = "Short-circuit current as found from characteristic equation fit V=0 crossing"
-
-        thisKey = "iph"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "I_ph\n[mA]"
-        self.cols[thisKey].tooltip = "Photogenerated current as found from characteristic equation fit"
-
-        thisKey = "jph"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "J_ph\n[mA/cm^2]"
-        self.cols[thisKey].tooltip = "Photogenerated current density as found from characteristic equation fit"
-
-        thisKey = "i0"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "I_0\n[nA]"
-        self.cols[thisKey].tooltip = "Reverse saturation current as found from characteristic equation fit"
-
-        thisKey = "j0"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "J_0\n[nA/cm^2]"
-        self.cols[thisKey].tooltip = "Reverse saturation current density as found from characteristic equation fit"
-
-        thisKey = "rs"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "R_s\n[ohm]"
-        self.cols[thisKey].tooltip = "Series resistance as found from characteristic equation fit"
-
-        thisKey = "rsh"
-        self.cols[thisKey] = col()
-        self.cols[thisKey].header = "R_sh\n[ohm]"
-        self.cols[thisKey].tooltip = "Shunt resistance as found from characteristic equation fit"
+        self.cols = self.HookedOrderedDict(self.ui.tableWidget)
 
         # load setting for lower voltage cuttoff
         if not self.settings.contains("lowerVoltageCutoff"):
@@ -421,14 +237,206 @@ class MainWindow(QMainWindow):
 
         self.ui.verbositySpinBox.valueChanged.connect(self.handleVerbosityChange)
 
-        # insert cols
-        for item in self.cols:
-            blankItem = QTableWidgetItem()
-            thisCol = list(self.cols.keys()).index(item)
-            self.ui.tableWidget.insertColumn(thisCol)
-            blankItem.setToolTip(self.cols[item].tooltip)
-            blankItem.setText(self.cols[item].header)
-            self.ui.tableWidget.setHorizontalHeaderItem(thisCol, blankItem)
+        # populate column headers
+        header_dict = {}
+        header_dict["header"] = "Draw Plot"
+        header_dict["tooltip"] = "Click this button to draw a plot for that row"
+        self.cols["plotBtn"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "Export"
+        header_dict["tooltip"] = "Click this button to export\ninterpolated data points from fits"
+        self.cols["exportBtn"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "File"
+        header_dict["tooltip"] = "File name\nHover to see header from data file"
+        self.cols["file"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "Slot"
+        header_dict["tooltip"] = "Holder slot"
+        self.cols["slot"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "Subs"
+        header_dict["tooltip"] = "Substrate position"
+        self.cols["substrate"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "Pix"
+        header_dict["tooltip"] = "Pixel number"
+        self.cols["pixel"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "ssPCE\n[%]"
+        header_dict["tooltip"] = "Final value taken during max power point tracking stage"
+        self.cols["ssPCE"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "ssV_oc\n[mV]"
+        header_dict["tooltip"] = "Final value taken during V_oc dwell stage"
+        self.cols["ssVoc"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "ssJ_sc\n[mA/cm^2]"
+        header_dict["tooltip"] = "Final value taken during J_sc dwell stage"
+        self.cols["ssJsc"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "ssFF\n[%]"
+        header_dict["tooltip"] = 'Fill factor as found from the "steady state" Mpp, V_oc and I_sc'
+        self.cols["ssff"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "Dir"
+        header_dict["tooltip"] = "Scan direction"
+        self.cols["direction"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "PCE\n[%]"
+        header_dict["tooltip"] = "Power conversion efficiency as found from spline fit"
+        self.cols["pce_spline"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "P_max\n[mW/cm^2]"
+        header_dict["tooltip"] = "Maximum power density as found from spline fit"
+        self.cols["pmax_a_spline"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "V_oc\n[mV]"
+        header_dict["tooltip"] = "Open-circuit voltage as found from spline fit I=0 crossing"
+        self.cols["voc_spline"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "J_sc\n[mA/cm^2]"
+        header_dict["tooltip"] = "Short-circuit current density as found from spline spline fit V=0 crossing"
+        self.cols["jsc_spline"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "FF\n[%]"
+        header_dict["tooltip"] = "Fill factor as found from spline fit"
+        self.cols["ff_spline"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "Area\n[cm^2]"
+        header_dict["tooltip"] = "Device area"
+        self.cols["area"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "Suns\n"
+        header_dict["tooltip"] = "Illumination intensity"
+        self.cols["suns"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "V_max\n[mV]"
+        header_dict["tooltip"] = "Voltage at maximum power point as found from spline fit"
+        self.cols["vmax_spline"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "I_sc\n[mA]"
+        header_dict["tooltip"] = "Short-circuit current as found from spline V=0 crossing"
+        self.cols["isc_spline"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "SSE\n[mA^2]"
+        header_dict["tooltip"] = "Sum of the square of the errors between the data points and the fit to the char. eqn. (a measure of fit goodness)"
+        self.cols["SSE"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "n"
+        header_dict["tooltip"] = "Diode ideality factor as found from characteristic equation fit"
+        self.cols["n"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "R_s\n[ohm*cm^2]"
+        header_dict["tooltip"] = "Specific series resistance as found from characteristic equation fit"
+        self.cols["rs_a"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "R_sh\n[ohm*cm^2]"
+        header_dict["tooltip"] = "Specific shunt resistance as found from characteristic equation fit"
+        self.cols["rsh_a"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "J_ph\n[mA/cm^2]"
+        header_dict["tooltip"] = "Photogenerated current density as found from characteristic equation fit"
+        self.cols["jph"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "J_0\n[nA/cm^2]"
+        header_dict["tooltip"] = "Reverse saturation current density as found from characteristic equation fit"
+        self.cols["j0"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "PCE_fit\n[%]"
+        header_dict["tooltip"] = "Power conversion efficiency as found from characteristic equation fit"
+        self.cols["pce_fit"] = header_dict
+
+        # header_dict = {}
+        # header_dict["header"] = 'P_max_fit\n[mW]'
+        # self.cols[thisKey].tooltip = 'Maximum power as found from characteristic equation fit'
+        self.cols["pmax_fit"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "P_max_fit\n[mW/cm^2]"
+        header_dict["tooltip"] = "Maximum power density as found from characteristic equation fit"
+        self.cols["pmax_a_fit"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "V_max_fit\n[mV]"
+        header_dict["tooltip"] = "Voltage at maximum power point as found from characteristic equation fit"
+        self.cols["vmax_fit"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "V_oc_fit\n[mV]"
+        header_dict["tooltip"] = "Open-circuit voltage as found from characteristic equation fit I=0 crossing"
+        self.cols["voc_fit"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "FF_fit\n[%]"
+        header_dict["tooltip"] = "Fill factor as found from characteristic equation fit"
+        self.cols["ff_fit"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "J_sc_fit\n[mA/cm^2]"
+        header_dict["tooltip"] = "Short-circuit current density as found from characteristic equation fit V=0 crossing"
+        self.cols["jsc_fit"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "I_sc_fit\n[mA]"
+        header_dict["tooltip"] = "Short-circuit current as found from characteristic equation fit V=0 crossing"
+        self.cols["isc_fit"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "I_ph\n[mA]"
+        header_dict["tooltip"] = "Photogenerated current as found from characteristic equation fit"
+        self.cols["iph"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "J_ph\n[mA/cm^2]"
+        header_dict["tooltip"] = "Photogenerated current density as found from characteristic equation fit"
+        self.cols["jph"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "I_0\n[nA]"
+        header_dict["tooltip"] = "Reverse saturation current as found from characteristic equation fit"
+        self.cols["i0"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "J_0\n[nA/cm^2]"
+        header_dict["tooltip"] = "Reverse saturation current density as found from characteristic equation fit"
+        self.cols["j0"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "R_s\n[ohm]"
+        header_dict["tooltip"] = "Series resistance as found from characteristic equation fit"
+        self.cols["rs"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "R_sh\n[ohm]"
+        header_dict["tooltip"] = "Shunt resistance as found from characteristic equation fit"
+        self.cols["rsh"] = header_dict
 
         # file system watcher
         self.watcher = QFileSystemWatcher(self)
@@ -696,7 +704,7 @@ class MainWindow(QMainWindow):
 
         plt.plot(x, y, c="b", marker="o", ls="None", label="Voc")
 
-        plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
+        plt.title("{:}, Cell {:}-{:}".format(filename, substrate, pixel))
         plt.ylabel("Open-circuit voltage [mV]")
         plt.xlabel("Time [s]")
         plt.draw()
@@ -724,7 +732,7 @@ class MainWindow(QMainWindow):
 
         plt.plot(x, y, c="b", marker="o", ls="None", label="Jsc")
 
-        plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
+        plt.title("{:}, Cell {:}-{:}".format(filename, substrate, pixel))
         plt.ylabel("Short-circuit current density [mA/cm^2]")
         plt.xlabel("Time [s]")
         plt.draw()
@@ -757,7 +765,7 @@ class MainWindow(QMainWindow):
         ax1.grid(axis="y", color="b", alpha=0.3)
         ax1.grid(axis="x")
         ax1.set_xlabel("Time [s]")
-        ax1.set_title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
+        ax1.set_title("{:}, Cell {:}-{:}".format(filename, substrate, pixel))
 
         ax2 = ax1.twinx()
         ax2.plot(x, v, c="r", marker=".", ls="None", label="voltage")
@@ -827,7 +835,7 @@ class MainWindow(QMainWindow):
         plt.ylabel("Current Density [mA/cm^2]")
         plt.xlabel("Voltage [V]")
 
-        plt.title("{:}, Pixel {:}{:}".format(filename, substrate, pixel))
+        plt.title("{:}, Cell {:}-{:}".format(filename, substrate, pixel))
         ax = plt.gca()
         handles, labels = ax.get_legend_handles_labels()
         ax.legend(handles, labels, loc=3)
@@ -1005,42 +1013,50 @@ class MainWindow(QMainWindow):
         self.tableInsert(thisRow, "file", fileName, role=Qt.DisplayRole)
         self.tableInsert(thisRow, "file", params["uid"])
 
-        self.tableInsert(thisRow, "substrate", fileData.substrate, role=Qt.DisplayRole)
-        self.tableInsert(thisRow, "pixel", fileData.pixel, role=Qt.DisplayRole)
-        self.tableInsert(thisRow, "direction", "Rev." if fileData.reverseSweep else "Fwd.", role=Qt.DisplayRole)
+        self.tableInsert(thisRow, "slot", fileData["slot"], role=Qt.DisplayRole)
+        self.tableInsert(thisRow, "substrate", fileData["substrate"], role=Qt.DisplayRole)
+        self.tableInsert(thisRow, "pixel", fileData["pixel"], role=Qt.DisplayRole)
+        self.tableInsert(thisRow, "direction", "Rev." if fileData["reverseSweep"] else "Fwd.", role=Qt.DisplayRole)
 
-        areacm = fileData.area * 1e4
+        if "user_vars" in fileData:
+            for key, val in fileData["user_vars"].items():
+                key_hash = hash(key)
+                if key_hash not in self.cols:
+                    self.cols[key_hash] = {"header": key, "tooltip": "User provided variable"}
+                    self.ui.tableWidget.setItem(thisRow, len(self.cols)-1, QTableWidgetItem())
+                self.tableInsert(thisRow, key_hash, val, role=Qt.DisplayRole)
+
+        areacm = fileData["area"] * 1e4
 
         graphData = {}
-        if hasattr(fileData, "mppt"):
-            graphData["mppt"] = fileData.mppt
-        if hasattr(fileData, "ssVoc"):
-            graphData["ssVoc"] = fileData.ssVoc
-        if hasattr(fileData, "ssIsc"):
-            graphData["ssIsc"] = fileData.ssIsc
-        if hasattr(fileData, "Impp"):
-            # graphData['ssImpp'] = fileData.Impp
-            graphData["ssJmpp"] = fileData.Impp / areacm
-        if hasattr(fileData, "Vmpp"):
-            graphData["ssVmpp"] = fileData.Vmpp
-        if hasattr(fileData, "Voc"):
-            self.tableInsert(thisRow, "ssVoc", fileData.Voc)
-            graphData["ssVocValue"] = fileData.Voc
-        if hasattr(fileData, "ssPmax"):
-            self.tableInsert(thisRow, "ssPCE", fileData.ssPmax / fileData.area / self.analyzer.stdIrridance / fileData.suns)
+        if "mppt" in fileData:
+            graphData["mppt"] = fileData["mppt"]
+        if "ssVoc" in fileData:
+            graphData["ssVoc"] = fileData["ssVoc"]
+        if "ssIsc" in fileData:
+            graphData["ssIsc"] = fileData["ssIsc"]
+        if "Impp" in fileData:
+            graphData["ssJmpp"] = fileData["Impp"] / areacm
+        if "Vmpp" in fileData:
+            graphData["ssVmpp"] = fileData["Vmpp"]
+        if "Voc" in fileData:
+            self.tableInsert(thisRow, "ssVoc", fileData["Voc"])
+            graphData["ssVocValue"] = fileData["Voc"]
+        if "ssPmax" in fileData:
+            self.tableInsert(thisRow, "ssPCE", fileData["ssPmax"] / fileData["area"] / self.analyzer.stdIrridance / fileData["suns"])
             # graphData['ssPmax'] = fileData.ssPmax / fileData.area
-        if hasattr(fileData, "Isc"):
-            self.tableInsert(thisRow, "ssJsc", fileData.Isc / fileData.area)
+        if "Isc" in fileData:
+            self.tableInsert(thisRow, "ssJsc", fileData["Isc"] / fileData["area"])
             # graphData['ssIscValue'] = fileData.Isc
-            graphData["ssJscValue"] = fileData.Isc / areacm
+            graphData["ssJscValue"] = fileData["Isc"] / areacm
 
         self.tableInsert(thisRow, "plotBtn", graphData)
 
-        self.tableInsert(thisRow, "suns", fileData.suns)
-        self.tableInsert(thisRow, "area", fileData.area)  # in m^2
+        self.tableInsert(thisRow, "suns", fileData["suns"])
+        self.tableInsert(thisRow, "area", fileData["area"])  # in m^2
 
-        if hasattr(fileData, "Isc") and hasattr(fileData, "Voc") and hasattr(fileData, "ssPmax"):
-            self.tableInsert(thisRow, "ssff", abs(fileData.ssPmax / (fileData.Isc * fileData.Voc)))
+        if "Isc" in fileData and "Voc" in fileData and "ssPmax" in fileData:
+            self.tableInsert(thisRow, "ssff", abs(fileData["ssPmax"] / (fileData["Isc"] * fileData["Voc"])))
 
         self.ui.tableWidget.setSortingEnabled(True)  # fix strange sort behavior
         self.fileNames.append(fileName)
