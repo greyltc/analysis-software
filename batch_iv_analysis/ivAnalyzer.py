@@ -625,10 +625,23 @@ class ivAnalyzer:
 
             if isNextTsvProc or isNextTsv:  # latest raw tsv file format
                 try:
+                    bn2 = basename.removeprefix("processed_")
+                    fns = bn2.split("_")
+                    system_label = fns.pop(0)
+                    ret["slot"] = system_label
+                    tsft = fns.pop(-1)
+                    pxn = fns.pop(-1).removeprefix("device")
+                    ret["pixel"] = pxn
+                    if len(fns) == 0:
+                        user_label = ""
+                    else:
+                        user_label = fns[0]
+                    ret["substrate"] = user_label
+
                     # prune data taken while in compliance
                     status = data[:, s_col].astype(int)
 
-                    m = 24  # status word length in bytes
+                    m = 24  # status word length in bits
                     compliance_bit_number = 3  # from smu datasheet, 1 when in compliance, 0 otherwise
                     check_compliance = np.vectorize(lambda x: np.binary_repr(x, m)[-compliance_bit_number - 1] == "1")
                     in_compliance = check_compliance(status)
@@ -640,18 +653,10 @@ class ivAnalyzer:
                         else:
                             data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
                             print(f"{n_compliance_points} data points removed from set because the SMU was in compliance")
+                    ret["n_prune"] = n_compliance_points
 
-                    bn2 = basename.removeprefix("processed_")
-                    fns = bn2.split("_")
-                    system_label = fns.pop(0)
-                    ret["slot"] = system_label
-                    tsft = fns.pop(-1)
-                    pxn = fns.pop(-1).removeprefix("device")
-                    if len(fns) == 0:
-                        user_label = ""
-                    else:
-                        user_label = fns[0]
-                    ret["substrate"] = user_label
+                    if len(data) == 0:
+                        raise ValueError(f"No valid data in {basename} (pre-prune length: {len(status)} & post-prune length: {len(data)})")
 
                     if isNextTsvProc:
                         acur = data[0, i_col]

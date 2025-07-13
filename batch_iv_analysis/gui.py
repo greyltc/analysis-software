@@ -23,7 +23,10 @@ import h5py
 from PyQt5.QtCore import QSettings, Qt, QSignalMapper, QFileSystemWatcher, QDir, QFileInfo, QObject, pyqtSignal, QRunnable
 from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog, QFileDialog, QTableWidgetItem, QCheckBox, QPushButton, QItemDelegate, QTableWidget
 
+import seaborn as sns
+import pandas as pd
 import matplotlib.pyplot as plt
+sns.set_theme(style="ticks")
 
 plt.switch_backend("Qt5Agg")
 
@@ -79,6 +82,9 @@ class MainWindow(QMainWindow):
     analyzer = None
     uid = 0  # unique identifier associated with each file
 
+    # boxplot dataframe
+    bpdf = pd.DataFrame()
+
     # this is so that the gui table gets updated automatically when we modify self.cols
     class HookedOrderedDict(OrderedDict):
         def __init__(self, table_widget, *args, **kwargs):
@@ -100,6 +106,40 @@ class MainWindow(QMainWindow):
                 if "header" in val:
                     col_header.setText(val["header"])
             super().__setitem__(key, *args, **kwargs)
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_c:
+            print("Clearing boxplot buffer")
+            self.bpdf = pd.DataFrame()
+        if e.key() == Qt.Key_a:
+            print("Adding all table rows to the boxplot buffer")
+            self.bpdf.iloc[0:0]
+        if e.key() == Qt.Key_F5:
+            # Initialize the figure with a logarithmic x axis
+            f, ax = plt.subplots(figsize=(12, 6))
+            ax.set_xscale("log")
+
+            # Load the example planets dataset
+            planets = sns.load_dataset("planets")
+
+            # Plot the orbital period with horizontal boxes
+            sns.boxplot(
+                planets, x="distance", y="method", hue="method",
+                whis=[0, 100], width=.6, palette="vlag"
+            )
+
+            # Add in points to show each observation
+            sns.stripplot(planets, x="distance", y="method", size=4, color=".3")
+
+            # Tweak the visual presentation
+            ax.xaxis.grid(True)
+            ax.set(ylabel="")
+            sns.despine(trim=True, left=True)
+            plt.autoscale(axis="x", tight=True)
+            f.tight_layout()
+            f.show()
+            #plt.draw()
+            #plt.show()
 
     def closeEvent(self, event):
         pass
@@ -1063,6 +1103,7 @@ class MainWindow(QMainWindow):
 
         return params
 
+    # update contents of a cell
     def tableInsert(self, thisRow, colName, value, role=Qt.UserRole):
         thisCol = self.getCol(colName)
         thisItem = self.ui.tableWidget.item(thisRow, thisCol)
