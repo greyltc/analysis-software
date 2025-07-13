@@ -157,7 +157,7 @@ class MainWindow(QMainWindow):
         # Set up the user interface from Designer.
         self.ui = Ui_batch_iv_analysis()
         self.ui.setupUi(self)
-        self.ui.tableWidget.setItemDelegate(FloatDelegate(4))
+        #self.ui.tableWidget.setItemDelegate(FloatDelegate(4))
 
         self.cols = self.HookedOrderedDict(self.ui.tableWidget)
 
@@ -307,6 +307,11 @@ class MainWindow(QMainWindow):
         header_dict["header"] = "Pix"
         header_dict["tooltip"] = "Pixel number"
         self.cols["pixel"] = header_dict
+
+        header_dict = {}
+        header_dict["header"] = "nPruned"
+        header_dict["tooltip"] = "Number of data points pruned"
+        self.cols["n_pruned"] = header_dict
 
         header_dict = {}
         header_dict["header"] = "ssPCE\n[%]"
@@ -955,7 +960,10 @@ class MainWindow(QMainWindow):
                 if thisTableItem is not None:
                     value = thisTableItem.data(Qt.UserRole)
                     if value is not None and not np.isnan(value):
-                        saneValue = float(np.real(value))
+                        if isinstance(value, int):
+                            saneValue = value
+                        else:
+                            saneValue = float(np.real(value))
                         if thisCol == "SSE":
                             displayValue = saneValue * 1000**2  # A^2 to mA^2
                         elif thisCol in ["ff_spline", "ff_fit", "pce_spline", "ssPCE", "ssff", "pce_fit"]:
@@ -973,8 +981,11 @@ class MainWindow(QMainWindow):
                             displayValue = saneValue * 1e-4  # 1/m^2 to 1/cm^2
                         else:
                             displayValue = saneValue
-                        displayValue = MainWindow.to_precision(displayValue, 4)
-                        self.ui.tableWidget.item(row, coli).setData(Qt.DisplayRole, float(displayValue))
+                        if isinstance(displayValue, int):
+                            self.ui.tableWidget.item(row, coli).setData(Qt.DisplayRole, displayValue)
+                        else:
+                            displayValue = MainWindow.to_precision(displayValue, 4)
+                            self.ui.tableWidget.item(row, coli).setData(Qt.DisplayRole, float(displayValue))
                         self.ui.tableWidget.resizeColumnToContents(coli)
                         self.ui.tableWidget.viewport().update()
 
@@ -1055,6 +1066,8 @@ class MainWindow(QMainWindow):
 
         self.tableInsert(thisRow, "slot", fileData["slot"], role=Qt.DisplayRole)
         self.tableInsert(thisRow, "substrate", fileData["substrate"], role=Qt.DisplayRole)
+        if "n_pruned" in fileData:
+            self.tableInsert(thisRow, "n_pruned", fileData["n_pruned"])
         self.tableInsert(thisRow, "pixel", fileData["pixel"], role=Qt.DisplayRole)
         self.tableInsert(thisRow, "direction", "Rev." if fileData["reverseSweep"] else "Fwd.", role=Qt.DisplayRole)
 

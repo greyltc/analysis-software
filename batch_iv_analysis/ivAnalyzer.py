@@ -653,7 +653,7 @@ class ivAnalyzer:
                         else:
                             data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
                             print(f"{n_compliance_points} data points removed from set because the SMU was in compliance")
-                    ret["n_prune"] = n_compliance_points
+                    ret["n_pruned"] = int(n_compliance_points)
 
                     if len(data) == 0:
                         raise ValueError(f"No valid data in {basename} (pre-prune length: {len(status)} & post-prune length: {len(data)})")
