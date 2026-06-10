@@ -897,7 +897,7 @@ class ivAnalyzer:
         # isDarkCurve = False
 
         isDarkCurve = False
-        Vmpp = p_terpolated_d1.roots(extrapolate=False, discontinuity=True)
+        Vmpp = p_terpolated_d1.roots(extrapolate=False, discontinuity=True)[0]
         VmppSize = Vmpp.size
         if VmppSize == 0:
             Pmpp = nan
@@ -916,7 +916,7 @@ class ivAnalyzer:
             Vmpp = float(Vmpp[arg])
             Impp = float(Impp[arg])
 
-        Voc = terpolated.roots(extrapolate=True, discontinuity=False)
+        Voc = terpolated.roots(extrapolate=True, discontinuity=False)[0]
         VocSize = Voc.size
         abortTheFit = True
         if VocSize == 0:  # never crosses zero, must be dark curve
