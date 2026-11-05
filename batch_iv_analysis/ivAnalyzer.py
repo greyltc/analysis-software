@@ -141,10 +141,13 @@ class ivAnalyzer:
         self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=self.poolWorkers)
 
     def getPoolStatusString(self):
-        qDJobs = len(self.pool._pending_work_items)
-        processes = len(self.pool._processes)
-        activeJobs = len(self.pool._pending_work_items) - self.pool._work_ids.qsize() - self.pool._call_queue.qsize()
-        poolStatusString = "[ Pending jobs: " + str(qDJobs) + " ]   [ Active jobs: " + str(activeJobs) + "/" + str(processes) + " ]"
+        if self.pool:
+            qDJobs = len(self.pool._pending_work_items)
+            processes = len(self.pool._processes)
+            activeJobs = len(self.pool._pending_work_items) - self.pool._work_ids.qsize() - self.pool._call_queue.qsize()
+            poolStatusString = "[ Pending jobs: " + str(qDJobs) + " ]   [ Active jobs: " + str(activeJobs) + "/" + str(processes) + " ]"
+        else:
+            poolStatusString = "No pool."
         return poolStatusString
 
     def symbolsDone(self, results):
@@ -647,13 +650,14 @@ class ivAnalyzer:
                     in_compliance = check_compliance(status)
                     n_compliance_points = np.count_nonzero(in_compliance)
 
+                    ret["n_pruned"] = 0
                     if n_compliance_points > 0:
                         if no_prune:
                             print(f"{n_compliance_points} data points would have been removed from set because the SMU was in compliance, but no_prune was set")
                         else:
                             data = np.delete(data, in_compliance, axis=0)  # do the compliance pruning here
                             print(f"{n_compliance_points} data points removed from set because the SMU was in compliance")
-                    ret["n_pruned"] = int(n_compliance_points)
+                            ret["n_pruned"] = int(n_compliance_points)
 
                     if len(data) == 0:
                         raise ValueError(f"No valid data in {basename} (pre-prune length: {len(status)} & post-prune length: {len(data)})")
